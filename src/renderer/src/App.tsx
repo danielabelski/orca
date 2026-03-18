@@ -19,6 +19,8 @@ function App(): React.JSX.Element {
   const fetchRepos = useAppStore((s) => s.fetchRepos)
   const fetchSettings = useAppStore((s) => s.fetchSettings)
   const initGitHubCache = useAppStore((s) => s.initGitHubCache)
+  const openModal = useAppStore((s) => s.openModal)
+  const repos = useAppStore((s) => s.repos)
 
   // Subscribe to IPC push events
   useIpcEvents()
@@ -79,6 +81,20 @@ function App(): React.JSX.Element {
       })
     )
   }
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.repeat) return
+      if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (e.key.toLowerCase() !== 'n') return
+      if (repos.length === 0) return
+      e.preventDefault()
+      openModal('create-worktree')
+    }
+
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [openModal, repos.length])
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">

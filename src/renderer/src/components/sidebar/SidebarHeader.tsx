@@ -6,6 +6,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 
 const SidebarHeader = React.memo(function SidebarHeader() {
   const openModal = useAppStore((s) => s.openModal)
+  const repos = useAppStore((s) => s.repos)
+  const canCreateWorktree = repos.length > 0
 
   return (
     <div className="flex items-center justify-between px-4 pt-3 pb-1">
@@ -17,14 +19,18 @@ const SidebarHeader = React.memo(function SidebarHeader() {
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={() => openModal('create-worktree')}
+            onClick={() => {
+              if (!canCreateWorktree) return
+              openModal('create-worktree')
+            }}
             aria-label="Add worktree"
+            disabled={!canCreateWorktree}
           >
             <Plus className="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={6}>
-          New worktree
+          {canCreateWorktree ? 'New worktree (⌘N)' : 'Add a repo to create worktrees'}
         </TooltipContent>
       </Tooltip>
     </div>

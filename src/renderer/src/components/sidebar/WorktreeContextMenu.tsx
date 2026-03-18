@@ -9,8 +9,8 @@ import {
 import {
   FolderOpen,
   Copy,
-  Eye,
-  EyeOff,
+  Bell,
+  BellOff,
   Link,
   MessageSquare,
   XCircle,
@@ -114,7 +114,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({ worktree, 
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleToggleRead}>
-            {worktree.isUnread ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {worktree.isUnread ? <BellOff className="size-3.5" /> : <Bell className="size-3.5" />}
             {worktree.isUnread ? 'Mark Read' : 'Mark Unread'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleLinkIssue}>

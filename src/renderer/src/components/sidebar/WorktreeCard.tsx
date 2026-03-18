@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { Badge } from '@/components/ui/badge'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { Bell } from 'lucide-react'
 import RepoDotLabel from '@/components/repo/RepoDotLabel'
 import StatusIndicator from './StatusIndicator'
 import WorktreeContextMenu from './WorktreeContextMenu'
@@ -54,12 +56,26 @@ interface WorktreeCardProps {
   isActive: boolean
 }
 
+function FilledBellIcon({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className={className}>
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M5.25 9A6.75 6.75 0 0 1 12 2.25 6.75 6.75 0 0 1 18.75 9v3.75c0 .526.214 1.03.594 1.407l.53.532a.75.75 0 0 1-.53 1.28H4.656a.75.75 0 0 1-.53-1.28l.53-.532A1.989 1.989 0 0 0 5.25 12.75V9Zm6.75 12a3 3 0 0 0 2.996-2.825.75.75 0 0 0-.748-.8h-4.5a.75.75 0 0 0-.748.8A3 3 0 0 0 12 21Z"
+      />
+    </svg>
+  )
+}
+
 const WorktreeCard = React.memo(function WorktreeCard({
   worktree,
   repo,
   isActive
 }: WorktreeCardProps) {
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
+  const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
   const fetchPRForBranch = useAppStore((s) => s.fetchPRForBranch)
   const fetchIssue = useAppStore((s) => s.fetchIssue)
 
@@ -127,6 +143,19 @@ const WorktreeCard = React.memo(function WorktreeCard({
     [worktree.id, setActiveWorktree]
   )
 
+  const handleToggleUnreadQuick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      updateWorktreeMeta(worktree.id, { isUnread: !worktree.isUnread })
+    },
+    [worktree.id, worktree.isUnread, updateWorktreeMeta]
+  )
+
+  const unreadTooltip = worktree.isUnread
+    ? 'Unread - click to mark read'
+    : 'Read - hover/click to mark unread'
+
   return (
     <WorktreeContextMenu worktree={worktree}>
       <div
@@ -136,12 +165,32 @@ const WorktreeCard = React.memo(function WorktreeCard({
         )}
         onClick={handleClick}
       >
-        {/* Status + unread indicator */}
-        <div className="flex items-center pt-1 gap-1">
+        {/* Status + quick unread bell */}
+        <div className="flex flex-col items-center self-start pt-1 gap-1.5">
           <StatusIndicator status={status} />
-          {worktree.isUnread && (
-            <span className="block size-1.5 rounded-full bg-foreground/70 shrink-0" />
-          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleToggleUnreadQuick}
+                className={cn(
+                  'group/unread inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] transition-all',
+                  'hover:bg-accent/70 active:scale-95',
+                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1'
+                )}
+                aria-label={worktree.isUnread ? 'Mark as read' : 'Mark as unread'}
+              >
+                {worktree.isUnread ? (
+                  <FilledBellIcon className="size-3 text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.55)]" />
+                ) : (
+                  <Bell className="size-3 text-muted-foreground/80 opacity-0 group-hover:opacity-100 group-hover/unread:opacity-100 transition-opacity" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              <span>{unreadTooltip}</span>
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Content */}

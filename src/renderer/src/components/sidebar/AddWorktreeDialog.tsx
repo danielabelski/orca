@@ -82,6 +82,13 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     }
   }, [isOpen, repos, repoId])
 
+  // Safety guard: creating a worktree requires at least one repo.
+  React.useEffect(() => {
+    if (isOpen && repos.length === 0) {
+      handleOpenChange(false)
+    }
+  }, [isOpen, repos.length, handleOpenChange])
+
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -22,6 +22,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import type { TerminalTab } from '../../../shared/types'
 
 interface SortableTabProps {
@@ -80,6 +90,29 @@ function SortableTab({
   }
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  const handleRenameOpen = useCallback(() => {
+    setRenameValue(tab.customTitle ?? tab.title)
+    setRenameOpen(true)
+  }, [tab.customTitle, tab.title])
+
+  const handleRenameSubmit = useCallback(() => {
+    const trimmed = renameValue.trim()
+    onSetCustomTitle(tab.id, trimmed.length > 0 ? trimmed : null)
+    setRenameOpen(false)
+  }, [renameValue, onSetCustomTitle, tab.id])
+
+  useEffect(() => {
+    if (!renameOpen) return
+    const frame = requestAnimationFrame(() => {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [renameOpen])
 
   useEffect(() => {
     const closeMenu = (): void => setMenuOpen(false)
@@ -181,16 +214,7 @@ function SortableTab({
             Close Tabs To The Right
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => {
-              const next = window.prompt('Change tab title', tab.customTitle ?? tab.title)
-              if (next === null) return
-              const trimmed = next.trim()
-              onSetCustomTitle(tab.id, trimmed.length > 0 ? trimmed : null)
-            }}
-          >
-            Change Title
-          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleRenameOpen}>Change Title</DropdownMenuItem>
           <div className="px-2 pt-1.5 pb-1">
             <div className="text-xs font-medium text-muted-foreground mb-1.5">Tab Color</div>
             <div className="flex flex-wrap gap-2">
@@ -223,6 +247,44 @@ function SortableTab({
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Change Tab Title</DialogTitle>
+            <DialogDescription className="text-xs">
+              Leave empty to reset to the default title.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              handleRenameSubmit()
+            }}
+          >
+            <Input
+              ref={renameInputRef}
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              className="h-8 text-xs"
+              autoFocus
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRenameOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm">
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
