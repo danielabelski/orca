@@ -195,6 +195,7 @@ function Settings(): React.JSX.Element {
   const selectedYamlHooks = selectedRepo ? (repoHooksMap[selectedRepo.id]?.hooks ?? null) : null
   const showGeneralPane = selectedPane === 'general'
   const showTerminalPane = selectedPane === 'terminal'
+  const showRepoPane = selectedPane === 'repo' && !!selectedRepo
   const displayedGitUsername = (selectedRepo ?? repos[0])?.gitUsername ?? ''
   const effectiveBaseRef = selectedRepo?.worktreeBaseRef ?? defaultBaseRef
 
@@ -287,7 +288,7 @@ function Settings(): React.JSX.Element {
                         setSelectedPane('repo')
                       }}
                       className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                        !showGeneralPane && selectedRepoId === repo.id
+                        showRepoPane && selectedRepoId === repo.id
                           ? 'bg-accent font-medium text-accent-foreground'
                           : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                       }`}
