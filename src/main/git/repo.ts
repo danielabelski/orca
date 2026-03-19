@@ -231,7 +231,7 @@ export async function searchBaseRefs(path: string, query: string, limit = 25): P
 }
 
 function normalizeRefSearchQuery(query: string): string {
-  return query.trim().replace(/[\*\?\[\]\\]/g, '')
+  return query.trim().replace(/[*?[\]\\]/g, '')
 }
 
 async function hasGitRefAsync(path: string, ref: string): Promise<boolean> {

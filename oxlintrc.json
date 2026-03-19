@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicolo-ribaudo/oxc-project.github.io/refs/heads/json-schemas/oxlint/v0.17.0/config.json",
-  "plugins": ["typescript", "react", "react-hooks", "react-perf"],
+  "plugins": ["typescript", "react", "react-hooks", "react-perf", "unicorn"],
   "categories": {
     "correctness": "error"
   },
@@ -16,8 +16,47 @@
     "react/no-string-refs": "error",
     "react/no-unescaped-entities": "error",
     "react/require-render-return": "error",
+    "react/jsx-curly-brace-presence": [
+      "error",
+      { "props": "never", "children": "never", "propElementValues": "always" }
+    ],
+    "react/jsx-filename-extension": ["error", { "extensions": [".tsx", ".jsx"] }],
+    "react/jsx-fragments": "error",
+    "react/jsx-key": "error",
+    "react/jsx-no-target-blank": "error",
+    "react/jsx-no-useless-fragment": ["error", { "allowExpressions": true }],
+    "react/jsx-pascal-case": "error",
+    "react/self-closing-comp": "error",
     "react-hooks/rules-of-hooks": "error",
-    "react-hooks/exhaustive-deps": "warn"
+    "react-hooks/exhaustive-deps": "warn",
+    "typescript/array-type": "error",
+    "typescript/consistent-indexed-object-style": "error",
+    "typescript/consistent-type-assertions": "error",
+    "typescript/consistent-type-definitions": ["error", "type"],
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": ["error", { "ignoreRestArgs": true }],
+    "typescript/no-unnecessary-boolean-literal-compare": "error",
+    "typescript/no-unnecessary-template-expression": "error",
+    "typescript/prefer-function-type": "error",
+    "typescript/prefer-includes": "error",
+    "typescript/prefer-optional-chain": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "curly": "error",
+    "no-unneeded-ternary": "error",
+    "no-useless-return": "error",
+    "prefer-template": "error",
+    "unicorn/consistent-empty-array-spread": "error",
+    "unicorn/error-message": "error",
+    "unicorn/no-instanceof-builtins": "error",
+    "unicorn/no-useless-promise-resolve-reject": "error",
+    "unicorn/prefer-at": "error",
+    "unicorn/prefer-date-now": "error",
+    "unicorn/prefer-includes": "error",
+    "unicorn/prefer-math-min-max": "error",
+    "unicorn/prefer-negative-index": "error",
+    "unicorn/prefer-object-from-entries": "error",
+    "unicorn/prefer-ternary": "error",
+    "unicorn/throw-new-error": "error"
   },
   "ignorePatterns": ["**/node_modules", "**/dist", "**/out"]
 }
