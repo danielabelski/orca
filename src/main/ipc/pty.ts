@@ -13,8 +13,9 @@ export function registerPtyHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('pty:spawn', (_event, args: { cols: number; rows: number; cwd?: string }) => {
     const id = String(++ptyCounter)
     const shellPath = process.env.SHELL || '/bin/zsh'
+    const shellArgs = process.platform === 'win32' ? [] : ['-l']
 
-    const ptyProcess = pty.spawn(shellPath, [], {
+    const ptyProcess = pty.spawn(shellPath, shellArgs, {
       name: 'xterm-256color',
       cols: args.cols,
       rows: args.rows,
