@@ -14,7 +14,13 @@ import { registerShellHandlers } from './ipc/shell'
 import { registerSessionHandlers } from './ipc/session'
 import { registerUIHandlers } from './ipc/ui'
 import { warmSystemFontFamilies } from './system-fonts'
-import { setupAutoUpdater, checkForUpdates, getUpdateStatus, quitAndInstall } from './updater'
+import {
+  setupAutoUpdater,
+  checkForUpdates,
+  checkForUpdatesFromMenu,
+  getUpdateStatus,
+  quitAndInstall
+} from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let store: Store | null = null
@@ -113,7 +119,7 @@ app.whenReady().then(() => {
         { role: 'about' },
         {
           label: 'Check for Updates...',
-          click: () => checkForUpdates()
+          click: () => checkForUpdatesFromMenu()
         },
         {
           label: 'Settings',
