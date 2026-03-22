@@ -339,11 +339,14 @@ export class PaneManager {
     container.className = 'pane'
     container.dataset.paneId = String(id)
 
-    // Create .xterm-container
+    // Create .xterm-container with small inset padding
+    const TERMINAL_PADDING = 4
     const xtermContainer = document.createElement('div')
     xtermContainer.className = 'xterm-container'
-    xtermContainer.style.width = '100%'
-    xtermContainer.style.height = '100%'
+    xtermContainer.style.width = `calc(100% - ${TERMINAL_PADDING}px)`
+    xtermContainer.style.height = `calc(100% - ${TERMINAL_PADDING}px)`
+    xtermContainer.style.marginTop = `${TERMINAL_PADDING}px`
+    xtermContainer.style.marginLeft = `${TERMINAL_PADDING}px`
     container.appendChild(xtermContainer)
 
     // Build terminal options
