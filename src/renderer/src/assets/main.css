@@ -498,36 +498,32 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 24px;
+  height: 12px;
   z-index: 10;
   cursor: grab;
   opacity: 0;
   transition: opacity 150ms ease;
-  pointer-events: none;
-  /* Subtle top-edge gradient so you can see where to grab */
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 0%, transparent 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Grip dots in the center */
+/* Three-dot ellipsis indicator */
 .pane-drag-handle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 24px;
-  height: 4px;
-  /* 3 horizontal dots via radial gradient */
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.35) 1.5px, transparent 1.5px);
-  background-size: 8px 4px;
-  background-repeat: repeat-x;
+  content: '···';
+  font-size: 10px;
+  letter-spacing: 1px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.45);
 }
 
-/* Only show handle when multiple panes exist */
-.has-multiple-panes .pane:hover > .pane-drag-handle,
+/* Only show when hovering the handle itself, and only with multiple panes */
+.has-multiple-panes .pane-drag-handle {
+  pointer-events: auto;
+}
+
 .has-multiple-panes .pane-drag-handle:hover {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .pane-drag-handle:active {
