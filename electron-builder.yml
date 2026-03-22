@@ -1,5 +1,5 @@
 appId: com.stablyai.orca
-productName: orca
+productName: Orca
 directories:
   buildResources: build
 files:
@@ -12,7 +12,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: orca
+  executableName: Orca
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
