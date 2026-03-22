@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import type { AppState } from '../types'
 import type { Repo } from '../../../../shared/types'
 
-export interface RepoSlice {
+export type RepoSlice = {
   repos: Repo[]
   activeRepoId: string | null
   fetchRepos: () => Promise<void>
@@ -32,11 +32,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   addRepo: async () => {
     try {
       const path = await window.api.repos.pickFolder()
-      if (!path) return null
+      if (!path) {
+        return null
+      }
       const repo = await window.api.repos.add({ path })
       const alreadyAdded = get().repos.some((r) => r.id === repo.id)
       set((s) => {
-        if (s.repos.some((r) => r.id === repo.id)) return s
+        if (s.repos.some((r) => r.id === repo.id)) {
+          return s
+        }
         return { repos: [...s.repos, repo] }
       })
       if (alreadyAdded) {
