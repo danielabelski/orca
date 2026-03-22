@@ -51,6 +51,8 @@ interface ManagedPaneInternal extends ManagedPane {
 // PaneManager
 // ---------------------------------------------------------------------------
 
+export type DropZone = 'top' | 'bottom' | 'left' | 'right'
+
 export class PaneManager {
   private root: HTMLElement
   private panes: Map<number, ManagedPaneInternal> = new Map()
@@ -59,6 +61,11 @@ export class PaneManager {
   private options: PaneManagerOptions
   private styleOptions: PaneStyleOptions = {}
   private destroyed = false
+
+  // Drag-to-reorder state
+  private dragSourcePaneId: number | null = null
+  private dropOverlay: HTMLElement | null = null
+  private currentDropTarget: { paneId: number; zone: DropZone } | null = null
 
   constructor(root: HTMLElement, options: PaneManagerOptions) {
     this.root = root
@@ -176,6 +183,8 @@ export class PaneManager {
     // Refit existing pane since it now shares space
     this.safeFit(existing)
 
+    this.updateMultiPaneState()
+
     void this.options.onPaneCreated?.(this.toPublic(newPane))
     this.options.onLayoutChanged?.()
 
@@ -263,6 +272,7 @@ export class PaneManager {
       this.safeFit(p)
     }
 
+    this.updateMultiPaneState()
     this.options.onPaneClosed?.(paneId)
     this.options.onLayoutChanged?.()
   }
@@ -333,6 +343,7 @@ export class PaneManager {
 
   destroy(): void {
     this.destroyed = true
+    this.hideDropOverlay()
     for (const pane of this.panes.values()) {
       this.disposePane(pane)
     }
@@ -390,6 +401,12 @@ export class PaneManager {
       'color:#a1a1aa;background:rgba(24,24,27,0.85);border:1px solid rgba(63,63,70,0.6);' +
       'pointer-events:none;max-width:80%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
     container.appendChild(linkTooltip)
+
+    // Ghostty-style drag handle — appears at top of pane on hover when 2+ panes
+    const dragHandle = document.createElement('div')
+    dragHandle.className = 'pane-drag-handle'
+    container.appendChild(dragHandle)
+    this.attachPaneDrag(dragHandle, id)
 
     const webLinksAddon = new WebLinksAddon(
       this.options.onLinkClick ? (_event, uri) => this.options.onLinkClick!(uri) : undefined,
@@ -653,6 +670,319 @@ export class PaneManager {
     divider.addEventListener('pointermove', onPointerMove)
     divider.addEventListener('pointerup', onPointerUp)
     divider.addEventListener('dblclick', onDoubleClick)
+  }
+
+  // -----------------------------------------------------------------------
+  // Drag-to-reorder
+  // -----------------------------------------------------------------------
+
+  /** Move a pane from its current position to a new position relative to a target pane. */
+  movePane(sourcePaneId: number, targetPaneId: number, zone: DropZone): void {
+    if (sourcePaneId === targetPaneId) return
+    const source = this.panes.get(sourcePaneId)
+    const target = this.panes.get(targetPaneId)
+    if (!source || !target) return
+
+    // 1. Detach source pane from the tree (without disposing its terminal)
+    this.detachPaneFromTree(source)
+
+    // 2. Insert source next to target in the requested zone
+    this.insertPaneNextTo(source, target, zone)
+
+    // 3. Refit all panes and persist
+    for (const p of this.panes.values()) this.safeFit(p)
+    this.applyPaneOpacity()
+    this.applyDividerStyles()
+    this.updateMultiPaneState()
+    this.options.onLayoutChanged?.()
+  }
+
+  /**
+   * Detach a pane's container from the split tree without disposing the terminal.
+   * The sibling is promoted to take the split container's slot.
+   */
+  private detachPaneFromTree(pane: ManagedPaneInternal): void {
+    const container = pane.container
+    const parent = container.parentElement
+    if (!parent) return
+
+    if (!parent.classList.contains('pane-split')) {
+      // Direct child of root — just remove it
+      container.remove()
+      return
+    }
+
+    // Find sibling (skip dividers)
+    const children = Array.from(parent.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        (child.classList.contains('pane') || child.classList.contains('pane-split'))
+    )
+    const sibling = children.find((c) => c !== container) ?? null
+
+    // Remove pane and dividers from the split
+    container.remove()
+    const dividers = Array.from(parent.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.classList.contains('pane-divider')
+    )
+    for (const d of dividers) d.remove()
+
+    // Promote sibling to replace the split container
+    if (sibling) {
+      const grandparent = parent.parentElement
+      if (grandparent) {
+        if (grandparent === this.root) {
+          sibling.style.flex = ''
+          sibling.style.minWidth = ''
+          sibling.style.minHeight = ''
+          sibling.style.width = '100%'
+          sibling.style.height = '100%'
+          sibling.style.position = 'relative'
+          sibling.style.overflow = 'hidden'
+        } else if (grandparent.classList.contains('pane-split')) {
+          sibling.style.flex = parent.style.flex || '1 1 0%'
+          sibling.style.minWidth = parent.style.minWidth || '0'
+          sibling.style.minHeight = parent.style.minHeight || '0'
+          sibling.style.overflow = 'hidden'
+        }
+        grandparent.replaceChild(sibling, parent)
+      }
+    } else {
+      parent.remove()
+    }
+  }
+
+  /** Insert source pane next to target pane by wrapping target in a new split. */
+  private insertPaneNextTo(
+    source: ManagedPaneInternal,
+    target: ManagedPaneInternal,
+    zone: DropZone
+  ): void {
+    const targetContainer = target.container
+    const parent = targetContainer.parentElement
+    if (!parent) return
+
+    const isVertical = zone === 'left' || zone === 'right'
+    const sourceFirst = zone === 'left' || zone === 'top'
+
+    // Capture target's flex slot
+    const targetFlex = targetContainer.style.flex || ''
+    const targetMinW = targetContainer.style.minWidth || ''
+    const targetMinH = targetContainer.style.minHeight || ''
+
+    // Create split wrapper
+    const split = document.createElement('div')
+    split.className = `pane-split ${isVertical ? 'is-vertical' : 'is-horizontal'}`
+    split.style.display = 'flex'
+    split.style.flexDirection = isVertical ? 'row' : 'column'
+
+    if (parent.classList.contains('pane-split')) {
+      split.style.flex = targetFlex || '1 1 0%'
+      split.style.minWidth = targetMinW || '0'
+      split.style.minHeight = targetMinH || '0'
+      split.style.overflow = 'hidden'
+    } else {
+      split.style.width = '100%'
+      split.style.height = '100%'
+    }
+
+    // Create divider
+    const divider = this.createDivider(isVertical)
+
+    // Apply flex styles to both panes
+    this.applyPaneFlexStyle(source.container)
+    this.applyPaneFlexStyle(targetContainer)
+
+    // Replace target with the split in the DOM
+    parent.replaceChild(split, targetContainer)
+
+    // Build split: [first] [divider] [second]
+    if (sourceFirst) {
+      split.appendChild(source.container)
+      split.appendChild(divider)
+      split.appendChild(targetContainer)
+    } else {
+      split.appendChild(targetContainer)
+      split.appendChild(divider)
+      split.appendChild(source.container)
+    }
+
+    // Refit both
+    requestAnimationFrame(() => {
+      this.safeFit(source)
+      this.safeFit(target)
+    })
+  }
+
+  /** Attach drag-to-reorder handlers to a pane's drag handle. */
+  private attachPaneDrag(handle: HTMLElement, paneId: number): void {
+    let dragging = false
+    let startX = 0
+    let startY = 0
+    const DRAG_THRESHOLD = 5
+
+    const onPointerDown = (e: PointerEvent): void => {
+      // Only start drag if there are 2+ panes
+      if (this.panes.size < 2) return
+      e.preventDefault()
+      e.stopPropagation()
+      handle.setPointerCapture(e.pointerId)
+      startX = e.clientX
+      startY = e.clientY
+      dragging = false
+
+      const onPointerMoveOuter = (ev: PointerEvent): void => {
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        if (!dragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
+          dragging = true
+          this.dragSourcePaneId = paneId
+          this.root.classList.add('is-pane-dragging')
+          const sourcePane = this.panes.get(paneId)
+          if (sourcePane) sourcePane.container.classList.add('is-drag-source')
+          this.showDropOverlay()
+        }
+        if (dragging) {
+          this.updateDropTarget(ev.clientX, ev.clientY)
+        }
+      }
+
+      const onPointerUpOuter = (ev: PointerEvent): void => {
+        handle.releasePointerCapture(ev.pointerId)
+        handle.removeEventListener('pointermove', onPointerMoveOuter)
+        handle.removeEventListener('pointerup', onPointerUpOuter)
+
+        if (dragging) {
+          this.root.classList.remove('is-pane-dragging')
+          const sourcePane = this.panes.get(paneId)
+          if (sourcePane) sourcePane.container.classList.remove('is-drag-source')
+
+          // Execute the drop
+          if (this.currentDropTarget && this.dragSourcePaneId !== null) {
+            this.movePane(
+              this.dragSourcePaneId,
+              this.currentDropTarget.paneId,
+              this.currentDropTarget.zone
+            )
+          }
+
+          this.hideDropOverlay()
+          this.dragSourcePaneId = null
+          this.currentDropTarget = null
+        }
+      }
+
+      handle.addEventListener('pointermove', onPointerMoveOuter)
+      handle.addEventListener('pointerup', onPointerUpOuter)
+    }
+
+    handle.addEventListener('pointerdown', onPointerDown)
+  }
+
+  /** Determine which pane and zone the cursor is over, and position the overlay. */
+  private updateDropTarget(clientX: number, clientY: number): void {
+    const overlay = this.dropOverlay
+    if (!overlay) return
+
+    // Find which pane the cursor is over (excluding the source)
+    let targetPane: ManagedPaneInternal | null = null
+    for (const pane of this.panes.values()) {
+      if (pane.id === this.dragSourcePaneId) continue
+      const rect = pane.container.getBoundingClientRect()
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        targetPane = pane
+        break
+      }
+    }
+
+    if (!targetPane) {
+      overlay.style.display = 'none'
+      this.currentDropTarget = null
+      return
+    }
+
+    const rect = targetPane.container.getBoundingClientRect()
+    const relX = (clientX - rect.left) / rect.width
+    const relY = (clientY - rect.top) / rect.height
+
+    // Determine zone: which edge is the cursor closest to?
+    const distTop = relY
+    const distBottom = 1 - relY
+    const distLeft = relX
+    const distRight = 1 - relX
+    const minDist = Math.min(distTop, distBottom, distLeft, distRight)
+
+    let zone: DropZone
+    if (minDist === distTop) zone = 'top'
+    else if (minDist === distBottom) zone = 'bottom'
+    else if (minDist === distLeft) zone = 'left'
+    else zone = 'right'
+
+    this.currentDropTarget = { paneId: targetPane.id, zone }
+
+    // Position overlay to cover the target half
+    overlay.style.display = ''
+    const scrollX = window.scrollX
+    const scrollY = window.scrollY
+
+    switch (zone) {
+      case 'top':
+        overlay.style.left = `${rect.left + scrollX}px`
+        overlay.style.top = `${rect.top + scrollY}px`
+        overlay.style.width = `${rect.width}px`
+        overlay.style.height = `${rect.height / 2}px`
+        break
+      case 'bottom':
+        overlay.style.left = `${rect.left + scrollX}px`
+        overlay.style.top = `${rect.top + scrollY + rect.height / 2}px`
+        overlay.style.width = `${rect.width}px`
+        overlay.style.height = `${rect.height / 2}px`
+        break
+      case 'left':
+        overlay.style.left = `${rect.left + scrollX}px`
+        overlay.style.top = `${rect.top + scrollY}px`
+        overlay.style.width = `${rect.width / 2}px`
+        overlay.style.height = `${rect.height}px`
+        break
+      case 'right':
+        overlay.style.left = `${rect.left + scrollX + rect.width / 2}px`
+        overlay.style.top = `${rect.top + scrollY}px`
+        overlay.style.width = `${rect.width / 2}px`
+        overlay.style.height = `${rect.height}px`
+        break
+    }
+  }
+
+  private showDropOverlay(): void {
+    if (!this.dropOverlay) {
+      const overlay = document.createElement('div')
+      overlay.className = 'pane-drop-overlay'
+      document.body.appendChild(overlay)
+      this.dropOverlay = overlay
+    }
+    this.dropOverlay.style.display = 'none'
+  }
+
+  private hideDropOverlay(): void {
+    if (this.dropOverlay) {
+      this.dropOverlay.remove()
+      this.dropOverlay = null
+    }
+  }
+
+  /** Add/remove .has-multiple-panes on root to control drag handle visibility. */
+  private updateMultiPaneState(): void {
+    if (this.panes.size >= 2) {
+      this.root.classList.add('has-multiple-panes')
+    } else {
+      this.root.classList.remove('has-multiple-panes')
+    }
   }
 
   private refitPanesUnder(el: HTMLElement): void {
