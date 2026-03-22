@@ -114,20 +114,12 @@ const WorktreeCard = React.memo(function WorktreeCard({
     return liveTabs.length > 0 ? 'active' : 'inactive'
   }, [hasTerminals, tabs])
 
-  // Fetch PR data (debounced via ref guard)
-  const prFetchedRef = useRef<string | null>(null)
+  // Fetch PR data on mount – the store's isFresh() check prevents redundant API calls
   useEffect(() => {
-    if (
-      repo &&
-      !worktree.isBare &&
-      pr === undefined &&
-      prCacheKey &&
-      prCacheKey !== prFetchedRef.current
-    ) {
-      prFetchedRef.current = prCacheKey
+    if (repo && !worktree.isBare && prCacheKey) {
       fetchPRForBranch(repo.path, branch)
     }
-  }, [repo, worktree.isBare, pr, fetchPRForBranch, branch, prCacheKey])
+  }, [repo, worktree.isBare, fetchPRForBranch, branch, prCacheKey])
 
   // Fetch issue data (debounced via ref guard)
   const issueFetchedRef = useRef<string | null>(null)
