@@ -128,7 +128,7 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
         setSidebarOpen(true)
         setSearchQuery('')
         setShowActiveOnly(false)
-        setFilterRepoId(repoId)
+        setFilterRepoId(null)
         setActiveWorktree(wt.id)
         revealWorktreeInSidebar(wt.id)
       }
