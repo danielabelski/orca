@@ -1,3 +1,19 @@
+// Catch EIO/EPIPE errors that occur when writing to a closed IPC pipe
+// (e.g. console.error during app quit or renderer crash).
+process.on('uncaughtException', (error) => {
+  if (
+    error &&
+    'code' in error &&
+    ((error as NodeJS.ErrnoException).code === 'EIO' ||
+      (error as NodeJS.ErrnoException).code === 'EPIPE')
+  ) {
+    // Silently ignore — the pipe/socket is gone, nothing to do.
+    return
+  }
+  // Re-throw anything else so it isn't silently swallowed.
+  throw error
+})
+
 import {
   app,
   shell,

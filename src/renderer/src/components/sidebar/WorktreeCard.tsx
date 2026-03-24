@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { Bell, LoaderCircle, CircleDot, CircleCheck, CircleX } from 'lucide-react'
-import RepoDotLabel from '@/components/repo/RepoDotLabel'
 import StatusIndicator from './StatusIndicator'
 import WorktreeContextMenu from './WorktreeContextMenu'
 import { cn } from '@/lib/utils'
@@ -54,6 +53,7 @@ type WorktreeCardProps = {
   worktree: Worktree
   repo: Repo | undefined
   isActive: boolean
+  hideRepoBadge?: boolean
 }
 
 function FilledBellIcon({ className }: { className?: string }): React.JSX.Element {
@@ -69,10 +69,22 @@ function FilledBellIcon({ className }: { className?: string }): React.JSX.Elemen
   )
 }
 
+function PullRequestIcon({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden fill="currentColor" className={className}>
+      <path
+        fillRule="evenodd"
+        d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.25 2.25 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1.5 1.5 0 011.5 1.5v5.628a2.25 2.25 0 101.5 0V5.5A3 3 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"
+      />
+    </svg>
+  )
+}
+
 const WorktreeCard = React.memo(function WorktreeCard({
   worktree,
   repo,
-  isActive
+  isActive,
+  hideRepoBadge
 }: WorktreeCardProps) {
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
   const openModal = useAppStore((s) => s.openModal)
@@ -174,44 +186,45 @@ const WorktreeCard = React.memo(function WorktreeCard({
     <WorktreeContextMenu worktree={worktree}>
       <div
         className={cn(
-          'group relative flex items-start gap-2 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors',
+          'group relative flex items-start gap-2.5 px-3 py-2 rounded-lg cursor-pointer transition-all duration-200 outline-none select-none mx-1',
           isActive
-            ? 'bg-accent dark:bg-accent/45 ring-1 ring-primary/25 dark:ring-primary/40'
-            : 'hover:bg-accent/50',
-          isDeleting && 'opacity-70'
+            ? 'bg-accent/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] border border-border/60 dark:bg-accent/40 dark:border-border/40'
+            : 'border border-transparent hover:bg-accent/40',
+          isDeleting && 'opacity-50 grayscale cursor-not-allowed'
         )}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         aria-busy={isDeleting}
       >
         {isDeleting && (
-          <div className="absolute inset-0 z-10 flex items-center justify-end rounded-md bg-background/45 px-2 backdrop-blur-[1px]">
-            <div className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-background/90 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm">
-              <LoaderCircle className="size-3 animate-spin" />
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/50 backdrop-blur-[1px]">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-background px-3 py-1 text-[11px] font-medium text-foreground shadow-sm border border-border/50">
+              <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
               Deleting…
             </div>
           </div>
         )}
 
-        {/* Status + quick unread bell */}
-        <div className="flex flex-col items-center self-start pt-1 gap-1.5">
+        {/* Status indicator on the left */}
+        <div className="flex flex-col items-center justify-start pt-[3px] gap-2 shrink-0">
           <StatusIndicator status={status} />
+
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={handleToggleUnreadQuick}
                 className={cn(
-                  'group/unread inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] transition-all',
-                  'hover:bg-accent/70 active:scale-95',
-                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1'
+                  'group/unread flex size-4 cursor-pointer items-center justify-center rounded transition-all',
+                  'hover:bg-accent/80 active:scale-95',
+                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
                 )}
                 aria-label={worktree.isUnread ? 'Mark as read' : 'Mark as unread'}
               >
                 {worktree.isUnread ? (
-                  <FilledBellIcon className="size-3 text-yellow-400" />
+                  <FilledBellIcon className="size-[13px] text-amber-500 drop-shadow-sm" />
                 ) : (
-                  <Bell className="size-3 text-muted-foreground/80 opacity-0 group-hover:opacity-100 group-hover/unread:opacity-100 transition-opacity" />
+                  <Bell className="size-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 group-hover/unread:opacity-100 transition-opacity" />
                 )}
               </button>
             </TooltipTrigger>
@@ -221,79 +234,96 @@ const WorktreeCard = React.memo(function WorktreeCard({
           </Tooltip>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 space-y-0.5">
-          {/* Line 1: Name */}
-          <div className="text-[12px] font-semibold text-foreground truncate leading-tight">
-            {worktree.displayName}
+        {/* Content area */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+          {/* Header row: Title and Checks */}
+          <div className="flex items-center justify-between min-w-0 gap-2">
+            <div className="text-[13px] font-medium text-foreground/90 truncate leading-none">
+              {worktree.displayName}
+            </div>
+
+            {/* CI Checks & PR state on the right */}
+            <div className="flex items-center gap-2 shrink-0">
+              {pr && pr.checksStatus !== 'neutral' && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center opacity-80 hover:opacity-100 transition-opacity">
+                      {pr.checksStatus === 'success' && (
+                        <CircleCheck className="size-3.5 text-emerald-500" />
+                      )}
+                      {pr.checksStatus === 'failure' && (
+                        <CircleX className="size-3.5 text-rose-500" />
+                      )}
+                      {pr.checksStatus === 'pending' && (
+                        <LoaderCircle className="size-3.5 text-amber-500 animate-spin" />
+                      )}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={8}>
+                    <span>CI checks {checksLabel(pr.checksStatus).toLowerCase()}</span>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {pr && (
+                <div
+                  className={cn(
+                    'text-[9px] font-semibold uppercase tracking-wider',
+                    pr.state === 'merged' && 'text-purple-500/80',
+                    pr.state === 'open' && 'text-emerald-500/80',
+                    pr.state === 'closed' && 'text-muted-foreground/60',
+                    pr.state === 'draft' && 'text-muted-foreground/50'
+                  )}
+                >
+                  {prStateLabel(pr.state)}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Line 2: Repo badge + branch + primary badge + CI status */}
-          <div className="flex items-center gap-1 min-w-0">
-            {repo && (
-              <Badge
-                variant="dot"
-                className="h-[18px] px-1.5 text-[10px] font-semibold font-mono rounded-[3px] shrink-0"
-              >
-                <RepoDotLabel
-                  name={repo.displayName}
-                  color={repo.badgeColor}
-                  className="max-w-[9rem]"
-                  dotClassName="size-1.5"
+          {/* Subtitle row: Repo badge + Branch */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            {repo && !hideRepoBadge && (
+              <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5 rounded-[4px] bg-background/50 border border-border/40">
+                <div
+                  className="size-1.5 rounded-full"
+                  style={{ backgroundColor: repo.badgeColor }}
                 />
-              </Badge>
+                <span className="text-[10px] font-medium text-foreground/70 truncate max-w-[6rem] leading-none">
+                  {repo.displayName}
+                </span>
+              </div>
             )}
-            <span className="text-[11px] text-muted-foreground truncate font-mono">{branch}</span>
-            {isPrimaryBranch(worktree.branch) && (
-              <Badge variant="outline" className="h-4 px-1 text-[9px] rounded-sm shrink-0">
+
+            {isPrimaryBranch(worktree.branch) ? (
+              <Badge
+                variant="secondary"
+                className="h-[16px] px-1.5 text-[10px] font-medium rounded shrink-0 text-muted-foreground bg-accent/60 border-none leading-none"
+              >
                 main
               </Badge>
-            )}
-            {pr && pr.checksStatus !== 'neutral' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="ml-auto shrink-0 inline-flex items-center">
-                    {pr.checksStatus === 'success' && (
-                      <CircleCheck className="size-3 text-emerald-400" />
-                    )}
-                    {pr.checksStatus === 'failure' && <CircleX className="size-3 text-red-400" />}
-                    {pr.checksStatus === 'pending' && (
-                      <LoaderCircle className="size-3 text-yellow-400 animate-spin" />
-                    )}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8}>
-                  <span>CI checks {checksLabel(pr.checksStatus).toLowerCase()}</span>
-                </TooltipContent>
-              </Tooltip>
+            ) : (
+              <span className="text-[10.5px] text-muted-foreground/60 truncate font-mono leading-none tracking-normal">
+                {branch}
+              </span>
             )}
           </div>
 
-          {/* Meta section: Issue, Comment, PR */}
+          {/* Meta section: Issue / PR Links / Comment */}
           {(issue || worktree.comment || pr) && (
-            <div className="mt-1.5 leading-none">
+            <div className="flex flex-col gap-[3px] mt-0.5">
               {issue && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="flex items-center justify-between gap-2 min-w-0 cursor-default">
-                      <div className="flex items-center gap-1 min-w-0">
-                        <CircleDot className="size-2.5 shrink-0 text-muted-foreground" />
-                        <span className="text-[10px] leading-none text-muted-foreground shrink-0">
+                    <div className="flex items-center gap-1.5 min-w-0 cursor-default group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40">
+                      <CircleDot className="size-3 shrink-0 text-muted-foreground opacity-60" />
+                      <div className="flex-1 min-w-0 flex items-center gap-1.5 text-[11.5px] leading-none">
+                        <span className="text-foreground opacity-80 font-medium shrink-0">
                           #{issue.number}
                         </span>
-                        <span className="text-[10px] leading-none text-foreground/80 truncate">
+                        <span className="text-muted-foreground truncate group-hover/meta:text-foreground transition-colors">
                           {issue.title}
                         </span>
                       </div>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          'h-3.5 px-1 text-[8px] rounded-sm shrink-0',
-                          issue.state === 'open' ? 'text-emerald-400' : 'text-neutral-400'
-                        )}
-                      >
-                        {issue.state === 'open' ? 'Open' : 'Closed'}
-                      </Badge>
                     </div>
                   </HoverCardTrigger>
                   <HoverCardContent
@@ -328,47 +358,25 @@ const WorktreeCard = React.memo(function WorktreeCard({
                 </HoverCard>
               )}
 
-              {worktree.comment && (
-                <HoverCard openDelay={300}>
-                  <HoverCardTrigger asChild>
-                    <div className="text-[10px] text-muted-foreground truncate cursor-default italic">
-                      {worktree.comment}
-                    </div>
-                  </HoverCardTrigger>
-                  <HoverCardContent side="right" align="start" className="w-64 p-3 text-xs">
-                    <p className="whitespace-pre-wrap">{worktree.comment}</p>
-                  </HoverCardContent>
-                </HoverCard>
-              )}
-
               {pr && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="flex items-center justify-between gap-2 min-w-0 cursor-default">
-                      <div className="flex items-center gap-1 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 cursor-default group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40">
+                      <PullRequestIcon className="size-3 shrink-0 text-muted-foreground opacity-60" />
+                      <div className="flex-1 min-w-0 flex items-center gap-1.5 text-[11.5px] leading-none">
                         <a
                           href={pr.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="shrink-0 text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                          className="text-foreground opacity-80 font-medium shrink-0 hover:text-foreground hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >
                           PR #{pr.number}
                         </a>
-                        <span className="truncate text-[10px] text-foreground/80">{pr.title}</span>
+                        <span className="text-muted-foreground truncate group-hover/meta:text-foreground transition-colors">
+                          {pr.title}
+                        </span>
                       </div>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          'h-3.5 px-1 text-[8px] rounded-sm shrink-0',
-                          pr.state === 'merged' && 'text-purple-400',
-                          pr.state === 'open' && 'text-emerald-400',
-                          pr.state === 'closed' && 'text-neutral-400',
-                          pr.state === 'draft' && 'text-neutral-500'
-                        )}
-                      >
-                        {prStateLabel(pr.state)}
-                      </Badge>
                     </div>
                   </HoverCardTrigger>
                   <HoverCardContent
@@ -394,6 +402,19 @@ const WorktreeCard = React.memo(function WorktreeCard({
                     >
                       View on GitHub
                     </a>
+                  </HoverCardContent>
+                </HoverCard>
+              )}
+
+              {worktree.comment && (
+                <HoverCard openDelay={300}>
+                  <HoverCardTrigger asChild>
+                    <div className="text-[11px] text-muted-foreground truncate cursor-default italic -mx-1.5 px-1.5 py-0.5 hover:bg-background/40 hover:text-foreground rounded transition-colors leading-none">
+                      {worktree.comment}
+                    </div>
+                  </HoverCardTrigger>
+                  <HoverCardContent side="right" align="start" className="w-64 p-3 text-xs">
+                    <p className="whitespace-pre-wrap">{worktree.comment}</p>
                   </HoverCardContent>
                 </HoverCard>
               )}

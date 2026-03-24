@@ -305,7 +305,7 @@ const WorktreeList = React.memo(function WorktreeList() {
               >
                 <button
                   className={cn(
-                    'group mb-1 mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-left transition-all',
+                    'group mb-1 mt-2 flex h-7 w-full items-center gap-1.5 rounded-lg border border-transparent px-2 text-left transition-all',
                     row.repo
                       ? 'overflow-hidden hover:bg-accent/50'
                       : cn(row.tone, 'hover:brightness-110')
@@ -314,8 +314,8 @@ const WorktreeList = React.memo(function WorktreeList() {
                 >
                   <div
                     className={cn(
-                      'flex size-5 shrink-0 items-center justify-center rounded-md',
-                      row.repo ? 'text-foreground' : 'border bg-black/10'
+                      'flex size-4 shrink-0 items-center justify-center rounded-[4px]',
+                      row.repo ? 'text-foreground' : 'bg-black/5 dark:bg-white/10'
                     )}
                     style={row.repo ? { color: row.repo.badgeColor } : undefined}
                   >
@@ -324,10 +324,10 @@ const WorktreeList = React.memo(function WorktreeList() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <div className="truncate text-[13px] font-semibold leading-none">
+                      <div className="truncate text-[11px] font-semibold tracking-[0.02em] uppercase text-muted-foreground/70 leading-none">
                         {row.label}
                       </div>
-                      <div className="rounded-full bg-black/12 px-1.5 py-0.5 text-[9px] font-medium leading-none text-muted-foreground/90">
+                      <div className="rounded-full bg-black/5 dark:bg-white/10 px-[5px] py-[1.5px] text-[8.5px] font-bold leading-none text-muted-foreground/70">
                         {row.count}
                       </div>
                     </div>
@@ -340,7 +340,7 @@ const WorktreeList = React.memo(function WorktreeList() {
                           type="button"
                           variant="ghost"
                           size="icon-xs"
-                          className="mr-0.5 size-5 shrink-0 rounded-md text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+                          className="mr-0.5 size-5 shrink-0 rounded-md text-muted-foreground hover:bg-accent/70 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                           aria-label={`Create worktree for ${row.label}`}
                           onClick={(event) => {
                             event.preventDefault()
@@ -359,7 +359,7 @@ const WorktreeList = React.memo(function WorktreeList() {
                     </Tooltip>
                   ) : null}
 
-                  <div className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/90">
+                  <div className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity">
                     <ChevronDown
                       className={cn(
                         'size-3.5 transition-transform',
@@ -384,6 +384,7 @@ const WorktreeList = React.memo(function WorktreeList() {
                 worktree={row.worktree}
                 repo={row.repo}
                 isActive={activeWorktreeId === row.worktree.id}
+                hideRepoBadge={groupBy === 'repo'}
               />
             </div>
           )
