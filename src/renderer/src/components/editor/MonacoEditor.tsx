@@ -1,12 +1,11 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
-import { Copy, MapPin } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { useAppStore } from '@/store'
@@ -185,39 +184,22 @@ export default function MonacoEditor({
             style={{ left: gutterMenuPoint.x, top: gutterMenuPoint.y }}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56" sideOffset={0} align="start">
-          <DropdownMenuItem
-            onSelect={() => {
-              navigator.clipboard.writeText(filePath)
-            }}
-          >
-            <Copy className="w-3.5 h-3.5 mr-1.5" />
-            Copy Path
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              navigator.clipboard.writeText(relativePath)
-            }}
-          >
-            <Copy className="w-3.5 h-3.5 mr-1.5" />
-            Copy Relative Path
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+        <DropdownMenuContent sideOffset={0} align="start">
           <DropdownMenuItem
             onSelect={() => {
               navigator.clipboard.writeText(`${filePath}#L${gutterMenuLine}`)
             }}
           >
-            <MapPin className="w-3.5 h-3.5 mr-1.5" />
-            Copy Path to Line {gutterMenuLine}
+            <Copy className="w-3.5 h-3.5 mr-1.5" />
+            Copy Path to Line
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
               navigator.clipboard.writeText(`${relativePath}#L${gutterMenuLine}`)
             }}
           >
-            <MapPin className="w-3.5 h-3.5 mr-1.5" />
-            Copy Relative Path to Line {gutterMenuLine}
+            <Copy className="w-3.5 h-3.5 mr-1.5" />
+            Copy Rel. Path to Line
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
