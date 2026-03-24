@@ -1,6 +1,14 @@
-import React, { useRef, useCallback, useEffect } from 'react'
+import React, { useRef, useCallback, useEffect, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import { Copy, MapPin } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { useAppStore } from '@/store'
 import '@/lib/monaco-setup'
 
@@ -31,6 +39,11 @@ export default function MonacoEditor({
   const settings = useAppStore((s) => s.settings)
   const setPendingEditorReveal = useAppStore((s) => s.setPendingEditorReveal)
   const setEditorCursorLine = useAppStore((s) => s.setEditorCursorLine)
+
+  // Gutter context menu state
+  const [gutterMenuOpen, setGutterMenuOpen] = useState(false)
+  const [gutterMenuPoint, setGutterMenuPoint] = useState({ x: 0, y: 0 })
+  const [gutterMenuLine, setGutterMenuLine] = useState(1)
   const isDark =
     settings?.theme === 'dark' ||
     (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -54,7 +67,8 @@ export default function MonacoEditor({
         setEditorCursorLine(filePath, e.position.lineNumber)
       })
 
-      // Show context menu on line number gutter right-click
+      // Intercept right-click on line number gutter to show Radix context menu
+      // (same approach as VSCode: custom menu instead of Monaco's built-in one)
       editorInstance.onMouseDown((e) => {
         if (
           e.event.rightButton &&
@@ -62,35 +76,11 @@ export default function MonacoEditor({
         ) {
           e.event.preventDefault()
           e.event.stopPropagation()
-          // Move cursor to the clicked line so actions use the right line number
-          const line = e.target.position?.lineNumber
-          if (line) {
-            editorInstance.setPosition({ lineNumber: line, column: 1 })
-          }
-          // Trigger Monaco's context menu programmatically
-          editorInstance.trigger('gutter', 'editor.action.showContextMenu', null)
-        }
-      })
-
-      // Add "Copy Path to Line" actions to Monaco's right-click context menu
-      editorInstance.addAction({
-        id: 'orca.copyPathToLine',
-        label: 'Copy Path to Line',
-        contextMenuGroupId: '9_cutcopypaste',
-        contextMenuOrder: 100,
-        run: (ed) => {
-          const line = ed.getPosition()?.lineNumber ?? 1
-          navigator.clipboard.writeText(`${filePath}#L${line}`)
-        }
-      })
-      editorInstance.addAction({
-        id: 'orca.copyRelativePathToLine',
-        label: 'Copy Relative Path to Line',
-        contextMenuGroupId: '9_cutcopypaste',
-        contextMenuOrder: 101,
-        run: (ed) => {
-          const line = ed.getPosition()?.lineNumber ?? 1
-          navigator.clipboard.writeText(`${relativePath}#L${line}`)
+          const line = e.target.position?.lineNumber ?? 1
+          editorInstance.setPosition({ lineNumber: line, column: 1 })
+          setGutterMenuLine(line)
+          setGutterMenuPoint({ x: e.event.posx, y: e.event.posy })
+          setGutterMenuOpen(true)
         }
       })
 
@@ -160,29 +150,78 @@ export default function MonacoEditor({
   }, [revealLine, revealColumn, revealMatchLength, setPendingEditorReveal])
 
   return (
-    <Editor
-      height="100%"
-      language={language}
-      value={content}
-      theme={isDark ? 'vs-dark' : 'vs'}
-      onChange={handleChange}
-      onMount={handleMount}
-      options={{
-        minimap: { enabled: true },
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        fontSize: settings?.terminalFontSize ?? 13,
-        fontFamily: settings?.terminalFontFamily || 'monospace',
-        lineNumbers: 'on',
-        renderLineHighlight: 'line',
-        automaticLayout: true,
-        tabSize: 2,
-        smoothScrolling: true,
-        cursorSmoothCaretAnimation: 'off',
-        padding: { top: 8 }
-      }}
-      path={filePath}
-    />
+    <>
+      <Editor
+        height="100%"
+        language={language}
+        value={content}
+        theme={isDark ? 'vs-dark' : 'vs'}
+        onChange={handleChange}
+        onMount={handleMount}
+        options={{
+          minimap: { enabled: true },
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+          fontSize: settings?.terminalFontSize ?? 13,
+          fontFamily: settings?.terminalFontFamily || 'monospace',
+          lineNumbers: 'on',
+          renderLineHighlight: 'line',
+          automaticLayout: true,
+          tabSize: 2,
+          smoothScrolling: true,
+          cursorSmoothCaretAnimation: 'off',
+          padding: { top: 8 }
+        }}
+        path={filePath}
+      />
+
+      {/* Radix context menu for line number gutter right-click */}
+      <DropdownMenu open={gutterMenuOpen} onOpenChange={setGutterMenuOpen} modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-hidden
+            tabIndex={-1}
+            className="pointer-events-none fixed size-px opacity-0"
+            style={{ left: gutterMenuPoint.x, top: gutterMenuPoint.y }}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56" sideOffset={0} align="start">
+          <DropdownMenuItem
+            onSelect={() => {
+              navigator.clipboard.writeText(filePath)
+            }}
+          >
+            <Copy className="w-3.5 h-3.5 mr-1.5" />
+            Copy Path
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              navigator.clipboard.writeText(relativePath)
+            }}
+          >
+            <Copy className="w-3.5 h-3.5 mr-1.5" />
+            Copy Relative Path
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              navigator.clipboard.writeText(`${filePath}#L${gutterMenuLine}`)
+            }}
+          >
+            <MapPin className="w-3.5 h-3.5 mr-1.5" />
+            Copy Path to Line {gutterMenuLine}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              navigator.clipboard.writeText(`${relativePath}#L${gutterMenuLine}`)
+            }}
+          >
+            <MapPin className="w-3.5 h-3.5 mr-1.5" />
+            Copy Relative Path to Line {gutterMenuLine}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   )
 }
 
