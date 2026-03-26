@@ -189,7 +189,7 @@ function Settings(): React.JSX.Element {
         />
         <h1 className="text-2xl font-semibold">{selectedRepo.displayName}</h1>
       </div>
-      <p className="font-mono text-xs text-muted-foreground">{selectedRepo.path}</p>
+      <p className="text-xs text-muted-foreground">{selectedRepo.path}</p>
     </div>
   ) : (
     <div className="space-y-1">

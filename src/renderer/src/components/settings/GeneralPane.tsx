@@ -48,7 +48,7 @@ export function GeneralPane({
             <Input
               value={settings.workspaceDir}
               onChange={(e) => updateSettings({ workspaceDir: e.target.value })}
-              className="flex-1 font-mono text-xs"
+              className="flex-1 text-xs"
             />
             <Button
               variant="outline"

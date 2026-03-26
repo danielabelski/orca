@@ -131,7 +131,7 @@ export function ColorField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={fallback}
-          className="max-w-xs font-mono text-xs"
+          className="max-w-xs text-xs"
         />
       </div>
     </div>

@@ -84,7 +84,7 @@ const DeleteWorktreeDialog = React.memo(function DeleteWorktreeDialog() {
         {worktree && (
           <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs">
             <div className="break-all font-medium text-foreground">{worktree.displayName}</div>
-            <div className="mt-1 break-all font-mono text-muted-foreground">{worktree.path}</div>
+            <div className="mt-1 break-all text-muted-foreground">{worktree.path}</div>
           </div>
         )}
 

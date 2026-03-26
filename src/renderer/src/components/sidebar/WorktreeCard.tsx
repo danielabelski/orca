@@ -303,7 +303,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
                 main
               </Badge>
             ) : (
-              <span className="text-[11px] text-muted-foreground truncate font-mono leading-none">
+              <span className="text-[11px] text-muted-foreground truncate leading-none">
                 {branch}
               </span>
             )}
