@@ -72,6 +72,25 @@ export function useTerminalKeyboardShortcuts({
         return
       }
 
+      // Cmd/Ctrl+Shift+C copies terminal selection via Electron clipboard.
+      // This ensures Linux terminal copy works consistently.
+      if (e.shiftKey && e.key.toLowerCase() === 'c') {
+        const pane = manager.getActivePane() ?? manager.getPanes()[0]
+        if (!pane) {
+          return
+        }
+        const selection = pane.terminal.getSelection()
+        if (!selection) {
+          return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        void window.api.ui.writeClipboardText(selection).catch(() => {
+          /* ignore clipboard write failures */
+        })
+        return
+      }
+
       // Keep Cmd+F bound to the terminal search until the app has a real
       // top-level find-in-page flow to fall back to.
       if (!e.shiftKey && e.key.toLowerCase() === 'f') {
