@@ -1,6 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import { deriveCheckStatus, mapPRState, mapCheckStatus, mapCheckConclusion } from './client'
 
+describe('mapPRState', () => {
+  it('returns draft when an open PR is marked as draft', () => {
+    expect(mapPRState('OPEN', true)).toBe('draft')
+  })
+
+  it('preserves merged and closed states', () => {
+    expect(mapPRState('MERGED', true)).toBe('merged')
+    expect(mapPRState('CLOSED', true)).toBe('closed')
+    expect(mapPRState('OPEN')).toBe('open')
+  })
+
+  it('handles lowercase inputs', () => {
+    expect(mapPRState('merged')).toBe('merged')
+    expect(mapPRState('closed')).toBe('closed')
+    expect(mapPRState('open')).toBe('open')
+  })
+
+  it('returns open for undefined state', () => {
+    expect(mapPRState(undefined as unknown as string)).toBe('open')
+  })
+
+  it('returns open for null state', () => {
+    expect(mapPRState(null as unknown as string)).toBe('open')
+  })
+
+  it('returns open for unknown state', () => {
+    expect(mapPRState('UNKNOWN')).toBe('open')
+  })
+})
+
 describe('deriveCheckStatus', () => {
   it('returns neutral when no checks are present', () => {
     expect(deriveCheckStatus(null)).toBe('neutral')
@@ -94,38 +124,6 @@ describe('deriveCheckStatus', () => {
         { conclusion: 'SUCCESS' }
       ])
     ).toBe('failure')
-  })
-})
-
-describe('mapPRState', () => {
-  it('maps MERGED to merged', () => {
-    expect(mapPRState('MERGED')).toBe('merged')
-  })
-
-  it('maps CLOSED to closed', () => {
-    expect(mapPRState('CLOSED')).toBe('closed')
-  })
-
-  it('maps OPEN to open', () => {
-    expect(mapPRState('OPEN')).toBe('open')
-  })
-
-  it('handles lowercase inputs', () => {
-    expect(mapPRState('merged')).toBe('merged')
-    expect(mapPRState('closed')).toBe('closed')
-    expect(mapPRState('open')).toBe('open')
-  })
-
-  it('returns open for undefined state', () => {
-    expect(mapPRState(undefined as unknown as string)).toBe('open')
-  })
-
-  it('returns open for null state', () => {
-    expect(mapPRState(null as unknown as string)).toBe('open')
-  })
-
-  it('returns open for unknown state', () => {
-    expect(mapPRState('UNKNOWN')).toBe('open')
   })
 })
 

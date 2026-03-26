@@ -2,6 +2,7 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
   sanitizeWorktreeName,
+  ensurePathWithinWorkspace,
   computeBranchName,
   computeWorktreePath,
   shouldSetDisplayName,
@@ -19,12 +20,45 @@ describe('sanitizeWorktreeName', () => {
     expect(sanitizeWorktreeName('my   big   feature')).toBe('my-big-feature')
   })
 
-  it('handles leading and trailing spaces', () => {
-    expect(sanitizeWorktreeName('  padded name  ')).toBe('-padded-name-')
+  it('trims leading and trailing whitespace', () => {
+    expect(sanitizeWorktreeName('  padded name  ')).toBe('padded-name')
   })
 
   it('returns the name unchanged when there are no spaces', () => {
     expect(sanitizeWorktreeName('no-spaces')).toBe('no-spaces')
+  })
+
+  it('strips unsafe characters', () => {
+    expect(sanitizeWorktreeName('feat@#$ure')).toBe('feat-ure')
+  })
+
+  it('collapses consecutive hyphens', () => {
+    expect(sanitizeWorktreeName('a---b')).toBe('a-b')
+  })
+
+  it('strips leading/trailing dots and hyphens', () => {
+    expect(sanitizeWorktreeName('.hidden-')).toBe('hidden')
+  })
+
+  it('throws for empty name', () => {
+    expect(() => sanitizeWorktreeName('')).toThrow('Invalid worktree name')
+  })
+
+  it('throws for whitespace-only name', () => {
+    expect(() => sanitizeWorktreeName('   ')).toThrow('Invalid worktree name')
+  })
+})
+
+describe('ensurePathWithinWorkspace', () => {
+  it('returns resolved path when within workspace', () => {
+    const result = ensurePathWithinWorkspace('/workspace/feature', '/workspace')
+    expect(result).toBe('/workspace/feature')
+  })
+
+  it('throws when path traverses outside workspace', () => {
+    expect(() => ensurePathWithinWorkspace('/workspace/../outside', '/workspace')).toThrow(
+      'Invalid worktree path'
+    )
   })
 })
 

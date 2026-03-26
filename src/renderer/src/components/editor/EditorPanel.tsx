@@ -88,11 +88,18 @@ export default function EditorPanel(): React.JSX.Element | null {
         return
       }
       setEditBuffers((prev) => ({ ...prev, [activeFile.id]: content }))
-      // Compare against saved content to determine dirty state
-      const saved = fileContents[activeFile.id]?.content ?? ''
-      markFileDirty(activeFile.id, content !== saved)
+      if (activeFile.mode === 'edit') {
+        // Compare against saved content to determine dirty state
+        const saved = fileContents[activeFile.id]?.content ?? ''
+        markFileDirty(activeFile.id, content !== saved)
+      } else {
+        // Diff mode: compare against the original modified content from git
+        const dc = diffContents[activeFile.id]
+        const original = dc?.modifiedContent ?? ''
+        markFileDirty(activeFile.id, content !== original)
+      }
     },
-    [activeFile, markFileDirty, fileContents]
+    [activeFile, markFileDirty, fileContents, diffContents]
   )
 
   const handleSave = useCallback(
@@ -103,10 +110,30 @@ export default function EditorPanel(): React.JSX.Element | null {
       try {
         await window.api.fs.writeFile({ filePath: activeFile.filePath, content })
         markFileDirty(activeFile.id, false)
-        setFileContents((prev) => ({
-          ...prev,
-          [activeFile.id]: { content, isBinary: false }
-        }))
+        if (activeFile.mode === 'edit') {
+          setFileContents((prev) => ({
+            ...prev,
+            [activeFile.id]: { content, isBinary: false }
+          }))
+        } else {
+          // Update the diff's modified content baseline so dirty tracking stays correct
+          setDiffContents((prev) => {
+            const existing = prev[activeFile.id]
+            if (!existing) {
+              return prev
+            }
+            return {
+              ...prev,
+              [activeFile.id]: { ...existing, modifiedContent: content }
+            }
+          })
+        }
+        // Clear the edit buffer since it now matches saved state
+        setEditBuffers((prev) => {
+          const next = { ...prev }
+          delete next[activeFile.id]
+          return next
+        })
       } catch (err) {
         console.error('Save failed:', err)
       }
@@ -236,12 +263,17 @@ export default function EditorPanel(): React.JSX.Element | null {
                 </div>
               )
             }
+            // Unstaged diffs are editable (right side = working tree file)
+            const isEditable = activeFile.diffStaged === false
             return (
               <DiffViewer
                 originalContent={dc.originalContent}
-                modifiedContent={dc.modifiedContent}
+                modifiedContent={editBuffers[activeFile.id] ?? dc.modifiedContent}
                 language={resolvedLanguage}
                 filePath={activeFile.relativePath}
+                editable={isEditable}
+                onContentChange={isEditable ? handleContentChange : undefined}
+                onSave={isEditable ? handleSave : undefined}
               />
             )
           })()

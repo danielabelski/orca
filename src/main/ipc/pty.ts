@@ -53,7 +53,9 @@ export function registerPtyHandlers(mainWindow: BrowserWindow): void {
       env: {
         ...process.env,
         TERM: 'xterm-256color',
-        COLORTERM: 'truecolor'
+        COLORTERM: 'truecolor',
+        TERM_PROGRAM: 'Orca',
+        FORCE_HYPERLINK: '1'
       } as Record<string, string>
     })
 

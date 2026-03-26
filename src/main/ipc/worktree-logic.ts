@@ -1,12 +1,39 @@
-import { basename, join } from 'path'
+import { basename, join, resolve, relative, isAbsolute } from 'path'
 import type { Worktree, WorktreeMeta } from '../../shared/types'
 
 /**
  * Sanitize a worktree name for use in branch names and directory paths.
- * Git branch names cannot contain spaces; this collapses runs of whitespace to a single hyphen.
+ * Strips unsafe characters and collapses runs of special chars to a single hyphen.
  */
-export function sanitizeWorktreeName(name: string): string {
-  return name.replace(/\s+/g, '-')
+export function sanitizeWorktreeName(input: string): string {
+  const sanitized = input
+    .trim()
+    .replace(/[\\/]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+
+  if (!sanitized || sanitized === '.' || sanitized === '..') {
+    throw new Error('Invalid worktree name')
+  }
+
+  return sanitized
+}
+
+/**
+ * Ensure a target path is within the workspace directory (prevent path traversal).
+ */
+export function ensurePathWithinWorkspace(targetPath: string, workspaceDir: string): string {
+  const resolvedWorkspaceDir = resolve(workspaceDir)
+  const resolvedTargetPath = resolve(targetPath)
+  const rel = relative(resolvedWorkspaceDir, resolvedTargetPath)
+
+  if (isAbsolute(rel) || rel.startsWith('..')) {
+    throw new Error('Invalid worktree path')
+  }
+
+  return resolvedTargetPath
 }
 
 /**

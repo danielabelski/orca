@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import { Columns2, Rows2 } from 'lucide-react'
 import { useAppStore } from '@/store'
@@ -9,13 +9,19 @@ type DiffViewerProps = {
   modifiedContent: string
   language: string
   filePath: string
+  editable?: boolean
+  onContentChange?: (content: string) => void
+  onSave?: (content: string) => void
 }
 
 export default function DiffViewer({
   originalContent,
   modifiedContent,
   language,
-  filePath
+  filePath,
+  editable,
+  onContentChange,
+  onSave
 }: DiffViewerProps): React.JSX.Element {
   const [sideBySide, setSideBySide] = useState(true)
   const settings = useAppStore((s) => s.settings)
@@ -23,9 +29,34 @@ export default function DiffViewer({
     settings?.theme === 'dark' ||
     (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-  const handleMount: DiffOnMount = useCallback((editor) => {
-    editor.focus()
-  }, [])
+  // Keep refs to latest callbacks so the mounted editor always calls current versions
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
+  const onContentChangeRef = useRef(onContentChange)
+  onContentChangeRef.current = onContentChange
+
+  const handleMount: DiffOnMount = useCallback(
+    (editor, monaco) => {
+      if (editable) {
+        const modifiedEditor = editor.getModifiedEditor()
+
+        // Cmd/Ctrl+S to save
+        modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+          onSaveRef.current?.(modifiedEditor.getValue())
+        })
+
+        // Track changes
+        modifiedEditor.onDidChangeModelContent(() => {
+          onContentChangeRef.current?.(modifiedEditor.getValue())
+        })
+
+        modifiedEditor.focus()
+      } else {
+        editor.focus()
+      }
+    },
+    [editable]
+  )
 
   return (
     <div className="flex flex-col h-full">
@@ -51,7 +82,8 @@ export default function DiffViewer({
           theme={isDark ? 'vs-dark' : 'vs'}
           onMount={handleMount}
           options={{
-            readOnly: true,
+            readOnly: !editable,
+            originalEditable: false,
             renderSideBySide: sideBySide,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
