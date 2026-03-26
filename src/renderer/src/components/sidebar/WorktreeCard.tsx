@@ -207,7 +207,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
         )}
 
         {/* Status indicator on the left */}
-        <div className="flex flex-col items-center justify-start pt-[3px] gap-2 shrink-0">
+        <div className="flex flex-col items-center justify-start pt-[2px] gap-2 shrink-0">
           <StatusIndicator status={status} />
 
           <Tooltip>
@@ -421,7 +421,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
               {worktree.comment && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="text-[11px] text-muted-foreground truncate cursor-default italic -mx-1.5 px-1.5 py-0.5 hover:bg-background/40 hover:text-foreground rounded transition-colors leading-none">
+                    <div className="text-[11px] text-muted-foreground truncate cursor-default -mx-1.5 px-1.5 py-0.5 hover:bg-background/40 hover:text-foreground rounded transition-colors leading-none">
                       {worktree.comment}
                     </div>
                   </HoverCardTrigger>
