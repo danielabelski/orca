@@ -4,7 +4,6 @@ import {
   CircleX,
   LoaderCircle,
   CircleDashed,
-  CircleMinus,
   ExternalLink,
   RefreshCw,
   Check,
@@ -14,51 +13,8 @@ import {
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import PRActions from './PRActions'
+import { PullRequestIcon, CHECK_ICON, CHECK_COLOR, prStateColor } from './checks-helpers'
 import type { PRInfo, PRCheckDetail } from '../../../../shared/types'
-
-function PullRequestIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="currentColor" className={className}>
-      <path
-        fillRule="evenodd"
-        d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.25 2.25 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1.5 1.5 0 011.5 1.5v5.628a2.25 2.25 0 101.5 0V5.5A3 3 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"
-      />
-    </svg>
-  )
-}
-
-const CHECK_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  success: CircleCheck,
-  failure: CircleX,
-  pending: LoaderCircle,
-  neutral: CircleDashed,
-  skipped: CircleMinus,
-  cancelled: CircleX,
-  timed_out: CircleX
-}
-
-const CHECK_COLOR: Record<string, string> = {
-  success: 'text-emerald-500',
-  failure: 'text-rose-500',
-  pending: 'text-amber-500',
-  neutral: 'text-muted-foreground',
-  skipped: 'text-muted-foreground/60',
-  cancelled: 'text-muted-foreground/60',
-  timed_out: 'text-rose-500'
-}
-
-function prStateColor(state: PRInfo['state']): string {
-  switch (state) {
-    case 'merged':
-      return 'bg-purple-500/15 text-purple-500 border-purple-500/20'
-    case 'open':
-      return 'bg-emerald-500/15 text-emerald-500 border-emerald-500/20'
-    case 'closed':
-      return 'bg-muted text-muted-foreground border-border'
-    case 'draft':
-      return 'bg-muted text-muted-foreground/70 border-border'
-  }
-}
 
 export default function ChecksPanel(): React.JSX.Element {
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
@@ -66,11 +22,13 @@ export default function ChecksPanel(): React.JSX.Element {
   const repos = useAppStore((s) => s.repos)
   const prCache = useAppStore((s) => s.prCache)
   const fetchPRForBranch = useAppStore((s) => s.fetchPRForBranch)
+  const refreshGitHubForWorktree = useAppStore((s) => s.refreshGitHubForWorktree)
 
   const fetchPRChecks = useAppStore((s) => s.fetchPRChecks)
 
   const [checks, setChecks] = useState<PRCheckDetail[]>([])
   const [checksLoading, setChecksLoading] = useState(false)
+  const [emptyRefreshing, setEmptyRefreshing] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [titleSaving, setTitleSaving] = useState(false)
@@ -98,6 +56,13 @@ export default function ChecksPanel(): React.JSX.Element {
   const prCacheKey = repo && branch ? `${repo.path}::${branch}` : ''
   const pr: PRInfo | null = prCacheKey ? (prCache[prCacheKey]?.data ?? null) : null
   const prNumber = pr?.number ?? null
+
+  // Fetch PR data when the active worktree/branch changes
+  useEffect(() => {
+    if (repo && branch) {
+      void fetchPRForBranch(repo.path, branch)
+    }
+  }, [repo, branch, fetchPRForBranch])
 
   // Fetch checks via cached store method
   const fetchChecks = useCallback(async () => {
@@ -247,6 +212,20 @@ export default function ChecksPanel(): React.JSX.Element {
         <div className="text-[10px] text-muted-foreground/60">
           Push your branch and open a PR to see checks here
         </div>
+        <button
+          className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+          title="Refresh"
+          disabled={emptyRefreshing}
+          onClick={() => {
+            if (activeWorktreeId) {
+              setEmptyRefreshing(true)
+              refreshGitHubForWorktree(activeWorktreeId)
+              setTimeout(() => setEmptyRefreshing(false), 2000)
+            }
+          }}
+        >
+          <RefreshCw className={cn('size-4', emptyRefreshing && 'animate-spin')} />
+        </button>
       </div>
     )
   }
