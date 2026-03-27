@@ -78,7 +78,7 @@ export default function PRActions({
           <button
             className={cn(
               'flex-1 flex items-center justify-center gap-1.5 rounded-l-md px-3 py-1.5 text-[11px] font-medium transition-colors',
-              'bg-purple-600 text-white hover:bg-purple-700',
+              'bg-green-600 text-white hover:bg-green-700',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
             onClick={() => void handleMerge('squash')}
@@ -93,8 +93,8 @@ export default function PRActions({
           </button>
           <button
             className={cn(
-              'flex items-center px-1.5 rounded-r-md border-l border-purple-700/50 transition-colors',
-              'bg-purple-600 text-white hover:bg-purple-700',
+              'flex items-center px-1.5 rounded-r-md border-l border-green-700/50 transition-colors',
+              'bg-green-600 text-white hover:bg-green-700',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
             onClick={() => setMergeMenuOpen((v) => !v)}
