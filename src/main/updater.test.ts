@@ -8,7 +8,7 @@ const {
   isMock,
   killAllPtyMock
 } = vi.hoisted(() => {
-  const eventHandlers = new Map<string, Array<(...args: unknown[]) => void>>()
+  const eventHandlers = new Map<string, ((...args: unknown[]) => void)[]>()
 
   const on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
     const handlers = eventHandlers.get(event) ?? []
