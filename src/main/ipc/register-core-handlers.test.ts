@@ -4,6 +4,7 @@ const {
   registerCliHandlersMock,
   registerPreflightHandlersMock,
   registerGitHubHandlersMock,
+  registerNotificationHandlersMock,
   registerSettingsHandlersMock,
   registerShellHandlersMock,
   registerSessionHandlersMock,
@@ -16,6 +17,7 @@ const {
   registerCliHandlersMock: vi.fn(),
   registerPreflightHandlersMock: vi.fn(),
   registerGitHubHandlersMock: vi.fn(),
+  registerNotificationHandlersMock: vi.fn(),
   registerSettingsHandlersMock: vi.fn(),
   registerShellHandlersMock: vi.fn(),
   registerSessionHandlersMock: vi.fn(),
@@ -36,6 +38,10 @@ vi.mock('./preflight', () => ({
 
 vi.mock('./github', () => ({
   registerGitHubHandlers: registerGitHubHandlersMock
+}))
+
+vi.mock('./notifications', () => ({
+  registerNotificationHandlers: registerNotificationHandlersMock
 }))
 
 vi.mock('./settings', () => ({
@@ -74,6 +80,7 @@ describe('registerCoreHandlers', () => {
     registerCliHandlersMock.mockReset()
     registerPreflightHandlersMock.mockReset()
     registerGitHubHandlersMock.mockReset()
+    registerNotificationHandlersMock.mockReset()
     registerSettingsHandlersMock.mockReset()
     registerShellHandlersMock.mockReset()
     registerSessionHandlersMock.mockReset()
@@ -91,6 +98,7 @@ describe('registerCoreHandlers', () => {
     registerCoreHandlers(store as never, runtime as never)
 
     expect(registerGitHubHandlersMock).toHaveBeenCalledWith(store)
+    expect(registerNotificationHandlersMock).toHaveBeenCalledWith(store)
     expect(registerSettingsHandlersMock).toHaveBeenCalledWith(store)
     expect(registerSessionHandlersMock).toHaveBeenCalledWith(store)
     expect(registerUIHandlersMock).toHaveBeenCalledWith(store)

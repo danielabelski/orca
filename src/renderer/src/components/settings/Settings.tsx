@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Keyboard, Palette, SlidersHorizontal, SquareTerminal } from 'lucide-react'
+import { Bell, Keyboard, Palette, SlidersHorizontal, SquareTerminal } from 'lucide-react'
 import type { OrcaHooks } from '../../../../shared/types'
 import { useAppStore } from '../../store'
 import { getSystemPrefersDark } from '@/lib/terminal-theme'
@@ -9,11 +9,12 @@ import { AppearancePane, APPEARANCE_PANE_SEARCH_ENTRIES } from './AppearancePane
 import { ShortcutsPane, SHORTCUTS_PANE_SEARCH_ENTRIES } from './ShortcutsPane'
 import { TerminalPane, TERMINAL_PANE_SEARCH_ENTRIES } from './TerminalPane'
 import { RepositoryPane, getRepositoryPaneSearchEntries } from './RepositoryPane'
+import { NotificationsPane, NOTIFICATIONS_PANE_SEARCH_ENTRIES } from './NotificationsPane'
 import { SettingsSidebar } from './SettingsSidebar'
 import { SettingsSection } from './SettingsSection'
 import { matchesSettingsSearch, type SettingsSearchEntry } from './settings-search'
 
-type SettingsNavTarget = 'general' | 'appearance' | 'terminal' | 'shortcuts' | 'repo'
+type SettingsNavTarget = 'general' | 'appearance' | 'terminal' | 'notifications' | 'shortcuts' | 'repo'
 
 type SettingsNavSection = {
   id: string
@@ -79,11 +80,8 @@ function Settings(): React.JSX.Element {
       return
     }
 
-    // Why: settings entry points elsewhere in the app target a section, not a
-    // transient tab, so the scroll-based settings page needs an explicit anchor
-    // handoff to land the user on the intended configuration block.
     pendingScrollTargetRef.current = getSettingsSectionId(
-      settingsNavigationTarget.pane,
+      settingsNavigationTarget.pane as SettingsNavTarget,
       settingsNavigationTarget.repoId
     )
     clearSettingsTarget()
@@ -211,6 +209,13 @@ function Settings(): React.JSX.Element {
         searchEntries: TERMINAL_PANE_SEARCH_ENTRIES
       },
       {
+        id: 'notifications',
+        title: 'Notifications',
+        description: 'Native desktop notifications for agent and terminal events.',
+        icon: Bell,
+        searchEntries: NOTIFICATIONS_PANE_SEARCH_ENTRIES
+      },
+      {
         id: 'shortcuts',
         title: 'Shortcuts',
         description: 'Keyboard shortcuts for common actions.',
@@ -249,10 +254,6 @@ function Settings(): React.JSX.Element {
     }
 
     if (scrollTargetId && settingsSearchQuery.trim() !== '') {
-      // Why: keep the ref set so the *next* effect cycle (after the search clears and
-      // sections become visible) can scroll to the target via the branch above.
-      // The loop concern is mitigated because once the search clears, the target becomes
-      // visible, the branch above consumes and clears the ref, and the cycle stops.
       setSettingsSearchQuery('')
       return
     }
@@ -286,9 +287,6 @@ function Settings(): React.JSX.Element {
       setActiveSectionId(candidate.dataset.settingsSection ?? candidate.id)
     }
 
-    // Why: the scroll handler runs querySelectorAll + getBoundingClientRect for every
-    // section on each scroll event (60+ fps). Wrapping it in a requestAnimationFrame
-    // throttle limits it to once per frame, avoiding layout-thrashing jank.
     let rafId: number | null = null
     const throttledUpdateActiveSection = (): void => {
       if (rafId !== null) {
@@ -406,6 +404,15 @@ function Settings(): React.JSX.Element {
                     scrollbackMode={scrollbackMode}
                     setScrollbackMode={setScrollbackMode}
                   />
+                </SettingsSection>
+
+                <SettingsSection
+                  id="notifications"
+                  title="Notifications"
+                  description="Native desktop notifications for agent activity and terminal events."
+                  searchEntries={NOTIFICATIONS_PANE_SEARCH_ENTRIES}
+                >
+                  <NotificationsPane settings={settings} updateSettings={updateSettings} />
                 </SettingsSection>
 
                 <SettingsSection

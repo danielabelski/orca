@@ -10,6 +10,7 @@ import type {
   PRCheckDetail,
   IssueInfo,
   GlobalSettings,
+  NotificationDispatchRequest,
   OrcaHooks,
   PersistedUIState,
   WorkspaceSessionState,
@@ -93,6 +94,10 @@ type CliApi = {
   getInstallStatus: () => Promise<CliInstallStatus>
   install: () => Promise<CliInstallStatus>
   remove: () => Promise<CliInstallStatus>
+}
+
+type NotificationsApi = {
+  dispatch: (args: NotificationDispatchRequest) => Promise<{ delivered: boolean }>
 }
 
 type ShellApi = {
@@ -229,6 +234,9 @@ type Api = {
   pty: PtyApi
   gh: GhApi
   settings: SettingsApi
+  cli: CliApi
+  preflight: PreflightApi
+  notifications: NotificationsApi
   cli: CliApi
   preflight: PreflightApi
   shell: ShellApi

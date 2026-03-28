@@ -1,5 +1,6 @@
 import type {
   GlobalSettings,
+  NotificationSettings,
   PersistedState,
   PersistedUIState,
   RepoHookSettings,
@@ -47,6 +48,15 @@ export const REPO_COLORS = [
   '#ec4899' // pink
 ] as const
 
+export function getDefaultNotificationSettings(): NotificationSettings {
+  return {
+    enabled: true,
+    agentTaskComplete: true,
+    terminalBell: false,
+    suppressWhenFocused: true
+  }
+}
+
 export function getDefaultSettings(homedir: string): GlobalSettings {
   return {
     workspaceDir: `${homedir}/orca/workspaces`,
@@ -72,6 +82,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalDividerThicknessPx: 3,
     terminalScrollbackBytes: 10_000_000,
     rightSidebarOpenByDefault: true,
+    notifications: getDefaultNotificationSettings(),
     diffDefaultView: 'inline'
   }
 }

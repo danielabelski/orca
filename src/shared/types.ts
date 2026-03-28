@@ -226,6 +226,13 @@ export type UpdateStatus =
   | { state: 'error'; message: string; userInitiated?: boolean }
 
 // ─── Settings ────────────────────────────────────────────────────────
+export type NotificationSettings = {
+  enabled: boolean
+  agentTaskComplete: boolean
+  terminalBell: boolean
+  suppressWhenFocused: boolean
+}
+
 export type GlobalSettings = {
   workspaceDir: string
   nestWorkspaces: boolean
@@ -251,6 +258,18 @@ export type GlobalSettings = {
   terminalScrollbackBytes: number
   rightSidebarOpenByDefault: boolean
   diffDefaultView: 'inline' | 'side-by-side'
+  notifications: NotificationSettings
+}
+
+export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 'test'
+
+export type NotificationDispatchRequest = {
+  source: NotificationEventSource
+  worktreeId?: string
+  repoLabel?: string
+  worktreeLabel?: string
+  terminalTitle?: string
+  isActiveWorktree?: boolean
 }
 
 export type WorktreeCardProperty = 'status' | 'unread' | 'ci' | 'issue' | 'pr' | 'comment'

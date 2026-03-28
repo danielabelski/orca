@@ -5,6 +5,8 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { registerFilesystemHandlers } from './filesystem'
 import { registerGitHubHandlers } from './github'
 import { registerRuntimeHandlers } from './runtime'
+import { registerNotificationHandlers } from './notifications'
+import { registerRuntimeHandlers } from './runtime'
 import { registerSessionHandlers } from './session'
 import { registerSettingsHandlers } from './settings'
 import { registerShellHandlers } from './shell'
@@ -19,6 +21,7 @@ export function registerCoreHandlers(store: Store, runtime: OrcaRuntimeService):
   registerCliHandlers()
   registerPreflightHandlers()
   registerGitHubHandlers(store)
+  registerNotificationHandlers(store)
   registerSettingsHandlers(store)
   registerShellHandlers()
   registerSessionHandlers(store)
