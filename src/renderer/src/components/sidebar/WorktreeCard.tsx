@@ -300,7 +300,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
           {/* Subtitle row: Repo badge + Branch */}
           <div className="flex items-center gap-1.5 min-w-0">
             {repo && !hideRepoBadge && (
-              <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5 rounded-[4px] bg-background/50 border border-border/40">
+              <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5 rounded-[4px] bg-accent border border-border dark:bg-accent/50 dark:border-border/60">
                 <div
                   className="size-1.5 rounded-full"
                   style={{ backgroundColor: repo.badgeColor }}
@@ -314,7 +314,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
             {isPrimaryBranch(worktree.branch) ? (
               <Badge
                 variant="secondary"
-                className="h-[16px] px-1.5 text-[10px] font-medium rounded shrink-0 text-muted-foreground bg-accent/60 border-none leading-none"
+                className="h-[16px] px-1.5 text-[10px] font-medium rounded shrink-0 text-muted-foreground bg-accent border border-border dark:bg-accent/80 dark:border-border/50 leading-none"
               >
                 main
               </Badge>
