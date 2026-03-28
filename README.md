@@ -12,7 +12,7 @@ Built-in status tracking, notifications, and unread markers. Makes coding multip
 Learn more at <a align="center" href="https://www.orcabuild.ai">www.OrcaBuild.ai</a>
 
 <p align="center">
-  <img src="screenshot.png" alt="Orca Screenshot" width="800" />
+  <img src="file-drag.gif" alt="Orca Screenshot" width="800" />
 </p>
 
 ## Features
