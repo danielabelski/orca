@@ -14,4 +14,4 @@ Orca targets macOS, Linux, and Windows. Keep all platform-dependent behavior beh
 
 ## GitHub CLI Usage
 
-Be mindful of the user's `gh` CLI API rate limit — batch requests where possible and avoid unnecessary calls. All `gh` commands and scripts must be compatible with macOS, Linux, and Windows.
+Be mindful of the user's `gh` CLI API rate limit — batch requests where possible and avoid unnecessary calls. All code, commands, and scripts must be compatible with macOS, Linux, and Windows.
