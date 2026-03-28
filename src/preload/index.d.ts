@@ -127,7 +127,9 @@ type UIApi = {
 
 type FsApi = {
   readDir: (args: { dirPath: string }) => Promise<DirEntry[]>
-  readFile: (args: { filePath: string }) => Promise<{ content: string; isBinary: boolean }>
+  readFile: (args: {
+    filePath: string
+  }) => Promise<{ content: string; isBinary: boolean; isImage?: boolean; mimeType?: string }>
   writeFile: (args: { filePath: string; content: string }) => Promise<void>
   stat: (args: {
     filePath: string

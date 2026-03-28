@@ -136,6 +136,52 @@ describe('registerFilesystemHandlers', () => {
     expect(writeFileMock).not.toHaveBeenCalled()
   })
 
+  it('returns base64 content for supported image binaries', async () => {
+    statMock.mockResolvedValue({ size: 4, isDirectory: () => false, mtimeMs: 123 })
+    readFileMock.mockResolvedValue(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]))
+
+    registerFilesystemHandlers(store as never)
+
+    await expect(
+      handlers.get('fs:readFile')!(null, { filePath: '/workspace/repo/image.png' })
+    ).resolves.toEqual({
+      content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]).toString('base64'),
+      isBinary: true,
+      isImage: true,
+      mimeType: 'image/png'
+    })
+  })
+
+  it('returns base64 content for supported text-based images', async () => {
+    statMock.mockResolvedValue({ size: 32, isDirectory: () => false, mtimeMs: 123 })
+    readFileMock.mockResolvedValue(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'))
+
+    registerFilesystemHandlers(store as never)
+
+    await expect(
+      handlers.get('fs:readFile')!(null, { filePath: '/workspace/repo/image.svg' })
+    ).resolves.toEqual({
+      content: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />').toString('base64'),
+      isBinary: true,
+      isImage: true,
+      mimeType: 'image/svg+xml'
+    })
+  })
+
+  it('keeps non-image binaries hidden from the editor payload', async () => {
+    statMock.mockResolvedValue({ size: 4, isDirectory: () => false, mtimeMs: 123 })
+    readFileMock.mockResolvedValue(Buffer.from([0x00, 0x01, 0x02]))
+
+    registerFilesystemHandlers(store as never)
+
+    await expect(
+      handlers.get('fs:readFile')!(null, { filePath: '/workspace/repo/archive.zip' })
+    ).resolves.toEqual({
+      content: '',
+      isBinary: true
+    })
+  })
+
   it('normalizes repo worktree paths and keeps git file paths relative', async () => {
     stageFileMock.mockResolvedValue(undefined)
 

@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { readdir, readFile, writeFile, stat, lstat } from 'fs/promises'
-import { relative } from 'path'
+import { extname, relative } from 'path'
 import { spawn } from 'child_process'
 import type { Store } from '../persistence'
 import type {
@@ -20,6 +20,16 @@ import {
 } from './filesystem-auth'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon'
+}
 
 function normalizeRelativePath(path: string): string {
   return path.replace(/[\\/]+/g, '/').replace(/^\/+/, '')
@@ -60,7 +70,10 @@ export function registerFilesystemHandlers(store: Store): void {
 
   ipcMain.handle(
     'fs:readFile',
-    async (_event, args: { filePath: string }): Promise<{ content: string; isBinary: boolean }> => {
+    async (
+      _event,
+      args: { filePath: string }
+    ): Promise<{ content: string; isBinary: boolean; isImage?: boolean; mimeType?: string }> => {
       const filePath = await resolveAuthorizedPath(args.filePath, store)
       const stats = await stat(filePath)
       if (stats.size > MAX_FILE_SIZE) {
@@ -70,6 +83,16 @@ export function registerFilesystemHandlers(store: Store): void {
       }
 
       const buffer = await readFile(filePath)
+      const mimeType = IMAGE_MIME_TYPES[extname(filePath).toLowerCase()]
+      if (mimeType) {
+        return {
+          content: buffer.toString('base64'),
+          isBinary: true,
+          isImage: true,
+          mimeType
+        }
+      }
+
       if (isBinaryBuffer(buffer)) {
         return { content: '', isBinary: true }
       }

@@ -6,6 +6,8 @@ import { getEditorHeaderCopyState } from './editor-header'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { MarkdownViewMode } from '@/store/slices/editor'
 import MarkdownViewToggle from './MarkdownViewToggle'
+import ImageDiffViewer from './ImageDiffViewer'
+import ImageViewer from './ImageViewer'
 
 const MonacoEditor = lazy(() => import('./MonacoEditor'))
 const DiffViewer = lazy(() => import('./DiffViewer'))
@@ -15,11 +17,15 @@ const MarkdownPreview = lazy(() => import('./MarkdownPreview'))
 type FileContent = {
   content: string
   isBinary: boolean
+  isImage?: boolean
+  mimeType?: string
 }
 
 type DiffContent = {
   originalContent: string
   modifiedContent: string
+  isImage?: boolean
+  mimeType?: string
 }
 
 export default function EditorPanel(): React.JSX.Element | null {
@@ -345,6 +351,15 @@ export default function EditorPanel(): React.JSX.Element | null {
               )
             }
             if (fc.isBinary) {
+              if (fc.isImage) {
+                return (
+                  <ImageViewer
+                    content={fc.content}
+                    filePath={activeFile.filePath}
+                    mimeType={fc.mimeType}
+                  />
+                )
+              }
               return (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                   Binary file — cannot display
@@ -365,6 +380,17 @@ export default function EditorPanel(): React.JSX.Element | null {
             }
             // Unstaged diffs are editable (right side = working tree file)
             const isEditable = activeFile.diffStaged === false
+            if (dc.isImage) {
+              return (
+                <ImageDiffViewer
+                  originalContent={dc.originalContent}
+                  modifiedContent={editBuffers[activeFile.id] ?? dc.modifiedContent}
+                  filePath={activeFile.filePath}
+                  mimeType={dc.mimeType}
+                  sideBySide={sideBySide}
+                />
+              )
+            }
             return (
               <DiffViewer
                 originalContent={dc.originalContent}

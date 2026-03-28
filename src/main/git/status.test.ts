@@ -20,7 +20,7 @@ vi.mock('fs/promises', () => ({
   rm: rmMock
 }))
 
-import { discardChanges, isWithinWorktree } from './status'
+import { discardChanges, getDiff, isWithinWorktree } from './status'
 
 describe('discardChanges', () => {
   beforeEach(() => {
@@ -79,5 +79,48 @@ describe('discardChanges', () => {
 
   it('accepts in-tree Windows paths when resolving containment', async () => {
     expect(isWithinWorktree(path.win32, 'C:\\repo', 'C:\\repo\\src\\file.ts')).toBe(true)
+  })
+})
+
+describe('getDiff', () => {
+  beforeEach(() => {
+    execFileAsyncMock.mockReset()
+    readFileMock.mockReset()
+  })
+
+  it('returns base64 payloads for unstaged image diffs', async () => {
+    execFileAsyncMock.mockResolvedValueOnce({
+      stdout: Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    })
+    readFileMock.mockResolvedValueOnce(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]))
+
+    await expect(getDiff('/repo', 'image.png', false)).resolves.toEqual({
+      originalContent: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'),
+      modifiedContent: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]).toString('base64'),
+      isImage: true,
+      mimeType: 'image/png'
+    })
+
+    expect(execFileAsyncMock).toHaveBeenCalledWith('git', ['show', 'HEAD:image.png'], {
+      cwd: '/repo',
+      encoding: 'buffer',
+      maxBuffer: 10 * 1024 * 1024
+    })
+    expect(readFileMock).toHaveBeenCalledWith('/repo/image.png')
+  })
+
+  it('returns base64 payloads for staged image diffs', async () => {
+    execFileAsyncMock
+      .mockResolvedValueOnce({ stdout: Buffer.from([0x01, 0x02]) })
+      .mockResolvedValueOnce({ stdout: Buffer.from([0x03, 0x04]) })
+
+    await expect(getDiff('/repo', 'image.png', true)).resolves.toEqual({
+      originalContent: Buffer.from([0x01, 0x02]).toString('base64'),
+      modifiedContent: Buffer.from([0x03, 0x04]).toString('base64'),
+      isImage: true,
+      mimeType: 'image/png'
+    })
+
+    expect(readFileMock).not.toHaveBeenCalled()
   })
 })

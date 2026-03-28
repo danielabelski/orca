@@ -213,7 +213,9 @@ const api = {
       dirPath: string
     }): Promise<{ name: string; isDirectory: boolean; isSymlink: boolean }[]> =>
       ipcRenderer.invoke('fs:readDir', args),
-    readFile: (args: { filePath: string }): Promise<{ content: string; isBinary: boolean }> =>
+    readFile: (args: {
+      filePath: string
+    }): Promise<{ content: string; isBinary: boolean; isImage?: boolean; mimeType?: string }> =>
       ipcRenderer.invoke('fs:readFile', args),
     writeFile: (args: { filePath: string; content: string }): Promise<void> =>
       ipcRenderer.invoke('fs:writeFile', args),

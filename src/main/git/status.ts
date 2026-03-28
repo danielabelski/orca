@@ -5,6 +5,16 @@ import * as path from 'path'
 import type { GitStatusEntry, GitFileStatus, GitDiffResult } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon'
+}
 
 /**
  * Parse `git status --porcelain=v2` output into structured entries.
@@ -95,6 +105,21 @@ export async function getDiff(
   filePath: string,
   staged: boolean
 ): Promise<GitDiffResult> {
+  const mimeType = IMAGE_MIME_TYPES[path.extname(filePath).toLowerCase()]
+  if (mimeType) {
+    const originalBuffer = await readGitFileVersion(worktreePath, filePath, 'head')
+    const modifiedBuffer = staged
+      ? await readGitFileVersion(worktreePath, filePath, 'index')
+      : await readWorkingTreeFile(worktreePath, filePath)
+
+    return {
+      originalContent: originalBuffer?.toString('base64') ?? '',
+      modifiedContent: modifiedBuffer?.toString('base64') ?? '',
+      isImage: true,
+      mimeType
+    }
+  }
+
   let originalContent = ''
   let modifiedContent = ''
 
@@ -137,6 +162,32 @@ export async function getDiff(
   }
 
   return { originalContent, modifiedContent }
+}
+
+async function readGitFileVersion(
+  worktreePath: string,
+  filePath: string,
+  source: 'head' | 'index'
+): Promise<Buffer | null> {
+  try {
+    const objectSpec = source === 'head' ? `HEAD:${filePath}` : `:${filePath}`
+    const { stdout } = await execFileAsync('git', ['show', objectSpec], {
+      cwd: worktreePath,
+      encoding: 'buffer',
+      maxBuffer: 10 * 1024 * 1024
+    })
+    return stdout
+  } catch {
+    return null
+  }
+}
+
+async function readWorkingTreeFile(worktreePath: string, filePath: string): Promise<Buffer | null> {
+  try {
+    return await readFile(path.join(worktreePath, filePath))
+  } catch {
+    return null
+  }
 }
 
 /**

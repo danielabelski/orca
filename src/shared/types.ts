@@ -221,6 +221,8 @@ export type GitStatusEntry = {
 export type GitDiffResult = {
   originalContent: string
   modifiedContent: string
+  isImage?: boolean
+  mimeType?: string
 }
 
 // ─── Search ─────────────────────────────────────────────
