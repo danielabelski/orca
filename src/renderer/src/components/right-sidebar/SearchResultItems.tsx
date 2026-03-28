@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
-import { basename, dirname } from 'node:path'
 import { ChevronRight, File, Copy } from 'lucide-react'
+import { basename, dirname } from '@/lib/path'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {

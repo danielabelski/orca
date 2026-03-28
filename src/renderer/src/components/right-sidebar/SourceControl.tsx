@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { basename, dirname, join } from 'node:path'
 import {
   ChevronDown,
   Minus,
@@ -14,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { detectLanguage } from '@/lib/language-detect'
+import { basename, dirname, joinPath } from '@/lib/path'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { GitStatusEntry, GitStagingArea } from '../../../../shared/types'
@@ -188,7 +188,7 @@ export default function SourceControl(): React.JSX.Element {
         return
       }
       const language = detectLanguage(entry.path)
-      const absolutePath = worktreePath ? join(worktreePath, entry.path) : entry.path
+      const absolutePath = worktreePath ? joinPath(worktreePath, entry.path) : entry.path
       openDiff(activeWorktreeId, absolutePath, entry.path, language, entry.area === 'staged')
     },
     [activeWorktreeId, worktreePath, openDiff]
