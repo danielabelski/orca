@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { LoaderCircle, GitMerge, ChevronDown, Trash2 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { PRInfo, Repo, Worktree } from '../../../../shared/types'
 
 const MERGE_METHODS = ['squash', 'merge', 'rebase'] as const
@@ -75,9 +76,10 @@ export default function PRActions({
     return (
       <div className="space-y-1.5">
         <div className="relative flex items-stretch" ref={mergeMenuRef}>
-          <button
+          <Button
+            type="button"
             className={cn(
-              'flex-1 flex items-center justify-center gap-1.5 rounded-l-md px-3 py-1.5 text-[11px] font-medium transition-colors',
+              'flex-1 rounded-r-none px-3 py-1.5 text-[11px]',
               'bg-green-600 text-white hover:bg-green-700',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
@@ -90,10 +92,11 @@ export default function PRActions({
               <GitMerge className="size-3.5" />
             )}
             {merging ? 'Merging\u2026' : 'Squash and merge'}
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
             className={cn(
-              'flex items-center px-1.5 rounded-r-md border-l border-green-700/50 transition-colors',
+              'rounded-l-none border-l border-green-700/50 px-1.5',
               'bg-green-600 text-white hover:bg-green-700',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
@@ -101,17 +104,19 @@ export default function PRActions({
             disabled={merging}
           >
             <ChevronDown className="size-3.5" />
-          </button>
+          </Button>
           {mergeMenuOpen && (
             <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border border-border bg-popover shadow-md overflow-hidden">
               {MERGE_METHODS.map((method) => (
-                <button
+                <Button
                   key={method}
-                  className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-accent transition-colors"
+                  type="button"
+                  variant="ghost"
+                  className="h-auto w-full justify-start rounded-none px-3 py-1.5 text-left text-[11px]"
                   onClick={() => void handleMerge(method)}
                 >
                   {MERGE_LABELS[method]}
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -123,16 +128,16 @@ export default function PRActions({
 
   if (pr.state === 'merged') {
     return (
-      <button
-        className={cn(
-          'w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors',
-          'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-        )}
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="w-full text-[11px]"
         onClick={handleDeleteWorktree}
       >
         <Trash2 className="size-3.5" />
         Delete Worktree
-      </button>
+      </Button>
     )
   }
 

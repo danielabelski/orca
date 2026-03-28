@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { detectLanguage } from '@/lib/language-detect'
+import { Button } from '@/components/ui/button'
 import type { SearchFileResult, SearchMatch } from '../../../../shared/types'
 import { ToggleButton, FileResultItem } from './SearchResultItems'
 
@@ -231,12 +232,15 @@ export default function Search(): React.JSX.Element {
             <Loader2 size={12} className="text-muted-foreground animate-spin flex-shrink-0" />
           )}
           {fileSearchQuery && (
-            <button
-              className="p-0.5 rounded-sm hover:bg-muted text-muted-foreground hover:text-foreground"
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="h-auto w-auto rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
               onClick={handleClearSearch}
             >
               <X size={12} />
-            </button>
+            </Button>
           )}
           {/* Toggle buttons */}
           <ToggleButton
@@ -272,13 +276,15 @@ export default function Search(): React.JSX.Element {
         </div>
 
         {/* Files to include/exclude toggle */}
-        <button
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-auto justify-start gap-1 self-start px-0 text-[10px] text-muted-foreground hover:text-foreground"
           onClick={() => setShowFilters(!showFilters)}
         >
           {showFilters ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           <span>files to include/exclude</span>
-        </button>
+        </Button>
 
         {showFilters && (
           <div className="flex flex-col gap-1">

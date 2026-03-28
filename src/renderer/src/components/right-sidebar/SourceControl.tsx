@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { basename, dirname, join } from 'node:path'
 import {
   ChevronDown,
   Minus,
@@ -14,6 +15,7 @@ import {
 import { useAppStore } from '@/store'
 import { detectLanguage } from '@/lib/language-detect'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { GitStatusEntry, GitStagingArea } from '../../../../shared/types'
 import { getSourceControlActions } from './source-control-actions'
 
@@ -186,7 +188,7 @@ export default function SourceControl(): React.JSX.Element {
         return
       }
       const language = detectLanguage(entry.path)
-      const absolutePath = worktreePath ? `${worktreePath}/${entry.path}` : entry.path
+      const absolutePath = worktreePath ? join(worktreePath, entry.path) : entry.path
       openDiff(activeWorktreeId, absolutePath, entry.path, language, entry.area === 'staged')
     },
     [activeWorktreeId, worktreePath, openDiff]
@@ -211,8 +213,10 @@ export default function SourceControl(): React.JSX.Element {
   return (
     <div className="flex-1 overflow-auto scrollbar-sleek">
       {/* View All Changes button */}
-      <button
-        className="flex items-center gap-1.5 w-full px-3 py-2 text-left text-[12px] font-medium text-foreground hover:bg-accent/40 transition-colors border-b border-border"
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-auto w-full justify-start rounded-none border-b border-border px-3 py-2 text-left text-[12px] font-medium"
         onClick={handleViewAllChanges}
       >
         <GitCompareArrows className="size-3.5 text-muted-foreground" />
@@ -220,7 +224,7 @@ export default function SourceControl(): React.JSX.Element {
         <span className="text-[10px] font-medium bg-muted/60 rounded-full px-1.5 py-0.5 ml-auto text-muted-foreground">
           {entries.length}
         </span>
-      </button>
+      </Button>
 
       {SECTION_ORDER.map((area) => {
         const items = grouped[area]
@@ -232,8 +236,10 @@ export default function SourceControl(): React.JSX.Element {
         return (
           <div key={area}>
             {/* Section header */}
-            <button
-              className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors"
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto w-full justify-start px-3 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
               onClick={() => toggleSection(area)}
             >
               <ChevronDown
@@ -243,16 +249,15 @@ export default function SourceControl(): React.JSX.Element {
               <span className="text-[10px] font-medium bg-muted/60 rounded-full px-1.5 py-0.5">
                 {items.length}
               </span>
-            </button>
+            </Button>
 
             {/* File entries */}
             {!isCollapsed &&
               items.map((entry) => {
                 const StatusIcon = STATUS_ICONS[entry.status] ?? FileQuestion
-                const fileName = entry.path.split('/').pop() ?? entry.path
-                const dirPath = entry.path.includes('/')
-                  ? entry.path.slice(0, entry.path.lastIndexOf('/'))
-                  : ''
+                const fileName = basename(entry.path)
+                const parentDir = dirname(entry.path)
+                const dirPath = parentDir === '.' ? '' : parentDir
                 const actions = getSourceControlActions(area)
 
                 return (
@@ -339,12 +344,15 @@ function ActionButton({
   onClick: (e: React.MouseEvent) => void
 }): React.JSX.Element {
   return (
-    <button
-      className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      className="h-auto w-auto p-0.5 text-muted-foreground hover:text-foreground"
       title={title}
       onClick={onClick}
     >
       <Icon className="size-3" />
-    </button>
+    </Button>
   )
 }

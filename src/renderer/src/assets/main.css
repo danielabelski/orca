@@ -158,6 +158,14 @@
   ul {
     list-style: none;
   }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
 }
 
 /* ── Sleek scrollbar (hover-only, thin) ─────────────── */

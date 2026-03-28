@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react'
+import { basename, dirname } from 'node:path'
 import { ChevronRight, File, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -22,9 +24,12 @@ export function ToggleButton({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <button
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
       className={cn(
-        'p-0.5 rounded-sm flex-shrink-0 transition-colors',
+        'h-auto w-auto rounded-sm p-0.5 flex-shrink-0',
         active
           ? 'bg-accent text-accent-foreground'
           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -33,7 +38,7 @@ export function ToggleButton({
       title={title}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -49,18 +54,19 @@ export function FileResultItem({
   onToggleCollapse: () => void
   onMatchClick: (match: SearchMatch) => void
 }): React.JSX.Element {
-  const fileName = fileResult.relativePath.split('/').pop() ?? fileResult.relativePath
-  const dirPath = fileResult.relativePath.includes('/')
-    ? fileResult.relativePath.slice(0, fileResult.relativePath.lastIndexOf('/'))
-    : ''
+  const fileName = basename(fileResult.relativePath)
+  const parentDir = dirname(fileResult.relativePath)
+  const dirPath = parentDir === '.' ? '' : parentDir
 
   return (
     <div>
       {/* File header with context menu */}
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <button
-            className="flex items-center gap-1 w-full px-2 py-0.5 hover:bg-muted/50 text-left group"
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-auto w-full justify-start gap-1 rounded-none px-2 py-0.5 text-left group"
             onClick={onToggleCollapse}
           >
             <ChevronRight
@@ -78,7 +84,7 @@ export function FileResultItem({
             <span className="ml-auto text-[10px] text-muted-foreground flex-shrink-0 bg-muted/80 rounded-full px-1.5">
               {fileResult.matches.length}
             </span>
-          </button>
+          </Button>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem
@@ -135,8 +141,10 @@ export function MatchItem({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <button
-          className="flex items-start gap-1 w-full pl-7 pr-2 py-px hover:bg-muted/50 text-left min-h-[18px]"
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-h-[18px] h-auto w-full justify-start gap-1 rounded-none py-px pr-2 pl-7 text-left"
           onClick={onClick}
         >
           <span className="text-[10px] text-muted-foreground flex-shrink-0 w-8 text-right tabular-nums mt-px">
@@ -149,7 +157,7 @@ export function MatchItem({
             )}
             <span className="text-muted-foreground">{parts.after}</span>
           </span>
-        </button>
+        </Button>
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem

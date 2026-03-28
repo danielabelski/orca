@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { ChevronUp, ChevronDown, X, CaseSensitive, Regex } from 'lucide-react'
 import type { SearchAddon } from '@xterm/addon-search'
+import { Button } from '@/components/ui/button'
 
 type TerminalSearchProps = {
   isOpen: boolean
@@ -88,7 +89,10 @@ export default function TerminalSearch({
         className="min-w-0 flex-1 border-none bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
       />
 
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={() => setCaseSensitive((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
           caseSensitive ? 'bg-zinc-700/50 text-blue-400' : 'text-zinc-400 hover:text-zinc-200'
@@ -96,9 +100,12 @@ export default function TerminalSearch({
         title="Case sensitive"
       >
         <CaseSensitive size={14} />
-      </button>
+      </Button>
 
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={() => setRegex((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
           regex ? 'bg-zinc-700/50 text-blue-400' : 'text-zinc-400 hover:text-zinc-200'
@@ -106,35 +113,44 @@ export default function TerminalSearch({
         title="Regex"
       >
         <Regex size={14} />
-      </button>
+      </Button>
 
       <div className="mx-0.5 h-4 w-px bg-zinc-700" />
 
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={findPrevious}
         className="flex size-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-200"
         title="Previous match"
       >
         <ChevronUp size={14} />
-      </button>
+      </Button>
 
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={findNext}
         className="flex size-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-200"
         title="Next match"
       >
         <ChevronDown size={14} />
-      </button>
+      </Button>
 
       <div className="mx-0.5 h-4 w-px bg-zinc-700" />
 
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={onClose}
         className="flex size-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-200"
         title="Close"
       >
         <X size={14} />
-      </button>
+      </Button>
     </div>
   )
 }
