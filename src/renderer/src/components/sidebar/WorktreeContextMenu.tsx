@@ -143,7 +143,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({ worktree, 
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleLinkIssue} disabled={isDeleting}>
             <Link className="size-3.5" />
-            {worktree.linkedIssue ? 'Edit GH Issue/PR' : 'Link GH Issue/PR'}
+            {worktree.linkedIssue ? 'Edit GH Issue' : 'Link GH Issue'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleComment} disabled={isDeleting}>
             <MessageSquare className="size-3.5" />

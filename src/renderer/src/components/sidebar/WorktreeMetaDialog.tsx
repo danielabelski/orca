@@ -177,17 +177,17 @@ const WorktreeMetaDialog = React.memo(function WorktreeMetaDialog() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-medium text-muted-foreground">GH Issue / PR</label>
+            <label className="text-[11px] font-medium text-muted-foreground">GH Issue</label>
             <Input
               ref={issueInputRef}
               value={issueInput}
               onChange={(e) => setIssueInput(e.target.value)}
               onKeyDown={handleIssueKeyDown}
-              placeholder="Issue/PR # or GitHub URL"
+              placeholder="Issue # or GitHub URL"
               className="h-8 text-xs"
             />
             <p className="text-[10px] text-muted-foreground">
-              Paste an issue or PR URL, or enter a number. Leave blank to remove the link.
+              Paste an issue URL, or enter a number. Leave blank to remove the link.
             </p>
           </div>
 

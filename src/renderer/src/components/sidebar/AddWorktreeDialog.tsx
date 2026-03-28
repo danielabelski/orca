@@ -273,16 +273,16 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
           {/* Link GH Issue */}
           <div className="space-y-1">
             <label className="text-[11px] font-medium text-muted-foreground">
-              Link GH Issue/PR <span className="text-muted-foreground/50">(optional)</span>
+              Link GH Issue <span className="text-muted-foreground/50">(optional)</span>
             </label>
             <Input
               value={linkedIssue}
               onChange={(e) => setLinkedIssue(e.target.value)}
-              placeholder="Issue/PR # or GitHub URL"
+              placeholder="Issue # or GitHub URL"
               className="h-8 text-xs"
             />
             <p className="text-[10px] text-muted-foreground">
-              Paste an issue or PR URL, or enter a number.
+              Paste an issue URL, or enter a number.
             </p>
           </div>
 

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import React, { useEffect, useMemo, useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { Badge } from '@/components/ui/badge'
@@ -91,6 +92,34 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
   const fetchPRForBranch = useAppStore((s) => s.fetchPRForBranch)
   const fetchIssue = useAppStore((s) => s.fetchIssue)
+  const handleEditIssue = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      openModal('edit-meta', {
+        worktreeId: worktree.id,
+        currentDisplayName: worktree.displayName,
+        currentIssue: worktree.linkedIssue,
+        currentComment: worktree.comment,
+        focus: 'issue'
+      })
+    },
+    [worktree, openModal]
+  )
+
+  const handleEditComment = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      openModal('edit-meta', {
+        worktreeId: worktree.id,
+        currentDisplayName: worktree.displayName,
+        currentIssue: worktree.linkedIssue,
+        currentComment: worktree.comment,
+        focus: 'comment'
+      })
+    },
+    [worktree, openModal]
+  )
+
   const deleteState = useAppStore((s) => s.deleteStateByWorktreeId[worktree.id])
 
   // ── GRANULAR selectors: only subscribe to THIS worktree's data ──
@@ -302,7 +331,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
               {issue && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="flex items-center gap-1.5 min-w-0 cursor-default group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40">
+                    <div
+                      className="flex items-center gap-1.5 min-w-0 cursor-pointer group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40"
+                      onClick={handleEditIssue}
+                    >
                       <CircleDot className="size-3 shrink-0 text-muted-foreground opacity-60" />
                       <div className="flex-1 min-w-0 flex items-center gap-1.5 text-[11.5px] leading-none">
                         <span className="text-foreground opacity-80 font-medium shrink-0">
@@ -349,7 +381,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
               {pr && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="flex items-center gap-1.5 min-w-0 cursor-default group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40">
+                    <div
+                      className="flex items-center gap-1.5 min-w-0 cursor-pointer group/meta -mx-1.5 px-1.5 py-0.5 rounded transition-colors hover:bg-background/40"
+                      onClick={handleEditIssue}
+                    >
                       <PullRequestIcon
                         className={cn(
                           'size-3 shrink-0',
@@ -408,7 +443,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
               {worktree.comment && (
                 <HoverCard openDelay={300}>
                   <HoverCardTrigger asChild>
-                    <div className="text-[11px] text-muted-foreground truncate cursor-default -mx-1.5 px-1.5 py-0.5 hover:bg-background/40 hover:text-foreground rounded transition-colors leading-none">
+                    <div
+                      className="text-[11px] text-muted-foreground truncate cursor-pointer -mx-1.5 px-1.5 py-0.5 hover:bg-background/40 hover:text-foreground rounded transition-colors leading-none"
+                      onClick={handleEditComment}
+                    >
                       {worktree.comment}
                     </div>
                   </HoverCardTrigger>
