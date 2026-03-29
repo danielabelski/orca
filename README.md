@@ -5,7 +5,7 @@
 
 <h1 align="center">Orca</h1>
 
-<strong>A cross-platform AI Orchestrator for nerds.</strong><br/>
+<strong>A cross-platform AI Orchestrator for 100x engineers.</strong><br/>
 Seamlessly manage multiple worktrees and open multiple terminals running anything — Claude Code, Codex, OpenCode, and more.<br/>
 Built-in status tracking, notifications, and unread markers. Makes coding multiple features across multiple repos a breeze.
 
@@ -17,13 +17,9 @@ Learn more at <a align="center" href="https://www.orcabuild.ai">www.OrcaBuild.ai
 
 ---
 
-### We're shipping incredibly fast!
+### Shipped daily
 
-**We are adding 10 features a day to make Orca the absolute best editor and orchestrator out there.**
-
-Got a workflow you want to support? **[Drop a feature request](https://github.com/stablyai/orca/issues)**!
-
-**Star the repo** to follow our rapid progress and join the community!
+Missing something? It's probably landing tomorrow. **[Request a feature](https://github.com/stablyai/orca/issues)** · **Star** to follow along.
 
 ---
 
