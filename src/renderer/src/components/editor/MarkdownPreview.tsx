@@ -65,7 +65,7 @@ export default function MarkdownPreview({
 
   return (
     <div
-      className={`markdown-preview flex-1 min-h-0 overflow-auto ${isDark ? 'markdown-dark' : 'markdown-light'}`}
+      className={`markdown-preview h-full min-h-0 overflow-auto scrollbar-editor ${isDark ? 'markdown-dark' : 'markdown-light'}`}
     >
       <div className="markdown-body">
         <Markdown

@@ -135,9 +135,9 @@ export function EditorContent({
       )
     }
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-1 min-h-0 flex-col">
         {activeFile.conflict && <ConflictBanner file={activeFile} entry={activeConflictEntry} />}
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 relative">
           {isMarkdown ? renderMarkdownContent(fc) : renderMonacoEditor(fc)}
         </div>
       </div>
