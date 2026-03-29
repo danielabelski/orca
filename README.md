@@ -15,6 +15,18 @@ Learn more at <a align="center" href="https://www.orcabuild.ai">www.OrcaBuild.ai
   <img src="file-drag.gif" alt="Orca Screenshot" width="800" />
 </p>
 
+---
+
+### We're shipping incredibly fast!
+
+**We are adding 10 features a day to make Orca the absolute best editor and orchestrator out there.**
+
+Got a workflow you want to support? **[Drop a feature request](https://github.com/stablyai/orca/issues)**!
+
+**Star the repo** to follow our rapid progress and join the community!
+
+---
+
 ## Features
   * Manage multiple worktrees
   * Multiple terminals, tabs and panes
