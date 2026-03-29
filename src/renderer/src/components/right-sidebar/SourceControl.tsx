@@ -381,7 +381,7 @@ export default function SourceControl(): React.JSX.Element {
         )}
 
         <div className="flex-1 overflow-auto scrollbar-sleek py-1">
-          {showGenericEmptyState ? (
+          {scope === 'all' && showGenericEmptyState ? (
             <EmptyState
               heading="No changes on this branch"
               supportingText={`This worktree is clean and this branch has no changes ahead of ${branchSummary.baseRef}`}
