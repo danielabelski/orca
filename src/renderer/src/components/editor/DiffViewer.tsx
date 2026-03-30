@@ -77,7 +77,12 @@ export default function DiffViewer({
             lineNumbers: 'on',
             automaticLayout: true,
             renderOverviewRuler: true,
-            padding: { top: 8 }
+            padding: { top: 0 },
+            find: {
+              addExtraSpaceOnTop: false,
+              autoFindInSelection: 'never',
+              seedSearchStringFromSelection: 'never'
+            }
           }}
         />
       </div>

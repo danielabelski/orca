@@ -861,3 +861,43 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
+
+/* ── fix: ensure Monaco find widget layout is not reversed ── */
+.monaco-editor .find-widget,
+.monaco-editor .find-widget .monaco-inputbox,
+.monaco-editor .find-widget .matchesCount {
+  direction: ltr !important;
+  flex-direction: row !important;
+}
+
+.monaco-editor .find-widget .button,
+.monaco-editor .find-widget .monaco-button,
+.monaco-editor .find-widget .monaco-find-input .controls .button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  width: 20px !important;
+  height: 20px !important;
+  line-height: normal !important;
+  box-sizing: border-box !important;
+  vertical-align: middle !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+/* Specifically for the expand/collapse button icon which is often a nested 'i' or '::before' */
+.monaco-editor .find-widget .button.expand {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.monaco-editor .find-widget .button > .codicon,
+.monaco-editor .find-widget .button > i {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}

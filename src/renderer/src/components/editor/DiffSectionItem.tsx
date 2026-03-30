@@ -173,7 +173,12 @@ export function DiffSectionItem({
                 automaticLayout: true,
                 renderOverviewRuler: false,
                 scrollbar: { vertical: 'hidden', handleMouseWheel: false },
-                hideUnchangedRegions: { enabled: true }
+                hideUnchangedRegions: { enabled: true },
+                find: {
+                  addExtraSpaceOnTop: false,
+                  autoFindInSelection: 'never',
+                  seedSearchStringFromSelection: 'never'
+                }
               }}
             />
           )}
