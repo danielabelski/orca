@@ -308,7 +308,12 @@ export function registerFilesystemHandlers(store: Store): void {
         resolveOnce()
       })
 
-      const killTimeout = setTimeout(() => child?.kill(), SEARCH_TIMEOUT_MS)
+      // Why: if the timeout fires, the child is killed and results are partial.
+      // We must mark them as truncated so the UI can indicate incomplete results.
+      const killTimeout = setTimeout(() => {
+        truncated = true
+        child?.kill()
+      }, SEARCH_TIMEOUT_MS)
     })
   })
 

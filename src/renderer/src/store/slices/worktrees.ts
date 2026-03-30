@@ -12,12 +12,14 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   worktreesByRepo: {},
   activeWorktreeId: null,
   deleteStateByWorktreeId: {},
+  sortEpoch: 0,
 
   fetchWorktrees: async (repoId) => {
     try {
       const worktrees = await window.api.worktrees.list({ repoId })
       set((s) => ({
-        worktreesByRepo: { ...s.worktreesByRepo, [repoId]: worktrees }
+        worktreesByRepo: { ...s.worktreesByRepo, [repoId]: worktrees },
+        sortEpoch: s.sortEpoch + 1
       }))
     } catch (err) {
       console.error(`Failed to fetch worktrees for repo ${repoId}:`, err)
@@ -36,7 +38,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         worktreesByRepo: {
           ...s.worktreesByRepo,
           [repoId]: [...(s.worktreesByRepo[repoId] ?? []), worktree]
-        }
+        },
+        sortEpoch: s.sortEpoch + 1
       }))
       return worktree
     } catch (err) {
@@ -100,7 +103,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           activeFileIdByWorktree: nextActiveFileIdByWorktree,
           activeTabTypeByWorktree: nextActiveTabTypeByWorktree,
           activeFileId: activeFileCleared ? null : s.activeFileId,
-          activeTabType: activeFileCleared ? 'terminal' : s.activeTabType
+          activeTabType: activeFileCleared ? 'terminal' : s.activeTabType,
+          sortEpoch: s.sortEpoch + 1
         }
       })
       return { ok: true as const }
@@ -135,7 +139,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   updateWorktreeMeta: async (worktreeId, updates) => {
     set((s) => {
       const nextWorktrees = applyWorktreeUpdates(s.worktreesByRepo, worktreeId, updates)
-      return nextWorktrees === s.worktreesByRepo ? {} : { worktreesByRepo: nextWorktrees }
+      return nextWorktrees === s.worktreesByRepo
+        ? {}
+        : { worktreesByRepo: nextWorktrees, sortEpoch: s.sortEpoch + 1 }
     })
 
     try {
@@ -164,7 +170,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         worktreesByRepo: applyWorktreeUpdates(s.worktreesByRepo, worktreeId, {
           isUnread: true,
           lastActivityAt: now
-        })
+        }),
+        sortEpoch: s.sortEpoch + 1
       }
     })
 
@@ -190,7 +197,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       return {
         worktreesByRepo: applyWorktreeUpdates(s.worktreesByRepo, worktreeId, {
           lastActivityAt: now
-        })
+        }),
+        sortEpoch: s.sortEpoch + 1
       }
     })
 

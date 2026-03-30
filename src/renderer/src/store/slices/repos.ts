@@ -107,7 +107,8 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           ptyIdsByTabId: nextPtyIdsByTabId,
           suppressedPtyExitIds: nextSuppressedPtyExitIds,
           terminalLayoutsByTabId: nextLayouts,
-          activeTabId: s.activeTabId && killedTabIds.has(s.activeTabId) ? null : s.activeTabId
+          activeTabId: s.activeTabId && killedTabIds.has(s.activeTabId) ? null : s.activeTabId,
+          sortEpoch: s.sortEpoch + 1
         }
       })
     } catch (err) {

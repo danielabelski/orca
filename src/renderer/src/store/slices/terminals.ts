@@ -161,7 +161,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           return { ...t, title }
         })
       }
-      return changed ? { tabsByWorktree: next } : s
+      // Agent status is derived from terminal titles and affects sort scoring,
+      // so a title change is a meaningful event that should allow re-sort.
+      return changed ? { tabsByWorktree: next, sortEpoch: s.sortEpoch + 1 } : s
     })
   },
 

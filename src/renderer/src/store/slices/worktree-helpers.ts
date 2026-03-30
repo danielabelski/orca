@@ -10,6 +10,13 @@ export type WorktreeSlice = {
   worktreesByRepo: Record<string, Worktree[]>
   activeWorktreeId: string | null
   deleteStateByWorktreeId: Record<string, WorktreeDeleteState>
+  /**
+   * Monotonically increasing counter that signals when the sidebar sort order
+   * should be recomputed.  Only bumped by events that represent meaningful
+   * external changes (worktree add/remove, terminal activity, backend refresh)
+   * — NOT by selection-triggered side-effects like clearing `isUnread`.
+   */
+  sortEpoch: number
   fetchWorktrees: (repoId: string) => Promise<void>
   fetchAllWorktrees: () => Promise<void>
   createWorktree: (repoId: string, name: string, baseBranch?: string) => Promise<Worktree | null>

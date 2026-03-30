@@ -27,6 +27,7 @@ const WorktreeList = React.memo(function WorktreeList() {
   const searchQuery = useAppStore((s) => s.searchQuery)
   const groupBy = useAppStore((s) => s.groupBy)
   const sortBy = useAppStore((s) => s.sortBy)
+  const sortEpoch = useAppStore((s) => s.sortEpoch)
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
   const filterRepoIds = useAppStore((s) => s.filterRepoIds)
   const openModal = useAppStore((s) => s.openModal)
@@ -50,7 +51,32 @@ const WorktreeList = React.memo(function WorktreeList() {
     return m
   }, [repos])
 
-  // Flatten, filter, sort
+  // ── Stable sort order ──────────────────────────────────────────
+  // The sort order is cached and only recomputed when `sortEpoch` changes
+  // (worktree add/remove, terminal activity, backend refresh, etc.).
+  // Selection-triggered side-effects (clearing isUnread, GitHub refresh)
+  // do NOT bump sortEpoch, so clicking a card never reorders the list.
+  //
+  // Why useMemo instead of useEffect: the sort order must be computed
+  // synchronously *before* the worktrees memo reads it, otherwise the
+  // first render (and epoch bumps) would use stale/empty data from the ref.
+  const sortedIdsRef = useRef<string[]>([])
+
+  useMemo(() => {
+    const state = useAppStore.getState()
+    const allWorktrees: Worktree[] = Object.values(state.worktreesByRepo)
+      .flat()
+      .filter((w) => !w.isArchived)
+    const currentRepoMap = new Map(state.repos.map((r) => [r.id, r]))
+    const currentTabs = state.tabsByWorktree
+    allWorktrees.sort(buildWorktreeComparator(sortBy, currentTabs, currentRepoMap, Date.now()))
+    sortedIdsRef.current = allWorktrees.map((w) => w.id)
+    // sortEpoch is an intentional trigger: it's not read inside the memo, but
+    // its change signals that the sort order should be recomputed.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortEpoch, sortBy])
+
+  // Flatten, filter, and apply stable sort order
   const worktrees = useMemo(() => {
     let all: Worktree[] = Object.values(worktreesByRepo).flat()
 
@@ -82,11 +108,17 @@ const WorktreeList = React.memo(function WorktreeList() {
       })
     }
 
-    // Sort
-    all.sort(buildWorktreeComparator(sortBy, tabsByWorktree, repoMap, Date.now()))
+    // Apply cached sort order.  Items not yet in the cache (e.g. brand-new
+    // worktrees before the effect fires) are appended at the end.
+    const orderIndex = new Map(sortedIdsRef.current.map((id, i) => [id, i]))
+    all.sort((a, b) => {
+      const ai = orderIndex.get(a.id) ?? Infinity
+      const bi = orderIndex.get(b.id) ?? Infinity
+      return ai - bi
+    })
 
     return all
-  }, [worktreesByRepo, filterRepoIds, searchQuery, showActiveOnly, sortBy, repoMap, tabsByWorktree])
+  }, [worktreesByRepo, filterRepoIds, searchQuery, showActiveOnly, repoMap, tabsByWorktree])
 
   // Collapsed group state
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
