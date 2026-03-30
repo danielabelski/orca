@@ -206,7 +206,7 @@ export default function QuickOpen(): React.JSX.Element | null {
       onClick={() => setVisible(false)}
     >
       <div
-        className="w-[660px] max-w-[90vw] bg-background border border-border rounded-lg shadow-2xl overflow-hidden pb-2"
+        className="w-[660px] max-w-[90vw] bg-background border border-border rounded-lg shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
@@ -224,40 +224,42 @@ export default function QuickOpen(): React.JSX.Element | null {
           />
         </div>
 
-        {/* Results list */}
-        <div ref={listRef} className="max-h-[300px] overflow-y-auto scrollbar-sleek pb-2">
-          {loading && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              Loading files...
-            </div>
-          )}
-          {filtered.length === 0 && query.trim() && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              No matching files
-            </div>
-          )}
-          {filtered.map((item, idx) => {
-            const lastSlash = item.path.lastIndexOf('/')
-            const dir = lastSlash >= 0 ? item.path.slice(0, lastSlash) : ''
-            const filename = item.path.slice(lastSlash + 1)
+        {/* Results list — only rendered when there is content to avoid empty padding */}
+        {(loading || query.trim()) && (
+          <div ref={listRef} className="max-h-[300px] overflow-y-auto scrollbar-sleek pb-1">
+            {loading && (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                Loading files...
+              </div>
+            )}
+            {filtered.length === 0 && query.trim() && (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                No matching files
+              </div>
+            )}
+            {filtered.map((item, idx) => {
+              const lastSlash = item.path.lastIndexOf('/')
+              const dir = lastSlash >= 0 ? item.path.slice(0, lastSlash) : ''
+              const filename = item.path.slice(lastSlash + 1)
 
-            return (
-              <button
-                key={item.path}
-                type="button"
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent/50 ${
-                  idx === selectedIndex ? 'bg-accent' : ''
-                }`}
-                onClick={() => handleSelect(item.path)}
-                onMouseEnter={() => setSelectedIndex(idx)}
-              >
-                <File size={14} className="text-muted-foreground flex-shrink-0" />
-                <span className="truncate text-foreground">{filename}</span>
-                {dir && <span className="truncate text-muted-foreground ml-1">{dir}</span>}
-              </button>
-            )
-          })}
-        </div>
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent/50 ${
+                    idx === selectedIndex ? 'bg-accent' : ''
+                  }`}
+                  onClick={() => handleSelect(item.path)}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                >
+                  <File size={14} className="text-muted-foreground flex-shrink-0" />
+                  <span className="truncate text-foreground">{filename}</span>
+                  {dir && <span className="truncate text-muted-foreground ml-1">{dir}</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
