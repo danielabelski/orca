@@ -169,7 +169,12 @@ export default function MonacoEditor({
           tabSize: 2,
           smoothScrolling: true,
           cursorSmoothCaretAnimation: 'off',
-          padding: { top: 8 }
+          padding: { top: 0 },
+          find: {
+            addExtraSpaceOnTop: false,
+            autoFindInSelection: 'never',
+            seedSearchStringFromSelection: 'never'
+          }
         }}
         path={filePath}
       />
