@@ -151,6 +151,24 @@ describe('getDiff', () => {
     expect(result.originalIsBinary).toBe(true)
     expect(result.modifiedIsBinary).toBe(false)
   })
+
+  it('includes preview metadata for pdf diffs', async () => {
+    const pdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00])
+    execFileAsyncMock.mockResolvedValueOnce({ stdout: pdfBuffer })
+    readFileMock.mockResolvedValue(pdfBuffer)
+
+    const result = await getDiff('/repo', 'docs/spec.pdf', false)
+
+    expect(result).toEqual({
+      kind: 'binary',
+      originalContent: pdfBuffer.toString('base64'),
+      modifiedContent: pdfBuffer.toString('base64'),
+      originalIsBinary: true,
+      modifiedIsBinary: true,
+      isImage: true,
+      mimeType: 'application/pdf'
+    })
+  })
 })
 
 describe('getStatus', () => {

@@ -313,9 +313,9 @@ export type GitDiffBinaryResult = {
   kind: 'binary'
   originalContent: string
   modifiedContent: string
-  /** True when both sides are a recognized image format (PNG, JPG, etc.) */
+  /** Legacy flag used by the renderer for any binary format it can preview, including PDFs. */
   isImage?: boolean
-  /** MIME type for image rendering, e.g. "image/png" */
+  /** MIME type for binary preview rendering, e.g. "image/png" or "application/pdf" */
   mimeType?: string
 } & (
   | { originalIsBinary: true; modifiedIsBinary: boolean }

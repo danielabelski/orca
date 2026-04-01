@@ -39,7 +39,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_SEARCH_MAX_RESULTS = 2000
 const MAX_MATCHES_PER_FILE = 100
 const SEARCH_TIMEOUT_MS = 15000
-const IMAGE_MIME_TYPES: Record<string, string> = {
+const PREVIEWABLE_BINARY_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -47,7 +47,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.bmp': 'image/bmp',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf'
 }
 
 function normalizeRelativePath(path: string): string {
@@ -104,11 +105,14 @@ export function registerFilesystemHandlers(store: Store): void {
       }
 
       const buffer = await readFile(filePath)
-      const mimeType = IMAGE_MIME_TYPES[extname(filePath).toLowerCase()]
+      const mimeType = PREVIEWABLE_BINARY_MIME_TYPES[extname(filePath).toLowerCase()]
       if (mimeType) {
         return {
           content: buffer.toString('base64'),
           isBinary: true,
+          // Why: the renderer/store contract already keys previewable binary
+          // rendering off `isImage`. Keep that legacy flag for PDFs too so the
+          // new preview path stays compatible with existing callers.
           isImage: true,
           mimeType
         }

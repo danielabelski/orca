@@ -579,9 +579,15 @@ async function readWorkingTreeFile(filePath: string): Promise<GitBlobReadResult>
 function bufferToBlob(buffer: Buffer, filePath?: string): GitBlobReadResult {
   const isBinary = isBinaryBuffer(buffer)
   // Return base64 for recognized image formats so the renderer can display them
-  const isImage = filePath ? !!IMAGE_MIME_TYPES[path.extname(filePath).toLowerCase()] : false
+  const isPreviewableBinary = filePath
+    ? !!PREVIEWABLE_BINARY_MIME_TYPES[path.extname(filePath).toLowerCase()]
+    : false
   return {
-    content: isBinary ? (isImage ? buffer.toString('base64') : '') : buffer.toString('utf-8'),
+    content: isBinary
+      ? isPreviewableBinary
+        ? buffer.toString('base64')
+        : ''
+      : buffer.toString('utf-8'),
     isBinary,
     exists: true
   }
@@ -605,15 +611,18 @@ function buildDiffResult(
   filePath?: string
 ): GitDiffResult {
   if (originalIsBinary || modifiedIsBinary) {
-    const mimeType = filePath ? IMAGE_MIME_TYPES[path.extname(filePath).toLowerCase()] : undefined
+    const mimeType = filePath
+      ? PREVIEWABLE_BINARY_MIME_TYPES[path.extname(filePath).toLowerCase()]
+      : undefined
     return {
       kind: 'binary',
       originalContent,
       modifiedContent,
       originalIsBinary,
       modifiedIsBinary,
-      // Include image metadata so the renderer can show image diffs instead of
-      // a generic "binary file changed" message.
+      // Why: binary diff previews were originally image-only, so the renderer
+      // still checks `isImage` before showing a preview component. Preserve
+      // that legacy flag for PDFs until the wider contract is renamed.
       ...(mimeType ? { isImage: true, mimeType } : {})
     } as GitDiffResult
   }
@@ -633,7 +642,7 @@ type GitBlobReadResult = {
   exists: boolean
 }
 
-const IMAGE_MIME_TYPES: Record<string, string> = {
+const PREVIEWABLE_BINARY_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -641,7 +650,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.bmp': 'image/bmp',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf'
 }
 
 /**
