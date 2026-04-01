@@ -915,7 +915,7 @@ function UncommittedEntryRow({
       onRevealInExplorer={onRevealInExplorer}
     >
       <div
-        className="group flex cursor-pointer items-center gap-1 pl-5 pr-3 py-1 transition-colors hover:bg-accent/40"
+        className="group relative flex cursor-pointer items-center gap-1 pl-5 pr-3 py-1 transition-colors hover:bg-accent/40"
         draggable
         onDragStart={(e) => {
           if (isUnresolvedConflict && entry.status === 'deleted') {
@@ -950,7 +950,7 @@ function UncommittedEntryRow({
             {STATUS_LABELS[entry.status]}
           </span>
         )}
-        <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 flex items-center gap-0.5">
+        <div className="absolute right-0 top-0 bottom-0 shrink-0 hidden group-hover:flex items-center gap-1.5 bg-accent pr-3 pl-2">
           {canDiscard && (
             <ActionButton
               icon={Undo2}
