@@ -54,7 +54,7 @@ export function registerClipboardHandlers(): void {
   ipcMain.handle('clipboard:writeText', (_event, text: string) => clipboard.writeText(text))
 }
 
-export function registerUpdaterHandlers(store: Store): void {
+export function registerUpdaterHandlers(_store: Store): void {
   ipcMain.removeHandler('updater:getStatus')
   ipcMain.removeHandler('updater:getVersion')
   ipcMain.removeHandler('updater:check')

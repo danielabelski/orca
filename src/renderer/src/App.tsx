@@ -387,7 +387,6 @@ function App(): React.JSX.Element {
         {showSidebar ? <Sidebar /> : null}
         <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
           <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-            <UpdateReminder />
             <div
               className={
                 activeView === 'settings' || !activeWorktreeId
@@ -403,6 +402,7 @@ function App(): React.JSX.Element {
         {showSidebar && rightSidebarOpen ? <RightSidebar /> : null}
       </div>
       <QuickOpen />
+      <UpdateReminder />
       <Toaster closeButton toastOptions={{ className: 'font-sans text-sm' }} />
     </div>
   )

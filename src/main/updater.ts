@@ -12,7 +12,9 @@ import { registerAutoUpdaterHandlers } from './updater-events'
 import {
   compareVersions,
   findFallbackReleaseVersion,
-  isGitHubReleaseTransitionFailure
+  isBenignCheckFailure,
+  isGitHubReleaseTransitionFailure,
+  statusesEqual
 } from './updater-fallback'
 
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 36 * 60 * 60 * 1000
@@ -36,42 +38,6 @@ let quittingForUpdate = false
 function clearAvailableUpdateContext(): void {
   availableVersion = null
   availableReleaseUrl = null
-}
-
-function statusesEqual(left: UpdateStatus, right: UpdateStatus): boolean {
-  switch (left.state) {
-    case 'idle':
-      return right.state === 'idle'
-    case 'checking':
-      return right.state === 'checking' && left.userInitiated === right.userInitiated
-    case 'not-available':
-      return right.state === 'not-available' && left.userInitiated === right.userInitiated
-    case 'available':
-      return (
-        right.state === 'available' &&
-        left.version === right.version &&
-        left.releaseUrl === right.releaseUrl &&
-        left.manualDownloadUrl === right.manualDownloadUrl
-      )
-    case 'downloading':
-      return (
-        right.state === 'downloading' &&
-        left.version === right.version &&
-        left.percent === right.percent
-      )
-    case 'downloaded':
-      return (
-        right.state === 'downloaded' &&
-        left.version === right.version &&
-        left.releaseUrl === right.releaseUrl
-      )
-    case 'error':
-      return (
-        right.state === 'error' &&
-        left.message === right.message &&
-        left.userInitiated === right.userInitiated
-      )
-  }
 }
 
 function sendStatus(status: UpdateStatus): void {
@@ -130,23 +96,6 @@ function performQuitAndInstall(): void {
   }
 
   autoUpdater.quitAndInstall(false, true)
-}
-
-function isBenignCheckFailure(message: string): boolean {
-  const normalizedMessage = message.toLowerCase()
-
-  if (normalizedMessage.includes('net::err_failed')) {
-    return true
-  }
-
-  // GitHub releases can briefly be in a half-published state while the
-  // release workflow is creating a draft and uploading update metadata.
-  // During that window electron-updater may fail the check even though
-  // nothing is wrong on the client side.
-  return (
-    isGitHubReleaseTransitionFailure(normalizedMessage) ||
-    normalizedMessage.includes('no published versions on github')
-  )
 }
 
 async function sendCheckFailureStatus(message: string, userInitiated?: boolean): Promise<void> {
