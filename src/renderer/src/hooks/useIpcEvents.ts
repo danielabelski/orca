@@ -33,6 +33,25 @@ export function useIpcEvents(): void {
       })
     )
 
+    unsubs.push(
+      window.api.ui.onActivateWorktree(({ repoId, worktreeId }) => {
+        void (async () => {
+          const store = useAppStore.getState()
+          await store.fetchWorktrees(repoId)
+          // Why: CLI-created worktrees should feel identical to UI-created
+          // worktrees. The renderer owns the "active worktree -> first tab"
+          // behavior today, so we explicitly replay that activation sequence
+          // after the runtime creates a worktree outside the renderer.
+          store.setActiveRepo(repoId)
+          store.setActiveView('terminal')
+          store.setActiveWorktree(worktreeId)
+          store.revealWorktreeInSidebar(worktreeId)
+        })().catch((error) => {
+          console.error('Failed to activate CLI-created worktree:', error)
+        })
+      })
+    )
+
     // Hydrate initial update status then subscribe to changes
     window.api.updater.getStatus().then((status) => {
       useAppStore.getState().setUpdateStatus(status as UpdateStatus)

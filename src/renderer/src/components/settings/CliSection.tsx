@@ -1,0 +1,198 @@
+import { useEffect, useState } from 'react'
+import { FolderOpen, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
+import type { CliInstallStatus } from '../../../../shared/cli-install-types'
+import { Button } from '../ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../ui/dialog'
+import { Label } from '../ui/label'
+
+type CliSectionProps = {
+  currentPlatform: string
+}
+
+export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Element {
+  const [status, setStatus] = useState<CliInstallStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [busyAction, setBusyAction] = useState<'install' | 'remove' | null>(null)
+
+  const refreshStatus = async (): Promise<void> => {
+    setLoading(true)
+    try {
+      setStatus(await window.api.cli.getInstallStatus())
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load CLI status.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshStatus()
+  }, [])
+
+  const isEnabled = status?.state === 'installed'
+  const isSupported = status?.supported ?? false
+
+  const handleInstall = async (): Promise<void> => {
+    setBusyAction('install')
+    try {
+      const next = await window.api.cli.install()
+      setStatus(next)
+      setDialogOpen(false)
+      toast.success('Registered `orca` in PATH.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to register `orca` in PATH.')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const handleRemove = async (): Promise<void> => {
+    setBusyAction('remove')
+    try {
+      const next = await window.api.cli.remove()
+      setStatus(next)
+      setDialogOpen(false)
+      toast.success('Removed `orca` from PATH.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove `orca` from PATH.')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-sm font-semibold">Command Line Interface</h2>
+        <p className="text-xs text-muted-foreground">
+          Register <code className="rounded bg-muted px-1 py-0.5 text-[11px]">orca</code> in PATH so
+          Terminal commands connect to the Orca app.
+        </p>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <Label>Shell command</Label>
+            <p className="text-xs text-muted-foreground">
+              {loading
+                ? 'Checking CLI registration…'
+                : (status?.detail ??
+                  (currentPlatform === 'darwin'
+                    ? 'Register `orca` in /usr/local/bin.'
+                    : 'CLI registration is not yet available on this platform.'))}
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={isEnabled}
+            disabled={loading || !isSupported || busyAction !== null}
+            onClick={() => setDialogOpen(true)}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors ${
+              isEnabled ? 'bg-foreground' : 'bg-muted-foreground/30'
+            } ${loading || !isSupported || busyAction !== null ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+          >
+            <span
+              className={`pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform ${
+                isEnabled ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+
+        {status?.commandPath ? (
+          <p className="text-xs text-muted-foreground">
+            Command path:{' '}
+            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{status.commandPath}</code>
+          </p>
+        ) : null}
+
+        {status?.state === 'stale' && status.currentTarget ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Existing symlink target: <code>{status.currentTarget}</code>
+          </p>
+        ) : null}
+
+        {!loading && !isSupported && status?.detail ? (
+          <p className="text-xs text-muted-foreground">{status.detail}</p>
+        ) : null}
+
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refreshStatus()}
+            disabled={loading || busyAction !== null}
+            className="gap-2"
+          >
+            <RefreshCw className="size-3.5" />
+            Refresh
+          </Button>
+          {status?.commandPath ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void window.api.shell.openPath(status.commandPath as string)}
+              disabled={loading}
+              className="gap-2"
+            >
+              <FolderOpen className="size-3.5" />
+              Show in Finder
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isEnabled ? 'Remove `orca` from PATH?' : 'Register `orca` in PATH?'}
+            </DialogTitle>
+            <DialogDescription>
+              {isEnabled
+                ? 'This removes the shell command symlink. Orca itself remains installed.'
+                : 'Orca will create /usr/local/bin/orca so the command works from any terminal.'}
+            </DialogDescription>
+          </DialogHeader>
+          {status?.commandPath ? (
+            <p className="text-xs text-muted-foreground">
+              Target path:{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{status.commandPath}</code>
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+              disabled={busyAction !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void (isEnabled ? handleRemove() : handleInstall())}
+              disabled={busyAction !== null || !isSupported}
+            >
+              {busyAction === 'remove'
+                ? 'Removing…'
+                : busyAction === 'install'
+                  ? 'Registering…'
+                  : isEnabled
+                    ? 'Remove'
+                    : 'Register'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  )
+}

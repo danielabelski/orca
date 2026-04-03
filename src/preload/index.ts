@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { CliInstallStatus } from '../shared/cli-install-types'
+import type { RuntimeStatus, RuntimeSyncWindowGraph } from '../shared/runtime-types'
 
 // ---------------------------------------------------------------------------
 // File drag-and-drop: handled here in the preload because webUtils (which
@@ -168,6 +170,12 @@ const api = {
     listFonts: (): Promise<string[]> => ipcRenderer.invoke('settings:listFonts')
   },
 
+  cli: {
+    getInstallStatus: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:getInstallStatus'),
+    install: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:install'),
+    remove: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:remove')
+  },
+
   shell: {
     openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:openPath', path),
 
@@ -299,6 +307,16 @@ const api = {
       ipcRenderer.on('ui:openSettings', listener)
       return () => ipcRenderer.removeListener('ui:openSettings', listener)
     },
+    onActivateWorktree: (
+      callback: (data: { repoId: string; worktreeId: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { repoId: string; worktreeId: string }
+      ) => callback(data)
+      ipcRenderer.on('ui:activateWorktree', listener)
+      return () => ipcRenderer.removeListener('ui:activateWorktree', listener)
+    },
     onTerminalZoom: (callback: (direction: 'in' | 'out' | 'reset') => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, direction: 'in' | 'out' | 'reset') =>
         callback(direction)
@@ -315,6 +333,12 @@ const api = {
     },
     getZoomLevel: (): number => webFrame.getZoomLevel(),
     setZoomLevel: (level: number): void => webFrame.setZoomLevel(level)
+  },
+
+  runtime: {
+    syncWindowGraph: (graph: RuntimeSyncWindowGraph): Promise<RuntimeStatus> =>
+      ipcRenderer.invoke('runtime:syncWindowGraph', graph),
+    getStatus: (): Promise<RuntimeStatus> => ipcRenderer.invoke('runtime:getStatus')
   }
 }
 
