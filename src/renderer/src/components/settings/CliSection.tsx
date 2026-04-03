@@ -18,7 +18,8 @@ type CliSectionProps = {
   currentPlatform: string
 }
 
-const ORCA_SKILL_INSTALL_COMMAND = 'npx skills add orca-cli'
+const ORCA_SKILL_INSTALL_COMMAND =
+  'npx skills add https://github.com/stablyai/orca --skill orca-cli'
 
 function getRevealLabel(platform: string): string {
   if (platform === 'darwin') {
