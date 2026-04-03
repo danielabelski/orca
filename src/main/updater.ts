@@ -1,8 +1,10 @@
-import { app, BrowserWindow, autoUpdater as nativeUpdater, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 import type { UpdateStatus } from '../shared/types'
 import { killAllPty } from './ipc/pty'
+import { beginMacUpdateDownload, markMacQuitAndInstallInFlight } from './updater-mac-install'
+import { registerAutoUpdaterHandlers } from './updater-events'
 import {
   compareVersions,
   findFallbackReleaseVersion,
@@ -21,8 +23,6 @@ let pendingCheckFailurePromise: Promise<void> | null = null
 /** Guards against the macOS `activate` handler re-opening the old version
  *  while Squirrel's ShipIt is replacing the .app bundle. */
 let quittingForUpdate = false
-/** Whether Squirrel.Mac has finished downloading the update from the localhost proxy. */
-let squirrelReady = false
 
 function clearAvailableUpdateContext(): void {
   availableVersion = null
@@ -86,6 +86,41 @@ function sendErrorStatus(message: string, userInitiated?: boolean): void {
 
 function getKnownReleaseUrl(): string | undefined {
   return availableReleaseUrl ?? undefined
+}
+
+function hasNewerDownloadedVersion(): boolean {
+  return availableVersion !== null && compareVersions(availableVersion, app.getVersion()) > 0
+}
+
+function getPendingInstallVersion(): string {
+  if (availableVersion) {
+    return availableVersion
+  }
+  if (currentStatus.state === 'downloading' || currentStatus.state === 'downloaded') {
+    return currentStatus.version
+  }
+  return ''
+}
+
+function performQuitAndInstall(): void {
+  markMacQuitAndInstallInFlight()
+
+  // Set this BEFORE anything else so the `activate` handler in index.ts
+  // won't re-open the old version while Squirrel's ShipIt is replacing
+  // the .app bundle.  Without this guard the quit triggers window
+  // destruction → BrowserWindow.getAllWindows().length === 0 → activate
+  // fires → openMainWindow() resurrects the old process and ShipIt
+  // either can't replace it or the user ends up on the old version.
+  quittingForUpdate = true
+
+  killAllPty()
+  onBeforeQuitCleanup?.()
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.removeAllListeners('close')
+  }
+
+  autoUpdater.quitAndInstall(false, true)
 }
 
 function isBenignCheckFailure(message: string): boolean {
@@ -207,22 +242,18 @@ export function isQuittingForUpdate(): boolean {
 }
 
 export function quitAndInstall(): void {
-  // Set this BEFORE anything else so the `activate` handler in index.ts
-  // won't re-open the old version while Squirrel's ShipIt is replacing
-  // the .app bundle.  Without this guard the quit triggers window
-  // destruction → BrowserWindow.getAllWindows().length === 0 → activate
-  // fires → openMainWindow() resurrects the old process and ShipIt
-  // either can't replace it or the user ends up on the old version.
-  quittingForUpdate = true
-
-  killAllPty()
-  onBeforeQuitCleanup?.()
-
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.removeAllListeners('close')
+  if (
+    deferMacQuitUntilInstallerReady(
+      currentStatus,
+      hasNewerDownloadedVersion(),
+      getPendingInstallVersion,
+      sendStatus
+    )
+  ) {
+    return
   }
 
-  autoUpdater.quitAndInstall(false, true)
+  performQuitAndInstall()
 }
 
 export function setupAutoUpdater(
@@ -251,94 +282,26 @@ export function setupAutoUpdater(
   }
   autoUpdaterInitialized = true
 
-  // On macOS, electron-updater's MacUpdater downloads the ZIP from GitHub,
-  // then serves it to Squirrel.Mac via a localhost proxy. The electron-updater
-  // 'update-downloaded' event fires BEFORE Squirrel finishes its download.
-  // Track Squirrel readiness so we don't show "ready to install" prematurely.
-  if (process.platform === 'darwin') {
-    nativeUpdater.on('update-downloaded', () => {
-      squirrelReady = true
-      // If we were holding the 'downloaded' status, send it now — but only
-      // when the staged version is actually newer than what's running.
-      if (availableVersion && compareVersions(availableVersion, app.getVersion()) > 0) {
-        sendStatus({
-          state: 'downloaded',
-          version: availableVersion,
-          releaseUrl: getKnownReleaseUrl()
-        })
-      }
-    })
-  }
-
-  autoUpdater.on('checking-for-update', () => {
-    clearAvailableUpdateContext()
-    sendStatus({ state: 'checking', userInitiated: userInitiatedCheck || undefined })
-  })
-
-  autoUpdater.on('update-available', (info) => {
-    const wasUserInitiated = userInitiatedCheck
-    userInitiatedCheck = false
-    // Guard against showing an update that isn't actually newer than what's running.
-    // With allowPrerelease enabled, electron-updater may report the current or
-    // even an older version as "available".  Use semver comparison, not strict
-    // equality, so we never prompt the user to "update" to a version they already
-    // have (or an older one).
-    if (compareVersions(info.version, app.getVersion()) <= 0) {
-      clearAvailableUpdateContext()
-      sendStatus({ state: 'not-available', userInitiated: wasUserInitiated || undefined })
-      return
+  registerAutoUpdaterHandlers({
+    clearAvailableUpdateContext,
+    getCurrentStatus: () => currentStatus,
+    getKnownReleaseUrl,
+    getPendingInstallVersion,
+    getUserInitiatedCheck: () => userInitiatedCheck,
+    hasNewerDownloadedVersion,
+    performQuitAndInstall,
+    sendCheckFailureStatus,
+    sendErrorStatus,
+    sendStatus,
+    setAvailableReleaseUrl: (releaseUrl) => {
+      availableReleaseUrl = releaseUrl
+    },
+    setAvailableVersion: (version) => {
+      availableVersion = version
+    },
+    setUserInitiatedCheck: (value) => {
+      userInitiatedCheck = value
     }
-    availableVersion = info.version
-    availableReleaseUrl = null
-    sendStatus({ state: 'available', version: info.version })
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    const wasUserInitiated = userInitiatedCheck
-    userInitiatedCheck = false
-    clearAvailableUpdateContext()
-    sendStatus({ state: 'not-available', userInitiated: wasUserInitiated || undefined })
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    sendStatus({
-      state: 'downloading',
-      percent: Math.round(progress.percent),
-      version: availableVersion ?? ''
-    })
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    // Don't show the banner if the downloaded version isn't actually newer
-    // than what's running.  This catches the exact-same-version case as well
-    // as stale cached updates from an older release.
-    if (compareVersions(info.version, app.getVersion()) <= 0) {
-      clearAvailableUpdateContext()
-      sendStatus({ state: 'not-available' })
-      return
-    }
-    // On macOS, defer the 'downloaded' status until Squirrel.Mac has finished
-    // processing the update via the localhost proxy. On other platforms,
-    // the update is ready immediately after electron-updater downloads it.
-    if (process.platform === 'darwin' && !squirrelReady) {
-      // Squirrel is still processing — show download at 100% while waiting.
-      // The nativeUpdater 'update-downloaded' handler above will send the
-      // real 'downloaded' status when Squirrel finishes.
-      sendStatus({ state: 'downloading', percent: 100, version: info.version })
-      return
-    }
-    sendStatus({ state: 'downloaded', version: info.version, releaseUrl: getKnownReleaseUrl() })
-  })
-
-  autoUpdater.on('error', (err) => {
-    const wasUserInitiated = userInitiatedCheck
-    userInitiatedCheck = false
-    const message = err?.message ?? 'Unknown error'
-    if (currentStatus.state === 'checking') {
-      void sendCheckFailureStatus(message, wasUserInitiated || undefined)
-      return
-    }
-    sendErrorStatus(message, wasUserInitiated || undefined)
   })
 
   autoUpdater.checkForUpdates().catch((err) => {
@@ -357,7 +320,7 @@ export function downloadUpdate(): void {
     })
     return
   }
-  squirrelReady = false
+  beginMacUpdateDownload()
   autoUpdater.downloadUpdate().catch((err) => {
     sendErrorStatus(String(err?.message ?? err))
   })

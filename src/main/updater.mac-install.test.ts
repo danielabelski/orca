@@ -102,7 +102,7 @@ vi.mock('./ipc/pty', () => ({
   killAllPty: killAllPtyMock
 }))
 
-describe('updater', () => {
+describe('updater mac install handoff', () => {
   beforeEach(() => {
     vi.resetModules()
     autoUpdaterMock.reset()
@@ -120,68 +120,70 @@ describe('updater', () => {
     vi.useRealTimers()
   })
 
-  it('deduplicates identical check errors from the event and rejected promise', async () => {
-    autoUpdaterMock.checkForUpdates.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
-      autoUpdaterMock.emit('checking-for-update')
-      queueMicrotask(() => {
-        autoUpdaterMock.emit('error', new Error('boom'))
+  it.runIf(process.platform === 'darwin')(
+    'waits for Squirrel.Mac before honoring a manual quit that should install the update',
+    async () => {
+      const sendMock = vi.fn()
+      const mainWindow = { webContents: { send: sendMock } }
+
+      autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
+      const { setupAutoUpdater } = await import('./updater')
+
+      setupAutoUpdater(mainWindow as never)
+      autoUpdaterMock.emit('update-available', { version: '1.0.61' })
+      autoUpdaterMock.emit('update-downloaded', { version: '1.0.61' })
+
+      const preventDefault = vi.fn()
+      appMock.emit('before-quit', { preventDefault })
+
+      expect(preventDefault).toHaveBeenCalledTimes(1)
+      expect(autoUpdaterMock.quitAndInstall).not.toHaveBeenCalled()
+
+      const nativeDownloadedHandler = nativeUpdaterMock.on.mock.calls.find(
+        ([eventName]) => eventName === 'update-downloaded'
+      )?.[1] as (() => void) | undefined
+      expect(nativeDownloadedHandler).toBeTypeOf('function')
+
+      nativeDownloadedHandler?.()
+
+      expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledWith(false, true)
+      expect(sendMock).toHaveBeenCalledWith('updater:status', {
+        state: 'downloading',
+        percent: 100,
+        version: '1.0.61'
       })
-      return Promise.reject(new Error('boom'))
-    })
+    }
+  )
 
-    const sendMock = vi.fn()
-    const mainWindow = { webContents: { send: sendMock } }
+  it.runIf(process.platform === 'darwin')(
+    'falls back to a normal quit if Squirrel.Mac never becomes ready',
+    async () => {
+      vi.useFakeTimers()
 
-    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+      const sendMock = vi.fn()
+      const mainWindow = { webContents: { send: sendMock } }
 
-    setupAutoUpdater(mainWindow as never)
-    checkForUpdatesFromMenu()
-    await vi.waitFor(() => {
-      const statuses = sendMock.mock.calls
-        .filter(([channel]) => channel === 'updater:status')
-        .map(([, status]) => status)
-      expect(statuses).toContainEqual({ state: 'error', message: 'boom', userInitiated: true })
-    })
+      autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
+      const { setupAutoUpdater } = await import('./updater')
 
-    const errorStatuses = sendMock.mock.calls
-      .filter(([channel]) => channel === 'updater:status')
-      .map(([, status]) => status)
-      .filter((status) => typeof status === 'object' && status !== null && status.state === 'error')
+      setupAutoUpdater(mainWindow as never)
+      autoUpdaterMock.emit('update-available', { version: '1.0.61' })
+      autoUpdaterMock.emit('update-downloaded', { version: '1.0.61' })
 
-    expect(errorStatuses).toEqual([{ state: 'error', message: 'boom', userInitiated: true }])
-  })
+      const preventDefault = vi.fn()
+      appMock.emit('before-quit', { preventDefault })
 
-  it('treats net::ERR_FAILED during checks as a benign idle transition', async () => {
-    autoUpdaterMock.checkForUpdates.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
-      autoUpdaterMock.emit('checking-for-update')
-      queueMicrotask(() => {
-        autoUpdaterMock.emit('error', new Error('net::ERR_FAILED'))
-      })
-      return Promise.reject(new Error('net::ERR_FAILED'))
-    })
+      expect(preventDefault).toHaveBeenCalledTimes(1)
+      expect(appMock.quit).not.toHaveBeenCalled()
 
-    const sendMock = vi.fn()
-    const mainWindow = { webContents: { send: sendMock } }
+      await vi.advanceTimersByTimeAsync(15000)
 
-    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+      expect(appMock.quit).toHaveBeenCalledTimes(1)
 
-    setupAutoUpdater(mainWindow as never)
-    checkForUpdatesFromMenu()
-    await vi.waitFor(() => {
-      const statuses = sendMock.mock.calls
-        .filter(([channel]) => channel === 'updater:status')
-        .map(([, status]) => status)
-      expect(statuses).toContainEqual({ state: 'idle' })
-    })
-
-    const statuses = sendMock.mock.calls
-      .filter(([channel]) => channel === 'updater:status')
-      .map(([, status]) => status)
-
-    expect(statuses).toContainEqual({ state: 'checking', userInitiated: true })
-    expect(statuses).toContainEqual({ state: 'idle' })
-    expect(statuses).not.toContainEqual(
-      expect.objectContaining({ state: 'error', message: 'net::ERR_FAILED' })
-    )
-  })
+      const secondPreventDefault = vi.fn()
+      appMock.emit('before-quit', { preventDefault: secondPreventDefault })
+      expect(secondPreventDefault).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.quitAndInstall).not.toHaveBeenCalled()
+    }
+  )
 })

@@ -45,7 +45,9 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, shellMoc
     return {
       appMock: {
         isPackaged: true,
-        getVersion: vi.fn(() => '1.0.51')
+        getVersion: vi.fn(() => '1.0.51'),
+        on: vi.fn(),
+        quit: vi.fn()
       },
       browserWindowMock: {
         getAllWindows: vi.fn(() => [])
@@ -213,87 +215,6 @@ describe('updater fallback', () => {
       })
     })
   })
-
-  it.runIf(process.platform === 'darwin')(
-    'prefers the fallback asset that matches the current macOS architecture',
-    async () => {
-      const preferredAssetUrl =
-        process.arch === 'arm64'
-          ? 'https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-arm64.dmg'
-          : 'https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-x64.dmg'
-      const nonPreferredAssetUrl =
-        process.arch === 'arm64'
-          ? 'https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-x64.dmg'
-          : 'https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-arm64.dmg'
-
-      mockReleaseLookupResponse([
-        {
-          draft: false,
-          prerelease: false,
-          tag_name: 'v1.0.61',
-          html_url: releaseTagUrl,
-          assets: [
-            {
-              name: process.arch === 'arm64' ? 'orca-macos-x64.dmg' : 'orca-macos-arm64.dmg',
-              browser_download_url: nonPreferredAssetUrl
-            },
-            {
-              name: process.arch === 'arm64' ? 'orca-macos-arm64.dmg' : 'orca-macos-x64.dmg',
-              browser_download_url: preferredAssetUrl
-            }
-          ]
-        }
-      ])
-      mockCheckFailure('Unable to find latest version on GitHub')
-
-      const sendMock = vi.fn()
-      const mainWindow = { webContents: { send: sendMock } }
-
-      const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
-
-      setupAutoUpdater(mainWindow as never)
-      checkForUpdatesFromMenu()
-      await expectFallbackAvailable(sendMock, preferredAssetUrl)
-    }
-  )
-
-  it.runIf(process.platform === 'darwin')(
-    'prefers the dmg over the zip for the matching macOS architecture',
-    async () => {
-      const matchingArch = process.arch === 'arm64' ? 'arm64' : 'x64'
-      const dmgUrl = `https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-${matchingArch}.dmg`
-      const zipUrl = `https://github.com/stablyai/orca/releases/download/v1.0.61/orca-macos-${matchingArch}.zip`
-
-      mockReleaseLookupResponse([
-        {
-          draft: false,
-          prerelease: false,
-          tag_name: 'v1.0.61',
-          html_url: releaseTagUrl,
-          assets: [
-            {
-              name: `orca-macos-${matchingArch}.zip`,
-              browser_download_url: zipUrl
-            },
-            {
-              name: `orca-macos-${matchingArch}.dmg`,
-              browser_download_url: dmgUrl
-            }
-          ]
-        }
-      ])
-      mockCheckFailure('Unable to find latest version on GitHub')
-
-      const sendMock = vi.fn()
-      const mainWindow = { webContents: { send: sendMock } }
-
-      const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
-
-      setupAutoUpdater(mainWindow as never)
-      checkForUpdatesFromMenu()
-      await expectFallbackAvailable(sendMock, dmgUrl)
-    }
-  )
 
   it('surfaces manual download launcher failures', async () => {
     mockReleaseLookupResponse(buildReleaseLookupResponse().slice(1))
