@@ -15,7 +15,6 @@ const DeleteWorktreeDialog = React.memo(function DeleteWorktreeDialog() {
   const activeModal = useAppStore((s) => s.activeModal)
   const modalData = useAppStore((s) => s.modalData)
   const closeModal = useAppStore((s) => s.closeModal)
-  const openModal = useAppStore((s) => s.openModal)
   const removeWorktree = useAppStore((s) => s.removeWorktree)
   const clearWorktreeDeleteState = useAppStore((s) => s.clearWorktreeDeleteState)
   const allWorktrees = useAppStore((s) => s.allWorktrees)
@@ -58,15 +57,18 @@ const DeleteWorktreeDialog = React.memo(function DeleteWorktreeDialog() {
       if (!worktreeId) {
         return
       }
-      closeModal()
       const result = await removeWorktree(worktreeId, force)
       if (!result.ok) {
-        openModal('delete-worktree', { worktreeId })
+        // Modal is already open, just let it show the error
         return
       }
+      // Why: successful delete already cleaned the worktree out of store state.
+      // Closing explicitly avoids leaving the Radix dialog open if that removal
+      // effect and this component render land out of order.
       clearWorktreeDeleteState(worktreeId)
+      closeModal()
     },
-    [clearWorktreeDeleteState, closeModal, openModal, removeWorktree, worktreeId]
+    [clearWorktreeDeleteState, closeModal, removeWorktree, worktreeId]
   )
 
   return (

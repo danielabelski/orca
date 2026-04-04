@@ -66,6 +66,7 @@ export function extractLastOscTitle(data: string): string | null {
 
 export type IpcPtyTransportOptions = {
   cwd?: string
+  env?: Record<string, string>
   onPtyExit?: (ptyId: string) => void
   onTitleChange?: (title: string, rawTitle: string) => void
   onPtySpawn?: (ptyId: string) => void
@@ -74,7 +75,7 @@ export type IpcPtyTransportOptions = {
 }
 
 export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTransport {
-  const { cwd, onPtyExit, onTitleChange, onPtySpawn, onBell, onAgentBecameIdle } = opts
+  const { cwd, env, onPtyExit, onTitleChange, onPtySpawn, onBell, onAgentBecameIdle } = opts
   let connected = false
   let destroyed = false
   let ptyId: string | null = null
@@ -107,11 +108,16 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       storedCallbacks = options.callbacks
       ensurePtyDispatcher()
 
+      if (destroyed) {
+        return
+      }
+
       try {
         const result = await window.api.pty.spawn({
           cols: options.cols ?? 80,
           rows: options.rows ?? 24,
-          cwd
+          cwd,
+          env
         })
 
         // If destroyed while spawn was in flight, kill the new pty and bail
@@ -155,6 +161,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
                   const cleared = clearWorkingIndicators(lastEmittedTitle)
                   lastEmittedTitle = cleared
                   onTitleChange(cleared, cleared)
+                  agentTracker?.handleTitle(cleared)
                 }
               }, STALE_TITLE_TIMEOUT)
             }

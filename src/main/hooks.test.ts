@@ -1,3 +1,5 @@
+import type { Repo } from '../shared/types'
+
 import { describe, expect, it, vi } from 'vitest'
 import { parseOrcaYaml } from './hooks'
 
@@ -12,7 +14,8 @@ const { execMock } = vi.hoisted(() => ({
 }))
 
 vi.mock('child_process', () => ({
-  exec: execMock
+  exec: execMock,
+  execFileSync: vi.fn()
 }))
 
 describe('parseOrcaYaml', () => {
@@ -60,6 +63,17 @@ describe('parseOrcaYaml', () => {
     expect(parseOrcaYaml(yaml)).toBeNull()
   })
 
+  it('parses YAML with inline scalar scripts', () => {
+    const yaml = `scripts:\n  setup: npm install\n  archive: sleep 5\n`
+    const result = parseOrcaYaml(yaml)
+    expect(result).toEqual({
+      scripts: {
+        setup: 'npm install',
+        archive: 'sleep 5'
+      }
+    })
+  })
+
   it('returns null when scripts block has no setup or archive', () => {
     const yaml = `scripts:\n  unknown: |\n    echo "nope"\n`
     expect(parseOrcaYaml(yaml)).toBeNull()
@@ -93,25 +107,27 @@ describe('parseOrcaYaml', () => {
 describe('getEffectiveHooks', () => {
   // We need to dynamically import after mocking
   const makeRepo = (hookSettings?: {
-    mode: 'auto' | 'override'
-    scripts: { setup: string; archive: string }
-  }) => ({
-    id: 'test-id',
-    path: '/test/repo',
-    displayName: 'Test Repo',
-    badgeColor: '#000',
-    addedAt: Date.now(),
-    hookSettings
-  })
+    mode?: 'auto' | 'override'
+    setupRunPolicy?: 'ask' | 'run-by-default' | 'skip-by-default'
+    scripts?: { setup: string; archive: string }
+  }) =>
+    ({
+      id: 'test-id',
+      path: '/test/repo',
+      displayName: 'Test Repo',
+      badgeColor: '#000',
+      addedAt: Date.now(),
+      hookSettings
+    }) as unknown as Repo
 
-  it('auto mode with yaml hooks uses yaml hooks', async () => {
+  it('uses hooks from orca.yaml when present', async () => {
     const fs = await import('fs')
     vi.mocked(fs.existsSync).mockReturnValue(true)
     vi.mocked(fs.readFileSync).mockReturnValue('scripts:\n  setup: |\n    echo "yaml setup"\n')
 
     // Re-import to pick up mocks
     const { getEffectiveHooks } = await import('./hooks')
-    const repo = makeRepo({ mode: 'auto', scripts: { setup: '', archive: '' } })
+    const repo = makeRepo()
     const result = getEffectiveHooks(repo)
 
     expect(result).toEqual({
@@ -121,25 +137,26 @@ describe('getEffectiveHooks', () => {
     })
   })
 
-  it('auto mode with no yaml hooks but UI scripts uses UI scripts', async () => {
+  it('falls back to legacy UI hooks when yaml is missing', async () => {
     const fs = await import('fs')
     vi.mocked(fs.existsSync).mockReturnValue(false)
 
     const { getEffectiveHooks } = await import('./hooks')
     const repo = makeRepo({
-      mode: 'auto',
-      scripts: { setup: 'echo "ui setup"', archive: '' }
+      mode: 'override',
+      scripts: { setup: 'echo "legacy ui setup"', archive: 'echo "legacy archive"' }
     })
     const result = getEffectiveHooks(repo)
 
     expect(result).toEqual({
       scripts: {
-        setup: 'echo "ui setup"'
+        setup: 'echo "legacy ui setup"',
+        archive: 'echo "legacy archive"'
       }
     })
   })
 
-  it('override mode always uses UI scripts, ignores yaml', async () => {
+  it('ignores legacy UI override settings when yaml exists', async () => {
     const fs = await import('fs')
     vi.mocked(fs.existsSync).mockReturnValue(true)
     vi.mocked(fs.readFileSync).mockReturnValue('scripts:\n  setup: |\n    echo "yaml setup"\n')
@@ -153,7 +170,27 @@ describe('getEffectiveHooks', () => {
 
     expect(result).toEqual({
       scripts: {
-        setup: 'echo "ui override"'
+        setup: 'echo "yaml setup"'
+      }
+    })
+  })
+
+  it('falls back per hook when orca.yaml defines only one command', async () => {
+    const fs = await import('fs')
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(fs.readFileSync).mockReturnValue('scripts:\n  archive: |\n    echo "yaml archive"\n')
+
+    const { getEffectiveHooks } = await import('./hooks')
+    const repo = makeRepo({
+      mode: 'override',
+      scripts: { setup: 'echo "legacy setup"', archive: 'echo "legacy archive"' }
+    })
+    const result = getEffectiveHooks(repo)
+
+    expect(result).toEqual({
+      scripts: {
+        setup: 'echo "legacy setup"',
+        archive: 'echo "yaml archive"'
       }
     })
   })
@@ -172,22 +209,28 @@ describe('getEffectiveHooks', () => {
 
 describe('runHook', () => {
   const makeRepo = (hookSettings?: {
-    mode: 'auto' | 'override'
-    scripts: { setup: string; archive: string }
-  }) => ({
-    id: 'test-id',
-    path: '/test/repo',
-    displayName: 'Test Repo',
-    badgeColor: '#000',
-    addedAt: Date.now(),
-    hookSettings
-  })
+    mode?: 'auto' | 'override'
+    setupRunPolicy?: 'ask' | 'run-by-default' | 'skip-by-default'
+    scripts?: { setup: string; archive: string }
+  }) =>
+    ({
+      id: 'test-id',
+      path: '/test/repo',
+      displayName: 'Test Repo',
+      badgeColor: '#000',
+      addedAt: Date.now(),
+      hookSettings
+    }) as unknown as Repo
 
   it('uses the Windows command shell when running hooks', async () => {
     execMock.mockImplementation((_script, _options, callback) => {
       callback?.(null, '', '')
       return {} as never
     })
+
+    const fs = await import('fs')
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(fs.readFileSync).mockReturnValue('scripts:\n  setup: |\n    echo hello\n')
 
     const originalPlatform = process.platform
     const originalComSpec = process.env.ComSpec
@@ -200,14 +243,7 @@ describe('runHook', () => {
 
     try {
       const { runHook } = await import('./hooks')
-      const result = await runHook(
-        'setup',
-        'C:\\repo\\worktree',
-        makeRepo({
-          mode: 'override',
-          scripts: { setup: 'echo hello', archive: '' }
-        })
-      )
+      const result = await runHook('setup', 'C:\\repo\\worktree', makeRepo())
 
       expect(result).toEqual({ success: true, output: '' })
       expect(execMock).toHaveBeenCalledWith(
@@ -237,6 +273,10 @@ describe('runHook', () => {
       return {} as never
     })
 
+    const fs = await import('fs')
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(fs.readFileSync).mockReturnValue('scripts:\n  setup: |\n    echo hello\n')
+
     const originalPlatform = process.platform
     const originalShell = process.env.SHELL
 
@@ -248,14 +288,7 @@ describe('runHook', () => {
 
     try {
       const { runHook } = await import('./hooks')
-      const result = await runHook(
-        'setup',
-        '/repo/worktree',
-        makeRepo({
-          mode: 'override',
-          scripts: { setup: 'echo hello', archive: '' }
-        })
-      )
+      const result = await runHook('setup', '/repo/worktree', makeRepo())
 
       expect(result).toEqual({ success: true, output: '' })
       expect(execMock).toHaveBeenCalledWith(
@@ -277,5 +310,43 @@ describe('runHook', () => {
         process.env.SHELL = originalShell
       }
     }
+  })
+})
+
+describe('shouldRunSetupForCreate', () => {
+  const makeRepo = (setupRunPolicy?: 'ask' | 'run-by-default' | 'skip-by-default') =>
+    ({
+      id: 'test-id',
+      path: '/test/repo',
+      displayName: 'Test Repo',
+      badgeColor: '#000',
+      addedAt: Date.now(),
+      hookSettings: {
+        mode: 'auto',
+        setupRunPolicy,
+        scripts: { setup: '', archive: '' }
+      }
+    }) as unknown as Repo
+
+  it('requires an explicit decision when the repo policy is ask', async () => {
+    const { shouldRunSetupForCreate } = await import('./hooks')
+
+    expect(() => shouldRunSetupForCreate(makeRepo('ask'))).toThrow(
+      'Setup decision required for this repository'
+    )
+  })
+
+  it('uses the repo default when the caller inherits', async () => {
+    const { shouldRunSetupForCreate } = await import('./hooks')
+
+    expect(shouldRunSetupForCreate(makeRepo('run-by-default'))).toBe(true)
+    expect(shouldRunSetupForCreate(makeRepo('skip-by-default'))).toBe(false)
+  })
+
+  it('lets the caller override the repo default per create', async () => {
+    const { shouldRunSetupForCreate } = await import('./hooks')
+
+    expect(shouldRunSetupForCreate(makeRepo('skip-by-default'), 'run')).toBe(true)
+    expect(shouldRunSetupForCreate(makeRepo('run-by-default'), 'skip')).toBe(false)
   })
 })

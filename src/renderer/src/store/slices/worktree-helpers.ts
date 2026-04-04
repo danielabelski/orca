@@ -1,4 +1,9 @@
-import type { Worktree, WorktreeMeta } from '../../../../shared/types'
+import type {
+  CreateWorktreeResult,
+  SetupDecision,
+  Worktree,
+  WorktreeMeta
+} from '../../../../shared/types'
 
 export type WorktreeDeleteState = {
   isDeleting: boolean
@@ -19,7 +24,12 @@ export type WorktreeSlice = {
   sortEpoch: number
   fetchWorktrees: (repoId: string) => Promise<void>
   fetchAllWorktrees: () => Promise<void>
-  createWorktree: (repoId: string, name: string, baseBranch?: string) => Promise<Worktree>
+  createWorktree: (
+    repoId: string,
+    name: string,
+    baseBranch?: string,
+    setupDecision?: SetupDecision
+  ) => Promise<CreateWorktreeResult>
   removeWorktree: (
     worktreeId: string,
     force?: boolean

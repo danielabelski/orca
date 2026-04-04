@@ -67,60 +67,64 @@ export function registerPtyHandlers(mainWindow: BrowserWindow, runtime?: OrcaRun
     }
   })
 
-  ipcMain.handle('pty:spawn', (_event, args: { cols: number; rows: number; cwd?: string }) => {
-    const id = String(++ptyCounter)
+  ipcMain.handle(
+    'pty:spawn',
+    (_event, args: { cols: number; rows: number; cwd?: string; env?: Record<string, string> }) => {
+      const id = String(++ptyCounter)
 
-    let shellPath: string
-    let shellArgs: string[]
-    if (process.platform === 'win32') {
-      shellPath = process.env.COMSPEC || 'powershell.exe'
-      shellArgs = []
-    } else {
-      shellPath = process.env.SHELL || '/bin/zsh'
-      shellArgs = ['-l']
+      let shellPath: string
+      let shellArgs: string[]
+      if (process.platform === 'win32') {
+        shellPath = process.env.COMSPEC || 'powershell.exe'
+        shellArgs = []
+      } else {
+        shellPath = process.env.SHELL || '/bin/zsh'
+        shellArgs = ['-l']
+      }
+
+      const defaultCwd =
+        process.platform === 'win32'
+          ? process.env.USERPROFILE || process.env.HOMEPATH || 'C:\\'
+          : process.env.HOME || '/'
+
+      const ptyProcess = pty.spawn(shellPath, shellArgs, {
+        name: 'xterm-256color',
+        cols: args.cols,
+        rows: args.rows,
+        cwd: args.cwd || defaultCwd,
+        env: {
+          ...process.env,
+          ...args.env,
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'Orca',
+          FORCE_HYPERLINK: '1'
+        } as Record<string, string>
+      })
+
+      ptyProcesses.set(id, ptyProcess)
+      ptyLoadGeneration.set(id, loadGeneration)
+      runtime?.onPtySpawned(id)
+
+      ptyProcess.onData((data) => {
+        runtime?.onPtyData(id, data, Date.now())
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('pty:data', { id, data })
+        }
+      })
+
+      ptyProcess.onExit(({ exitCode }) => {
+        ptyProcesses.delete(id)
+        ptyLoadGeneration.delete(id)
+        runtime?.onPtyExit(id, exitCode)
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('pty:exit', { id, code: exitCode })
+        }
+      })
+
+      return { id }
     }
-
-    const defaultCwd =
-      process.platform === 'win32'
-        ? process.env.USERPROFILE || process.env.HOMEPATH || 'C:\\'
-        : process.env.HOME || '/'
-
-    const ptyProcess = pty.spawn(shellPath, shellArgs, {
-      name: 'xterm-256color',
-      cols: args.cols,
-      rows: args.rows,
-      cwd: args.cwd || defaultCwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        TERM_PROGRAM: 'Orca',
-        FORCE_HYPERLINK: '1'
-      } as Record<string, string>
-    })
-
-    ptyProcesses.set(id, ptyProcess)
-    ptyLoadGeneration.set(id, loadGeneration)
-    runtime?.onPtySpawned(id)
-
-    ptyProcess.onData((data) => {
-      runtime?.onPtyData(id, data, Date.now())
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pty:data', { id, data })
-      }
-    })
-
-    ptyProcess.onExit(({ exitCode }) => {
-      ptyProcesses.delete(id)
-      ptyLoadGeneration.delete(id)
-      runtime?.onPtyExit(id, exitCode)
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pty:exit', { id, code: exitCode })
-      }
-    })
-
-    return { id }
-  })
+  )
 
   ipcMain.on('pty:write', (_event, args: { id: string; data: string }) => {
     const proc = ptyProcesses.get(args.id)

@@ -1,11 +1,16 @@
-import { readFileSync, existsSync } from 'fs'
-import { join } from 'path'
-import { exec } from 'child_process'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync } from 'fs'
+import { dirname, join } from 'path'
+import { exec, execFileSync } from 'child_process'
 import { getDefaultRepoHookSettings } from '../shared/constants'
-import type { OrcaHooks, Repo } from '../shared/types'
+import type {
+  OrcaHooks,
+  Repo,
+  SetupDecision,
+  SetupRunPolicy,
+  WorktreeSetupLaunch
+} from '../shared/types'
 
 const HOOK_TIMEOUT = 120_000 // 2 minutes
-type HookName = keyof OrcaHooks['scripts']
 
 function getHookShell(): string | undefined {
   if (process.platform === 'win32') {
@@ -42,15 +47,15 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
       break
     }
 
-    // Indented key like "  setup: |" or "  archive: |"
-    const keyMatch = line.match(/^  (setup|archive):\s*\|?\s*$/)
+    // Indented key like "  setup: |" or "  archive: |" or "  setup: echo hello"
+    const keyMatch = line.match(/^  (setup|archive):\s*(\|)?\s*(.*)$/)
     if (keyMatch) {
       // Save previous key
       if (currentKey) {
         hooks.scripts[currentKey] = currentValue.trimEnd()
       }
       currentKey = keyMatch[1] as 'setup' | 'archive'
-      currentValue = ''
+      currentValue = keyMatch[3] ? `${keyMatch[3]}\n` : ''
       continue
     }
 
@@ -96,35 +101,127 @@ export function hasHooksFile(repoPath: string): boolean {
 }
 
 export function getEffectiveHooks(repo: Repo): OrcaHooks | null {
-  const defaults = getDefaultRepoHookSettings()
   const yamlHooks = loadHooks(repo.path)
-  const repoSettings = {
-    ...defaults,
-    ...repo.hookSettings,
-    scripts: {
-      ...defaults.scripts,
-      ...repo.hookSettings?.scripts
-    }
-  }
+  const legacySetup = repo.hookSettings?.scripts.setup?.trim()
+  const legacyArchive = repo.hookSettings?.scripts.archive?.trim()
+  const setup = yamlHooks?.scripts.setup?.trim() || legacySetup
+  const archive = yamlHooks?.scripts.archive?.trim() || legacyArchive
 
-  const hooks: OrcaHooks = { scripts: {} }
-
-  for (const hookName of ['setup', 'archive'] as HookName[]) {
-    const yamlScript = yamlHooks?.scripts[hookName]?.trim()
-    const uiScript = repoSettings.scripts[hookName].trim()
-
-    const autoScript = yamlScript || uiScript || undefined
-    const effectiveScript = repoSettings.mode === 'auto' ? autoScript : uiScript || undefined
-
-    if (effectiveScript) {
-      hooks.scripts[hookName] = effectiveScript
-    }
-  }
-
-  if (!hooks.scripts.setup && !hooks.scripts.archive) {
+  if (!setup && !archive) {
     return null
   }
-  return hooks
+
+  // Why: `orca.yaml` is the preferred source going forward, but existing users may
+  // still have setup/archive commands persisted only in repo settings. Resolve each
+  // hook independently so a repo that has only migrated one command into `orca.yaml`
+  // does not silently lose the other legacy hook until the migration is complete.
+  return {
+    scripts: {
+      ...(setup ? { setup } : {}),
+      ...(archive ? { archive } : {})
+    }
+  }
+}
+
+export function getEffectiveSetupRunPolicy(repo: Repo): SetupRunPolicy {
+  return repo.hookSettings?.setupRunPolicy ?? getDefaultRepoHookSettings().setupRunPolicy!
+}
+
+export function shouldRunSetupForCreate(repo: Repo, decision: SetupDecision = 'inherit'): boolean {
+  if (decision === 'run') {
+    return true
+  }
+  if (decision === 'skip') {
+    return false
+  }
+
+  const policy = getEffectiveSetupRunPolicy(repo)
+  if (policy === 'ask') {
+    throw new Error('Setup decision required for this repository')
+  }
+
+  return policy === 'run-by-default'
+}
+
+export function getSetupCommandSource(repo: Repo): { source: 'yaml'; command: string } | null {
+  const yamlSetup = loadHooks(repo.path)?.scripts.setup?.trim()
+
+  if (yamlSetup) {
+    return { source: 'yaml', command: yamlSetup }
+  }
+
+  return null
+}
+
+function getSetupEnvVars(repo: Repo, worktreePath: string): Record<string, string> {
+  return {
+    ORCA_ROOT_PATH: repo.path,
+    ORCA_WORKTREE_PATH: worktreePath,
+    // Compat with conductor.json users
+    CONDUCTOR_ROOT_PATH: repo.path,
+    GHOSTX_ROOT_PATH: repo.path
+  }
+}
+
+function getGitPath(cwd: string, relativePath: string): string {
+  return execFileSync('git', ['rev-parse', '--git-path', relativePath], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe']
+  }).trim()
+}
+
+function buildWindowsRunnerScript(script: string): string {
+  const lines = script.replace(/\r?\n/g, '\n').split('\n')
+  const runnerLines = ['@echo off', 'setlocal EnableExtensions']
+
+  for (const rawLine of lines) {
+    const command = rawLine.trim()
+    if (!command) {
+      runnerLines.push('')
+      continue
+    }
+
+    // Why: setup commands often invoke `npm`/`pnpm`, which are batch files on
+    // Windows. Calling one batch file from another without `call` never returns
+    // to later lines, and plain newline-separated commands also keep running
+    // after failures. Wrap each line in `call` and bail on non-zero exit codes
+    // so the generated runner matches the fail-fast behavior of `set -e`.
+    runnerLines.push(`call ${command}`)
+    runnerLines.push('if errorlevel 1 exit /b %errorlevel%')
+  }
+
+  return `${runnerLines.join('\r\n')}\r\n`
+}
+
+export function createSetupRunnerScript(
+  repo: Repo,
+  worktreePath: string,
+  script: string
+): WorktreeSetupLaunch {
+  const envVars = getSetupEnvVars(repo, worktreePath)
+  const isWindows = process.platform === 'win32'
+  const normalizedScript = isWindows
+    ? script.replace(/\r?\n/g, '\r\n')
+    : script.replace(/\r\n/g, '\n')
+  // Why: linked git worktrees use a `.git` file that points at the real gitdir,
+  // so writing under `${worktreePath}/.git/...` fails. `git rev-parse --git-path`
+  // resolves the actual per-worktree git storage path safely across platforms.
+  const runnerScriptPath = getGitPath(
+    worktreePath,
+    isWindows ? 'orca/setup-runner.cmd' : 'orca/setup-runner.sh'
+  )
+
+  mkdirSync(dirname(runnerScriptPath), { recursive: true })
+
+  if (isWindows) {
+    writeFileSync(runnerScriptPath, buildWindowsRunnerScript(normalizedScript), 'utf-8')
+  } else {
+    writeFileSync(runnerScriptPath, `#!/usr/bin/env bash\nset -e\n${normalizedScript}\n`, 'utf-8')
+    chmodSync(runnerScriptPath, 0o755)
+  }
+
+  return { runnerScriptPath, envVars }
 }
 
 /**
@@ -151,11 +248,7 @@ export function runHook(
         shell: getHookShell(),
         env: {
           ...process.env,
-          ORCA_ROOT_PATH: repo.path,
-          ORCA_WORKTREE_PATH: cwd,
-          // Compat with conductor.json users
-          CONDUCTOR_ROOT_PATH: repo.path,
-          GHOSTX_ROOT_PATH: repo.path
+          ...getSetupEnvVars(repo, cwd)
         }
       },
       (error, stdout, stderr) => {

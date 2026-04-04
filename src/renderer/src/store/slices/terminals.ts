@@ -17,6 +17,7 @@ export type TerminalSlice = {
   expandedPaneByTabId: Record<string, boolean>
   canExpandPaneByTabId: Record<string, boolean>
   terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot>
+  pendingStartupByTabId: Record<string, { command: string; env?: Record<string, string> }>
   tabBarOrderByWorktree: Record<string, string[]>
   workspaceSessionReady: boolean
   createTab: (worktreeId: string) => TerminalTab
@@ -34,6 +35,13 @@ export type TerminalSlice = {
   setTabPaneExpanded: (tabId: string, expanded: boolean) => void
   setTabCanExpandPane: (tabId: string, canExpand: boolean) => void
   setTabLayout: (tabId: string, layout: TerminalLayoutSnapshot | null) => void
+  queueTabStartupCommand: (
+    tabId: string,
+    startup: { command: string; env?: Record<string, string> }
+  ) => void
+  consumeTabStartupCommand: (
+    tabId: string
+  ) => { command: string; env?: Record<string, string> } | null
   hydrateWorkspaceSession: (session: WorkspaceSessionState) => void
 }
 
@@ -45,6 +53,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   expandedPaneByTabId: {},
   canExpandPaneByTabId: {},
   terminalLayoutsByTabId: {},
+  pendingStartupByTabId: {},
   tabBarOrderByWorktree: {},
   workspaceSessionReady: false,
 
@@ -94,13 +103,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextLayouts[tabId]
       const nextPtyIdsByTabId = { ...s.ptyIdsByTabId }
       delete nextPtyIdsByTabId[tabId]
+      const nextPendingStartupByTabId = { ...s.pendingStartupByTabId }
+      delete nextPendingStartupByTabId[tabId]
       return {
         tabsByWorktree: next,
         activeTabId: s.activeTabId === tabId ? null : s.activeTabId,
         ptyIdsByTabId: nextPtyIdsByTabId,
         expandedPaneByTabId: nextExpanded,
         canExpandPaneByTabId: nextCanExpand,
-        terminalLayoutsByTabId: nextLayouts
+        terminalLayoutsByTabId: nextLayouts,
+        pendingStartupByTabId: nextPendingStartupByTabId
       }
     })
   },
@@ -109,12 +121,14 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     set((s) => {
       const tabs = s.tabsByWorktree[worktreeId] ?? []
       const tabMap = new Map(tabs.map((t) => [t.id, t]))
-      const reordered = tabIds
-        .map((id, i) => {
-          const tab = tabMap.get(id)
-          return tab ? { ...tab, sortOrder: i } : undefined
-        })
-        .filter((t): t is TerminalTab => t !== undefined)
+      const orderedSet = new Set(tabIds)
+      const missingTabs = tabs.filter((t) => !orderedSet.has(t.id))
+
+      const reordered = [
+        ...tabIds.map((id) => tabMap.get(id)!).filter(Boolean),
+        ...missingTabs
+      ].map((tab, i) => ({ ...tab, sortOrder: i }))
+
       return {
         tabsByWorktree: { ...s.tabsByWorktree, [worktreeId]: reordered }
       }
@@ -134,12 +148,14 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const tabMap = new Map(tabs.map((t) => [t.id, t]))
       // Extract terminal IDs in their new relative order
       const terminalIdsInOrder = order.filter((id) => tabMap.has(id))
-      const updatedTabs = terminalIdsInOrder
-        .map((id, i) => {
-          const tab = tabMap.get(id)
-          return tab ? { ...tab, sortOrder: i } : undefined
-        })
-        .filter((t): t is TerminalTab => t !== undefined)
+      const orderedSet = new Set(terminalIdsInOrder)
+      const missingTabs = tabs.filter((t) => !orderedSet.has(t.id))
+
+      const updatedTabs = [
+        ...terminalIdsInOrder.map((id) => tabMap.get(id)!).filter(Boolean),
+        ...missingTabs
+      ].map((tab, i) => ({ ...tab, sortOrder: i }))
+
       return {
         tabBarOrderByWorktree: newTabBarOrder,
         tabsByWorktree: { ...s.tabsByWorktree, [worktreeId]: updatedTabs }
@@ -332,6 +348,30 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
       return { terminalLayoutsByTabId: next }
     })
+  },
+
+  queueTabStartupCommand: (tabId, startup) => {
+    set((s) => ({
+      pendingStartupByTabId: {
+        ...s.pendingStartupByTabId,
+        [tabId]: startup
+      }
+    }))
+  },
+
+  consumeTabStartupCommand: (tabId) => {
+    const pending = get().pendingStartupByTabId[tabId]
+    if (!pending) {
+      return null
+    }
+
+    set((s) => {
+      const next = { ...s.pendingStartupByTabId }
+      delete next[tabId]
+      return { pendingStartupByTabId: next }
+    })
+
+    return pending
   },
 
   hydrateWorkspaceSession: (session) => {

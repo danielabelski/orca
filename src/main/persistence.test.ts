@@ -271,6 +271,22 @@ describe('Store', () => {
     expect(persisted.repos[0].id).toBe('r1')
   })
 
+  it('flush remains safe when a debounced save is also pending', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await createStore()
+      store.addRepo(makeRepo())
+      store.flush()
+      vi.advanceTimersByTime(300)
+
+      const persisted = readDataFile() as { repos: Repo[] }
+      expect(persisted.repos).toHaveLength(1)
+      expect(persisted.repos[0].id).toBe('r1')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ── 11. Debounced save ─────────────────────────────────────────────
 
   it('debounced save writes data after the delay', async () => {

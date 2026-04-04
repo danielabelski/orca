@@ -64,17 +64,26 @@ export class Store {
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null
       try {
-        const dir = dirname(DATA_FILE)
-        if (!existsSync(dir)) {
-          mkdirSync(dir, { recursive: true })
-        }
-        const tmpFile = `${DATA_FILE}.tmp`
-        writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
-        renameSync(tmpFile, DATA_FILE)
+        this.writeToDisk()
       } catch (err) {
         console.error('[persistence] Failed to write state:', err)
       }
     }, 300)
+  }
+
+  private writeToDisk(): void {
+    const dir = dirname(DATA_FILE)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+    // Why: synchronous flushes can race the debounced writer during shutdown or
+    // beforeunload persistence. A shared `.tmp` path lets one rename steal the
+    // temp file from the other, which surfaces as ENOENT even though the final
+    // state may already be on disk. Use a unique temp file per write so atomic
+    // replaces remain race-safe across platforms.
+    const tmpFile = `${DATA_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+    writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
+    renameSync(tmpFile, DATA_FILE)
   }
 
   // ── Repos ──────────────────────────────────────────────────────────
@@ -230,13 +239,7 @@ export class Store {
       this.writeTimer = null
     }
     try {
-      const dir = dirname(DATA_FILE)
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true })
-      }
-      const tmpFile = `${DATA_FILE}.tmp`
-      writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
-      renameSync(tmpFile, DATA_FILE)
+      this.writeToDisk()
     } catch (err) {
       console.error('[persistence] Failed to flush state:', err)
     }

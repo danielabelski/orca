@@ -23,6 +23,7 @@ type UseTerminalPaneLifecycleDeps = {
   tabId: string
   worktreeId: string
   cwd?: string
+  startup?: { command: string; env?: Record<string, string> } | null
   isActive: boolean
   systemPrefersDark: boolean
   settings: GlobalSettings | null | undefined
@@ -53,6 +54,7 @@ export function useTerminalPaneLifecycle({
   tabId,
   worktreeId,
   cwd,
+  startup,
   isActive,
   systemPrefersDark,
   settings,
@@ -151,6 +153,7 @@ export function useTerminalPaneLifecycle({
       tabId,
       worktreeId,
       cwd,
+      startup,
       paneTransportsRef,
       pendingWritesRef,
       isActiveRef,
@@ -205,6 +208,10 @@ export function useTerminalPaneLifecycle({
         }
         const transport = paneTransportsRef.current.get(paneId)
         if (transport) {
+          const ptyId = transport.getPtyId()
+          if (ptyId) {
+            clearTabPtyId(tabId, ptyId)
+          }
           transport.destroy?.()
           paneTransportsRef.current.delete(paneId)
         }

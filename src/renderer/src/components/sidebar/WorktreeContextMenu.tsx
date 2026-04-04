@@ -95,6 +95,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({ worktree, 
   }, [worktree.id, shutdownWorktreeTerminals, activeWorktreeId, setActiveWorktree])
 
   const handleDelete = useCallback(() => {
+    setMenuOpen(false)
     clearWorktreeDeleteState(worktree.id)
     openModal('delete-worktree', { worktreeId: worktree.id })
   }, [worktree.id, clearWorktreeDeleteState, openModal])

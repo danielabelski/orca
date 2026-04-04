@@ -20,6 +20,8 @@ function Settings(): React.JSX.Element {
   const repos = useAppStore((s) => s.repos)
   const updateRepo = useAppStore((s) => s.updateRepo)
   const removeRepo = useAppStore((s) => s.removeRepo)
+  const settingsNavigationTarget = useAppStore((s) => s.settingsNavigationTarget)
+  const clearSettingsTarget = useAppStore((s) => s.clearSettingsTarget)
 
   const [selectedPane, setSelectedPane] = useState<
     'general' | 'appearance' | 'terminal' | 'shortcuts' | 'repo'
@@ -39,6 +41,20 @@ function Settings(): React.JSX.Element {
   useEffect(() => {
     fetchSettings()
   }, [fetchSettings])
+
+  useEffect(() => {
+    if (!settingsNavigationTarget) {
+      return
+    }
+
+    // Why: the create-worktree dialog links here so setup configuration stays
+    // out of the dialog until the user explicitly asks to edit it.
+    setSelectedPane(settingsNavigationTarget.pane)
+    if (settingsNavigationTarget.repoId) {
+      setSelectedRepoId(settingsNavigationTarget.repoId)
+    }
+    clearSettingsTarget()
+  }, [clearSettingsTarget, settingsNavigationTarget])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -148,7 +164,8 @@ function Settings(): React.JSX.Element {
   }, [])
 
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null
-  const selectedYamlHooks = selectedRepo ? (repoHooksMap[selectedRepo.id]?.hooks ?? null) : null
+  const selectedRepoHooksState = selectedRepo ? repoHooksMap[selectedRepo.id] : undefined
+  const selectedYamlHooks = selectedRepoHooksState?.hooks ?? null
   const showGeneralPane = selectedPane === 'general'
   const showAppearancePane = selectedPane === 'appearance'
   const showTerminalPane = selectedPane === 'terminal'
@@ -339,6 +356,7 @@ function Settings(): React.JSX.Element {
               <RepositoryPane
                 repo={selectedRepo}
                 yamlHooks={selectedYamlHooks}
+                hasHooksFile={selectedRepoHooksState?.hasHooks ?? false}
                 updateRepo={updateRepo}
                 removeRepo={removeRepo}
               />

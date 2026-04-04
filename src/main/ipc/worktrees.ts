@@ -3,11 +3,23 @@ import { ipcMain } from 'electron'
 import { execFileSync } from 'child_process'
 import { rm } from 'fs/promises'
 import type { Store } from '../persistence'
-import type { Worktree, WorktreeMeta } from '../../shared/types'
+import type {
+  CreateWorktreeArgs,
+  CreateWorktreeResult,
+  Worktree,
+  WorktreeMeta
+} from '../../shared/types'
 import { getPRForBranch } from '../github/client'
 import { listWorktrees, addWorktree, removeWorktree } from '../git/worktree'
 import { getGitUsername, getDefaultBaseRef, getBranchConflictKind } from '../git/repo'
-import { getEffectiveHooks, loadHooks, runHook, hasHooksFile } from '../hooks'
+import {
+  createSetupRunnerScript,
+  getEffectiveHooks,
+  loadHooks,
+  runHook,
+  hasHooksFile,
+  shouldRunSetupForCreate
+} from '../hooks'
 import {
   sanitizeWorktreeName,
   computeBranchName,
@@ -62,7 +74,7 @@ export function registerWorktreeHandlers(mainWindow: BrowserWindow, store: Store
 
   ipcMain.handle(
     'worktrees:create',
-    async (_event, args: { repoId: string; name: string; baseBranch?: string }) => {
+    async (_event, args: CreateWorktreeArgs): Promise<CreateWorktreeResult> => {
       const repo = store.getRepo(args.repoId)
       if (!repo) {
         throw new Error(`Repo not found: ${args.repoId}`)
@@ -106,6 +118,13 @@ export function registerWorktreeHandlers(mainWindow: BrowserWindow, store: Store
 
       // Determine base branch
       const baseBranch = args.baseBranch || repo.worktreeBaseRef || getDefaultBaseRef(repo.path)
+      const setupScript = getEffectiveHooks(repo)?.scripts.setup
+      // Why: `ask` is a pre-create choice gate, not a post-create side effect.
+      // Resolve it before mutating git state so missing UI input cannot strand
+      // a real worktree on disk while the renderer reports "create failed".
+      const shouldLaunchSetup = setupScript
+        ? shouldRunSetupForCreate(repo, args.setupDecision)
+        : false
 
       // Fetch latest from remote so the worktree starts with up-to-date content
       const remote = baseBranch.includes('/') ? baseBranch.split('/')[0] : 'origin'
@@ -141,18 +160,29 @@ export function registerWorktreeHandlers(mainWindow: BrowserWindow, store: Store
       const meta = store.setWorktreeMeta(worktreeId, metaUpdates)
       const worktree = mergeWorktree(repo.id, created, meta)
 
-      // Run setup hook asynchronously (don't block the UI)
-      const hooks = getEffectiveHooks(repo)
-      if (hooks?.scripts.setup) {
-        runHook('setup', worktreePath, repo).then((result) => {
-          if (!result.success) {
-            console.error(`[hooks] setup hook failed for ${worktreePath}:`, result.output)
-          }
-        })
+      let setup: CreateWorktreeResult['setup']
+      if (setupScript && shouldLaunchSetup) {
+        try {
+          // Why: setup now runs in a visible terminal owned by the renderer so users
+          // can inspect failures, answer prompts, and rerun it. The main process only
+          // resolves policy and writes the runner script; it must not execute setup
+          // itself anymore or we would reintroduce the hidden background-hook behavior.
+          //
+          // Why: the git worktree already exists at this point. If runner generation
+          // fails, surfacing the error as a hard create failure would lie to the UI
+          // about the underlying git state and strand a real worktree on disk.
+          // Degrade to "created without setup launch" instead.
+          setup = createSetupRunnerScript(repo, worktreePath, setupScript)
+        } catch (error) {
+          console.error(`[hooks] Failed to prepare setup runner for ${worktreePath}:`, error)
+        }
       }
 
       notifyWorktreesChanged(mainWindow, repo.id)
-      return worktree
+      return {
+        worktree,
+        ...(setup ? { setup } : {})
+      }
     }
   )
 

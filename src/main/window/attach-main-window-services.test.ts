@@ -122,17 +122,40 @@ describe('attachMainWindowServices', () => {
     const notifier = runtime.setNotifier.mock.calls[0][0] as {
       worktreesChanged: (repoId: string) => void
       reposChanged: () => void
-      activateWorktree: (repoId: string, worktreeId: string) => void
+      activateWorktree: (
+        repoId: string,
+        worktreeId: string,
+        setup?: { runnerScriptPath: string; envVars: Record<string, string> }
+      ) => void
     }
 
     notifier.worktreesChanged('repo-1')
     notifier.reposChanged()
-    notifier.activateWorktree('repo-1', 'wt-1')
+    notifier.activateWorktree('repo-1', 'wt-1', {
+      runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
+      envVars: {
+        ORCA_ROOT_PATH: '/tmp/repo',
+        ORCA_WORKTREE_PATH: '/tmp/worktrees/wt-1'
+      }
+    })
 
     expect(sendMock.mock.calls).toEqual([
       ['worktrees:changed', { repoId: 'repo-1' }],
       ['repos:changed'],
-      ['ui:activateWorktree', { repoId: 'repo-1', worktreeId: 'wt-1' }]
+      [
+        'ui:activateWorktree',
+        {
+          repoId: 'repo-1',
+          worktreeId: 'wt-1',
+          setup: {
+            runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
+            envVars: {
+              ORCA_ROOT_PATH: '/tmp/repo',
+              ORCA_WORKTREE_PATH: '/tmp/worktrees/wt-1'
+            }
+          }
+        }
+      ]
     ])
   })
 })

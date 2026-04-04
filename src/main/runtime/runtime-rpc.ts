@@ -580,7 +580,7 @@ export class OrcaRuntimeRpcServer {
         return {
           id: request.id,
           ok: true,
-          result: { worktree: result },
+          result,
           _meta: {
             runtimeId: this.runtime.getRuntimeId()
           }

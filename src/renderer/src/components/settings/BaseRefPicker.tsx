@@ -90,7 +90,7 @@ export function BaseRefPicker({
   const effectiveBaseRef = currentBaseRef ?? defaultBaseRef
 
   return (
-    <div className="min-h-[280px] space-y-3">
+    <div className="space-y-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-sm font-medium text-foreground">{effectiveBaseRef}</div>

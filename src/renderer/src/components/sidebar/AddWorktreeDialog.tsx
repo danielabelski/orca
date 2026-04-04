@@ -1,6 +1,10 @@
+/* eslint-disable max-lines */
+
 import React, { useState, useCallback, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
+import { ChevronRight } from 'lucide-react'
 import { useAppStore } from '@/store'
+import type { OrcaHooks, SetupDecision, SetupRunPolicy } from '../../../../shared/types'
 import {
   Dialog,
   DialogContent,
@@ -21,6 +25,7 @@ import {
 import RepoDotLabel from '@/components/repo/RepoDotLabel'
 import { parseGitHubIssueOrPRNumber } from '@/lib/github-links'
 import { SPACE_NAMES } from '@/constants/space-names'
+import { ensureWorktreeHasInitialTerminal } from '@/lib/worktree-activation'
 
 const DIALOG_CLOSE_RESET_DELAY_MS = 200
 
@@ -36,6 +41,7 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
   const setActiveRepo = useAppStore((s) => s.setActiveRepo)
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
   const setActiveView = useAppStore((s) => s.setActiveView)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const searchQuery = useAppStore((s) => s.searchQuery)
   const setSearchQuery = useAppStore((s) => s.setSearchQuery)
@@ -51,6 +57,9 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
   const [name, setName] = useState('')
   const [linkedIssue, setLinkedIssue] = useState('')
   const [comment, setComment] = useState('')
+  const [yamlHooks, setYamlHooks] = useState<OrcaHooks | null>(null)
+  const [checkedHooksRepoId, setCheckedHooksRepoId] = useState<string | null>(null)
+  const [setupDecision, setSetupDecision] = useState<'run' | 'skip' | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -67,10 +76,31 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     [activeWorktreeId, worktreesByRepo]
   )
   const selectedRepo = repos.find((r) => r.id === repoId)
+  const setupConfig = useMemo(
+    () => getSetupConfig(selectedRepo, yamlHooks),
+    [selectedRepo, yamlHooks]
+  )
+  const setupPolicy: SetupRunPolicy = selectedRepo?.hookSettings?.setupRunPolicy ?? 'run-by-default'
+  const requiresExplicitSetupChoice = Boolean(setupConfig) && setupPolicy === 'ask'
+  const resolvedSetupDecision =
+    setupDecision ??
+    (!setupConfig || setupPolicy === 'ask'
+      ? null
+      : setupPolicy === 'run-by-default'
+        ? 'run'
+        : 'skip')
   const suggestedName = useMemo(
     () => getSuggestedSpaceName(repoId, worktreesByRepo, settings?.nestWorkspaces ?? false),
     [repoId, worktreesByRepo, settings?.nestWorkspaces]
   )
+  // Why: setup visibility is part of the create decision no matter which default
+  // policy the repo uses. If we let create proceed before the async hook lookup
+  // finishes, a repo with `orca.yaml` setup can silently launch setup (or hide a
+  // skip/default choice) before the dialog ever surfaces that configuration.
+  // Track which repo has completed a lookup so the first render after opening or
+  // switching repos still counts as "checking".
+  const isSetupCheckPending = Boolean(repoId) && checkedHooksRepoId !== repoId
+  const shouldWaitForSetupCheck = Boolean(selectedRepo) && isSetupCheckPending
 
   // Auto-select repo when dialog opens (adjusting state during render)
   if (isOpen && !prevIsOpenRef.current && repos.length > 0) {
@@ -109,13 +139,19 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
   )
 
   const handleCreate = useCallback(async () => {
-    if (!repoId || !name.trim()) {
+    if (!repoId || !name.trim() || shouldWaitForSetupCheck) {
       return
     }
     setCreateError(null)
     setCreating(true)
     try {
-      const wt = await createWorktree(repoId, name.trim())
+      const result = await createWorktree(
+        repoId,
+        name.trim(),
+        undefined,
+        setupConfig ? ((resolvedSetupDecision ?? 'inherit') as SetupDecision) : 'inherit'
+      )
+      const wt = result.worktree
       // Meta update is best-effort — the worktree already exists, so don't
       // block the success path if only the metadata write fails.
       try {
@@ -146,6 +182,7 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
         setFilterRepoIds([])
       }
       setActiveWorktree(wt.id)
+      ensureWorktreeHasInitialTerminal(useAppStore.getState(), wt.id, result.setup)
       revealWorktreeInSidebar(wt.id)
       if (settings?.rightSidebarOpenByDefault) {
         setRightSidebarTab('explorer')
@@ -178,7 +215,10 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     setRightSidebarOpen,
     setRightSidebarTab,
     settings?.rightSidebarOpenByDefault,
-    handleOpenChange
+    handleOpenChange,
+    resolvedSetupDecision,
+    setupConfig,
+    shouldWaitForSetupCheck
   ])
 
   const handleNameChange = useCallback(
@@ -194,12 +234,28 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
   const handleRepoChange = useCallback(
     (value: string) => {
       setRepoId(value)
+      setYamlHooks(null)
+      setCheckedHooksRepoId(null)
+      setSetupDecision(null)
       if (createError) {
         setCreateError(null)
       }
     },
     [createError]
   )
+
+  const handleOpenSetupSettings = useCallback(() => {
+    if (!selectedRepo) {
+      return
+    }
+
+    // Why: the create dialog intentionally keeps setup details collapsed so the
+    // branch-creation flow stays lightweight; clicking setup is the escape hatch
+    // into the full repository hook editor.
+    openSettingsTarget({ pane: 'repo', repoId: selectedRepo.id })
+    handleOpenChange(false)
+    setActiveView('settings')
+  }, [handleOpenChange, openSettingsTarget, selectedRepo, setActiveView])
 
   // Auto-select repo when opening.
   React.useEffect(() => {
@@ -217,6 +273,9 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
       setName('')
       setLinkedIssue('')
       setComment('')
+      setYamlHooks(null)
+      setCheckedHooksRepoId(null)
+      setSetupDecision(null)
       setCreateError(null)
       lastSuggestedNameRef.current = ''
       resetTimeoutRef.current = null
@@ -252,14 +311,71 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     }
   }, [isOpen, repos.length, handleOpenChange])
 
+  React.useEffect(() => {
+    if (!isOpen || !repoId) {
+      return
+    }
+
+    let cancelled = false
+
+    void window.api.hooks
+      .check({ repoId })
+      .then((result) => {
+        if (!cancelled) {
+          setYamlHooks(result.hooks)
+          setCheckedHooksRepoId(repoId)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setYamlHooks(null)
+          setCheckedHooksRepoId(repoId)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, repoId])
+
+  React.useEffect(() => {
+    if (shouldWaitForSetupCheck) {
+      setSetupDecision(null)
+      return
+    }
+
+    if (!setupConfig) {
+      setSetupDecision(null)
+      return
+    }
+
+    if (setupPolicy === 'ask') {
+      setSetupDecision(null)
+      return
+    }
+
+    setSetupDecision(setupPolicy === 'run-by-default' ? 'run' : 'skip')
+  }, [setupConfig, setupPolicy, shouldWaitForSetupCheck])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey && repoId && name.trim() && !creating) {
+        if (shouldWaitForSetupCheck || (requiresExplicitSetupChoice && !setupDecision)) {
+          return
+        }
         e.preventDefault()
         handleCreate()
       }
     },
-    [repoId, name, creating, handleCreate]
+    [
+      repoId,
+      name,
+      creating,
+      handleCreate,
+      requiresExplicitSetupChoice,
+      setupDecision,
+      shouldWaitForSetupCheck
+    ]
   )
 
   return (
@@ -310,7 +426,101 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
               autoFocus
             />
             {createError && <p className="text-[10px] text-destructive">{createError}</p>}
+            {shouldWaitForSetupCheck ? (
+              <p className="text-[10px] text-muted-foreground">Checking setup configuration...</p>
+            ) : null}
           </div>
+
+          {setupConfig ? (
+            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={setupConfig.source === 'yaml' ? undefined : handleOpenSetupSettings}
+                  className="group min-w-0 flex-1 rounded-md text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <div className="flex items-center gap-1 text-[11px] font-medium text-foreground">
+                    <span>Setup</span>
+                    {setupConfig.source !== 'yaml' && (
+                      <ChevronRight className="size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {setupConfig.source === 'yaml' ? (
+                      <>
+                        This repository uses{' '}
+                        <code className="rounded bg-muted px-1 py-0.5">orca.yaml</code> to define
+                        its setup command.
+                      </>
+                    ) : (
+                      'Review setup status here and migrate this legacy command in repository settings.'
+                    )}
+                  </p>
+                </button>
+                <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {setupPolicy === 'ask'
+                    ? 'Ask every time'
+                    : setupPolicy === 'run-by-default'
+                      ? 'Run by default'
+                      : 'Skip by default'}
+                </span>
+              </div>
+
+              <div className="space-y-1 rounded-lg border border-border/50 bg-background/60 p-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {setupConfig.source === 'yaml' ? 'orca.yaml' : 'Command Preview'}
+                </p>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground">
+                  {summarizeSetupCommand(setupConfig.command)}
+                </pre>
+              </div>
+
+              {requiresExplicitSetupChoice ? (
+                <div className="space-y-2">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Run setup now?
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        ['run', 'Run setup now'],
+                        ['skip', 'Skip for now']
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSetupDecision(value)}
+                        className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                          setupDecision === value
+                            ? 'border-foreground bg-accent text-accent-foreground'
+                            : 'border-border/60 text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {!setupDecision ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      {shouldWaitForSetupCheck
+                        ? 'Checking setup configuration...'
+                        : 'Choose whether to run setup before creating this worktree.'}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 text-[11px] text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={resolvedSetupDecision === 'run'}
+                    onChange={(e) => setSetupDecision(e.target.checked ? 'run' : 'skip')}
+                  />
+                  Run setup command after creation
+                </label>
+              )}
+            </div>
+          ) : null}
 
           {/* Link GH Issue */}
           <div className="space-y-1">
@@ -355,7 +565,13 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
           <Button
             size="sm"
             onClick={handleCreate}
-            disabled={!repoId || !name.trim() || creating}
+            disabled={
+              !repoId ||
+              !name.trim() ||
+              creating ||
+              shouldWaitForSetupCheck ||
+              (requiresExplicitSetupChoice && !setupDecision)
+            }
             className="text-xs"
           >
             {creating ? 'Creating...' : 'Create'}
@@ -411,7 +627,15 @@ function getSuggestedSpaceName(
 }
 
 function lastPathSegment(path: string): string {
-  return path.replace(/\/+$/, '').split('/').pop() ?? path
+  // Why: worktree paths come from the OS, so Windows worktrees use backslashes.
+  // Split on both separators or the suggestion logic treats the whole absolute
+  // path as the "name" and starts re-suggesting already-used worktree names.
+  return (
+    path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() ?? path
+  )
 }
 
 function normalizeSpaceName(name: string): string {
@@ -433,4 +657,50 @@ function findRepoIdForWorktree(
   }
 
   return null
+}
+
+function getSetupConfig(
+  repo:
+    | {
+        hookSettings?: {
+          setupRunPolicy?: SetupRunPolicy
+          scripts?: { setup?: string }
+        }
+      }
+    | undefined,
+  yamlHooks: OrcaHooks | null
+): { source: 'yaml' | 'legacy-ui'; command: string } | null {
+  if (!repo) {
+    return null
+  }
+
+  const yamlSetup = yamlHooks?.scripts.setup?.trim()
+
+  if (yamlSetup) {
+    return { source: 'yaml', command: yamlSetup }
+  }
+
+  const legacySetup = repo.hookSettings?.scripts?.setup?.trim()
+  if (legacySetup) {
+    // Why: the backend still honors persisted pre-yaml hook commands for backwards
+    // compatibility, so the create dialog must surface the same effective setup
+    // command instead of pretending the repo has no setup configured.
+    return { source: 'legacy-ui', command: legacySetup }
+  }
+
+  return null
+}
+
+function summarizeSetupCommand(command: string): string {
+  const trimmed = command.trim()
+  if (!trimmed) {
+    return '(empty setup command)'
+  }
+
+  const lines = trimmed.split(/\r?\n/)
+  if (lines.length <= 4) {
+    return trimmed
+  }
+
+  return `${lines.slice(0, 4).join('\n')}\n...`
 }

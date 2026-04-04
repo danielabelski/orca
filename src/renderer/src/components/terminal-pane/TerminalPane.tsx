@@ -67,6 +67,15 @@ export default function TerminalPane({
   const clearTabPtyId = useAppStore((store) => store.clearTabPtyId)
   const markWorktreeUnread = useAppStore((store) => store.markWorktreeUnread)
   const settings = useAppStore((store) => store.settings)
+  const [startup] = useState(() => useAppStore.getState().pendingStartupByTabId[tabId])
+  const consumeTabStartupCommand = useAppStore((store) => store.consumeTabStartupCommand)
+
+  useEffect(() => {
+    if (startup) {
+      consumeTabStartupCommand(tabId)
+    }
+  }, [startup, tabId, consumeTabStartupCommand])
+
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const onPtyExitRef = useRef(onPtyExit)
@@ -115,6 +124,7 @@ export default function TerminalPane({
     tabId,
     worktreeId,
     cwd,
+    startup,
     isActive,
     systemPrefersDark,
     settings,

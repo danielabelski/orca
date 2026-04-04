@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 // ─── Repo ────────────────────────────────────────────────────────────
 export type Repo = {
   id: string
@@ -9,6 +11,9 @@ export type Repo = {
   worktreeBaseRef?: string
   hookSettings?: RepoHookSettings
 }
+
+export type SetupRunPolicy = 'ask' | 'run-by-default' | 'skip-by-default'
+export type SetupDecision = 'inherit' | 'run' | 'skip'
 
 // ─── Worktree (git-level) ────────────────────────────────────────────
 export type GitWorktreeInfo = {
@@ -150,11 +155,32 @@ export type OrcaHooks = {
 }
 
 export type RepoHookSettings = {
+  // Why: legacy persisted data may still include the old UI-hook fields. Orca no longer
+  // treats them as an active config surface, but we keep them in the stored shape so
+  // existing local state can still be read without migrations.
   mode: 'auto' | 'override'
+  setupRunPolicy?: SetupRunPolicy
   scripts: {
     setup: string
     archive: string
   }
+}
+
+export type WorktreeSetupLaunch = {
+  runnerScriptPath: string
+  envVars: Record<string, string>
+}
+
+export type CreateWorktreeArgs = {
+  repoId: string
+  name: string
+  baseBranch?: string
+  setupDecision?: SetupDecision
+}
+
+export type CreateWorktreeResult = {
+  worktree: Worktree
+  setup?: WorktreeSetupLaunch
 }
 
 // ─── Updater ─────────────────────────────────────────────────────────

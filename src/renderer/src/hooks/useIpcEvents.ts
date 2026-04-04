@@ -2,6 +2,7 @@ import { useEffect, createElement } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
 import { applyUIZoom } from '@/lib/ui-zoom'
+import { ensureWorktreeHasInitialTerminal } from '@/lib/worktree-activation'
 import type { UpdateStatus } from '../../../shared/types'
 
 const ZOOM_STEP = 0.5
@@ -34,7 +35,7 @@ export function useIpcEvents(): void {
     )
 
     unsubs.push(
-      window.api.ui.onActivateWorktree(({ repoId, worktreeId }) => {
+      window.api.ui.onActivateWorktree(({ repoId, worktreeId, setup }) => {
         void (async () => {
           const store = useAppStore.getState()
           await store.fetchWorktrees(repoId)
@@ -45,6 +46,8 @@ export function useIpcEvents(): void {
           store.setActiveRepo(repoId)
           store.setActiveView('terminal')
           store.setActiveWorktree(worktreeId)
+          ensureWorktreeHasInitialTerminal(store, worktreeId, setup)
+
           store.revealWorktreeInSidebar(worktreeId)
         })().catch((error) => {
           console.error('Failed to activate CLI-created worktree:', error)

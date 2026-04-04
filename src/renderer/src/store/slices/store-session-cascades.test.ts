@@ -258,3 +258,58 @@ describe('hydrateWorkspaceSession', () => {
     expect(s.activeRepoId).toBe('repo1')
   })
 })
+
+describe('terminal slice behaviors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('preserves tabs omitted from a reorder request instead of dropping them', () => {
+    const store = createTestStore()
+    const worktreeId = 'repo1::/path/wt1'
+
+    store.setState({
+      tabsByWorktree: {
+        [worktreeId]: [
+          makeTab({ id: 'tab-a', worktreeId, sortOrder: 0, createdAt: 1 }),
+          makeTab({ id: 'tab-b', worktreeId, sortOrder: 1, createdAt: 2 }),
+          makeTab({ id: 'tab-c', worktreeId, sortOrder: 2, createdAt: 3 })
+        ]
+      }
+    })
+
+    store.getState().reorderTabs(worktreeId, ['tab-c', 'tab-a'])
+
+    expect(store.getState().tabsByWorktree[worktreeId]).toEqual([
+      expect.objectContaining({ id: 'tab-c', sortOrder: 0 }),
+      expect.objectContaining({ id: 'tab-a', sortOrder: 1 }),
+      expect.objectContaining({ id: 'tab-b', sortOrder: 2 })
+    ])
+  })
+
+  it('falls back to the previous PTY id when clearing the active pane PTY', () => {
+    const store = createTestStore()
+    const worktreeId = 'repo1::/path/wt1'
+
+    store.setState({
+      repos: [
+        { id: 'repo1', path: '/repo1', displayName: 'Repo 1', badgeColor: '#000', addedAt: 0 }
+      ],
+      worktreesByRepo: {
+        repo1: [makeWorktree({ id: worktreeId, repoId: 'repo1', path: '/path/wt1' })]
+      },
+      tabsByWorktree: {
+        [worktreeId]: [makeTab({ id: 'tab-1', worktreeId, ptyId: 'pty-2' })]
+      },
+      ptyIdsByTabId: {
+        'tab-1': ['pty-1', 'pty-2']
+      }
+    })
+
+    store.getState().clearTabPtyId('tab-1', 'pty-2')
+
+    const tab = store.getState().tabsByWorktree[worktreeId][0]
+    expect(tab.ptyId).toBe('pty-1')
+    expect(store.getState().ptyIdsByTabId['tab-1']).toEqual(['pty-1'])
+  })
+})

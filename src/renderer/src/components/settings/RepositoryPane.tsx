@@ -1,19 +1,19 @@
 import { useState } from 'react'
-import type { OrcaHooks, Repo, RepoHookSettings } from '../../../../shared/types'
+import type { OrcaHooks, Repo, RepoHookSettings, SetupRunPolicy } from '../../../../shared/types'
 import { REPO_COLORS } from '../../../../shared/constants'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
 import { Trash2 } from 'lucide-react'
-import { HookEditor } from './HookEditor'
 import { DEFAULT_REPO_HOOK_SETTINGS } from './SettingsConstants'
-import type { HookName } from './SettingsConstants'
 import { BaseRefPicker } from './BaseRefPicker'
+import { RepositoryHooksSection } from './RepositoryHooksSection'
 
 type RepositoryPaneProps = {
   repo: Repo
   yamlHooks: OrcaHooks | null
+  hasHooksFile: boolean
   updateRepo: (repoId: string, updates: Partial<Repo>) => void
   removeRepo: (repoId: string) => void
 }
@@ -21,10 +21,12 @@ type RepositoryPaneProps = {
 export function RepositoryPane({
   repo,
   yamlHooks,
+  hasHooksFile,
   updateRepo,
   removeRepo
 }: RepositoryPaneProps): React.JSX.Element {
   const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null)
+  const [copiedTemplate, setCopiedTemplate] = useState(false)
 
   const handleRemoveRepo = (repoId: string) => {
     if (confirmingRemove === repoId) {
@@ -37,23 +39,47 @@ export function RepositoryPane({
   }
 
   const updateSelectedRepoHookSettings = (
-    updates: Omit<Partial<RepoHookSettings>, 'scripts'> & {
-      scripts?: Partial<RepoHookSettings['scripts']>
-    }
+    updates: Partial<Pick<RepoHookSettings, 'setupRunPolicy'>>
   ) => {
+    // Why: persisted repos may still carry legacy UI hook fields from the old dual-source
+    // design. We preserve them when saving so existing local state stays loadable, but the
+    // product now treats `orca.yaml` as the only supported hook definition surface.
     const nextSettings: RepoHookSettings = {
       ...DEFAULT_REPO_HOOK_SETTINGS,
       ...repo.hookSettings,
-      ...updates,
-      scripts: {
-        ...DEFAULT_REPO_HOOK_SETTINGS.scripts,
-        ...repo.hookSettings?.scripts,
-        ...updates.scripts
-      }
+      ...updates
     }
 
     updateRepo(repo.id, {
       hookSettings: nextSettings
+    })
+  }
+
+  const handleCopyTemplate = async () => {
+    // Why: the missing-`orca.yaml` state is a migration aid, so copying the shared-template
+    // snippet should be one click rather than forcing users to reconstruct the expected shape.
+    await window.api.ui.writeClipboardText(`scripts:
+  setup: |
+    pnpm worktree:setup
+  archive: |
+    echo "Cleaning up before archive"`)
+    setCopiedTemplate(true)
+    window.setTimeout(() => setCopiedTemplate(false), 1500)
+  }
+
+  const handleClearLegacyHooks = () => {
+    // Why: legacy repo-local commands are still honored as a compatibility fallback.
+    // Keep them visible and removable here so the settings surface matches runtime behavior.
+    updateRepo(repo.id, {
+      hookSettings: {
+        ...DEFAULT_REPO_HOOK_SETTINGS,
+        ...repo.hookSettings,
+        scripts: {
+          ...DEFAULT_REPO_HOOK_SETTINGS.scripts,
+          setup: '',
+          archive: ''
+        }
+      }
     })
   }
 
@@ -125,81 +151,17 @@ export function RepositoryPane({
 
       <Separator />
 
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-sm font-semibold">Hook Source</h2>
-          <p className="text-xs text-muted-foreground">
-            Auto prefers `orca.yaml` when present, then falls back to the UI script. Override
-            ignores YAML and only uses the UI script.
-          </p>
-        </div>
-
-        <div className="flex w-fit gap-1 rounded-xl border border-border/50 p-1">
-          {(['auto', 'override'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => updateSelectedRepoHookSettings({ mode })}
-              className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                repo.hookSettings?.mode === mode
-                  ? 'bg-accent font-medium text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {mode === 'auto' ? 'Use YAML First' : 'Override in UI'}
-            </button>
-          ))}
-        </div>
-
-        <div className="rounded-xl border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-          {yamlHooks ? (
-            <div className="space-y-2">
-              <p className="font-medium text-foreground">YAML hooks detected in `orca.yaml`</p>
-              <div className="flex flex-wrap gap-2">
-                {(['setup', 'archive'] as HookName[]).map((hookName) =>
-                  yamlHooks.scripts[hookName] ? (
-                    <span
-                      key={hookName}
-                      className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300"
-                    >
-                      {hookName}
-                    </span>
-                  ) : null
-                )}
-              </div>
-            </div>
-          ) : (
-            <p>No YAML hooks detected for this repo.</p>
-          )}
-        </div>
-      </section>
-
-      <Separator />
-
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-sm font-semibold">Lifecycle Hooks</h2>
-          <p className="text-xs text-muted-foreground">
-            Write scripts directly in the UI. Each repo stores its own setup and archive hook
-            script.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {(['setup', 'archive'] as HookName[]).map((hookName) => (
-            <HookEditor
-              key={hookName}
-              hookName={hookName}
-              repo={repo}
-              yamlHooks={yamlHooks}
-              onScriptChange={(script) =>
-                updateSelectedRepoHookSettings({
-                  scripts: hookName === 'setup' ? { setup: script } : { archive: script }
-                })
-              }
-            />
-          ))}
-        </div>
-      </section>
+      <RepositoryHooksSection
+        repo={repo}
+        yamlHooks={yamlHooks}
+        hasHooksFile={hasHooksFile}
+        copiedTemplate={copiedTemplate}
+        onCopyTemplate={() => void handleCopyTemplate()}
+        onClearLegacyHooks={handleClearLegacyHooks}
+        onUpdateSetupRunPolicy={(policy) =>
+          updateSelectedRepoHookSettings({ setupRunPolicy: policy as SetupRunPolicy })
+        }
+      />
     </div>
   )
 }

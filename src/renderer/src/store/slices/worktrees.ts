@@ -31,17 +31,17 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     await Promise.all(repos.map((r) => get().fetchWorktrees(r.id)))
   },
 
-  createWorktree: async (repoId, name, baseBranch) => {
+  createWorktree: async (repoId, name, baseBranch, setupDecision = 'inherit') => {
     try {
-      const worktree = await window.api.worktrees.create({ repoId, name, baseBranch })
+      const result = await window.api.worktrees.create({ repoId, name, baseBranch, setupDecision })
       set((s) => ({
         worktreesByRepo: {
           ...s.worktreesByRepo,
-          [repoId]: [...(s.worktreesByRepo[repoId] ?? []), worktree]
+          [repoId]: [...(s.worktreesByRepo[repoId] ?? []), result.worktree]
         },
         sortEpoch: s.sortEpoch + 1
       }))
-      return worktree
+      return result
     } catch (err) {
       console.error('Failed to create worktree:', err)
       throw err
@@ -61,8 +61,12 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     }))
 
     try {
-      await window.api.worktrees.remove({ worktreeId, force })
+      // Why: setup-enabled worktrees now commonly have a live shell open as soon as
+      // they are created. We must tear those PTYs down before asking Git to remove
+      // the working tree or Windows and some shells can keep the directory in use
+      // and make delete look broken even though the git state itself is fine.
       await get().shutdownWorktreeTerminals(worktreeId)
+      await window.api.worktrees.remove({ worktreeId, force })
       const tabs = get().tabsByWorktree[worktreeId] ?? []
       const tabIds = new Set(tabs.map((t) => t.id))
 

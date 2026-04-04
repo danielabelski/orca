@@ -23,6 +23,12 @@ export type UISlice = {
   setSidebarWidth: (width: number) => void
   activeView: 'terminal' | 'settings'
   setActiveView: (view: UISlice['activeView']) => void
+  settingsNavigationTarget: {
+    pane: 'general' | 'appearance' | 'terminal' | 'shortcuts' | 'repo'
+    repoId: string | null
+  } | null
+  openSettingsTarget: (target: NonNullable<UISlice['settingsNavigationTarget']>) => void
+  clearSettingsTarget: () => void
   activeModal: 'none' | 'create-worktree' | 'edit-meta' | 'delete-worktree'
   modalData: Record<string, unknown>
   openModal: (modal: UISlice['activeModal'], data?: Record<string, unknown>) => void
@@ -59,6 +65,9 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
 
   activeView: 'terminal',
   setActiveView: (view) => set({ activeView: view }),
+  settingsNavigationTarget: null,
+  openSettingsTarget: (target) => set({ settingsNavigationTarget: target }),
+  clearSettingsTarget: () => set({ settingsNavigationTarget: null }),
 
   activeModal: 'none',
   modalData: {},

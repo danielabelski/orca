@@ -59,6 +59,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
 export function getDefaultRepoHookSettings(): RepoHookSettings {
   return {
     mode: 'auto',
+    setupRunPolicy: 'run-by-default',
     scripts: {
       setup: '',
       archive: ''

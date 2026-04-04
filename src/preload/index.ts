@@ -1,3 +1,6 @@
+/* eslint-disable max-lines -- Why: the preload bridge is the audited contract between
+renderer and Electron. Keeping the IPC surface co-located in one file makes security
+review and type drift checks easier than scattering these bindings across modules. */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { CliInstallStatus } from '../shared/cli-install-types'
@@ -86,8 +89,12 @@ const api = {
 
     listAll: (): Promise<unknown[]> => ipcRenderer.invoke('worktrees:listAll'),
 
-    create: (args: { repoId: string; name: string; baseBranch?: string }): Promise<unknown> =>
-      ipcRenderer.invoke('worktrees:create', args),
+    create: (args: {
+      repoId: string
+      name: string
+      baseBranch?: string
+      setupDecision?: 'inherit' | 'run' | 'skip'
+    }): Promise<unknown> => ipcRenderer.invoke('worktrees:create', args),
 
     remove: (args: { worktreeId: string; force?: boolean }): Promise<void> =>
       ipcRenderer.invoke('worktrees:remove', args),
@@ -106,8 +113,12 @@ const api = {
   },
 
   pty: {
-    spawn: (opts: { cols: number; rows: number; cwd?: string }): Promise<{ id: string }> =>
-      ipcRenderer.invoke('pty:spawn', opts),
+    spawn: (opts: {
+      cols: number
+      rows: number
+      cwd?: string
+      env?: Record<string, string>
+    }): Promise<{ id: string }> => ipcRenderer.invoke('pty:spawn', opts),
 
     write: (id: string, data: string): void => {
       ipcRenderer.send('pty:write', { id, data })
@@ -310,11 +321,19 @@ const api = {
       return () => ipcRenderer.removeListener('ui:openSettings', listener)
     },
     onActivateWorktree: (
-      callback: (data: { repoId: string; worktreeId: string }) => void
+      callback: (data: {
+        repoId: string
+        worktreeId: string
+        setup?: { runnerScriptPath: string; envVars: Record<string, string> }
+      }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { repoId: string; worktreeId: string }
+        data: {
+          repoId: string
+          worktreeId: string
+          setup?: { runnerScriptPath: string; envVars: Record<string, string> }
+        }
       ) => callback(data)
       ipcRenderer.on('ui:activateWorktree', listener)
       return () => ipcRenderer.removeListener('ui:activateWorktree', listener)

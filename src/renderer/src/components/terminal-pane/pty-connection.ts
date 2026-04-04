@@ -8,6 +8,7 @@ type PtyConnectionDeps = {
   tabId: string
   worktreeId: string
   cwd?: string
+  startup?: { command: string; env?: Record<string, string> } | null
   paneTransportsRef: React.RefObject<Map<number, PtyTransport>>
   pendingWritesRef: React.RefObject<Map<number, string>>
   isActiveRef: React.RefObject<boolean>
@@ -54,6 +55,7 @@ export function connectPanePty(
 
   const transport = createIpcPtyTransport({
     cwd: deps.cwd,
+    env: deps.startup?.env,
     onPtyExit: onExit,
     onTitleChange,
     onPtySpawn,
@@ -86,6 +88,14 @@ export function connectPanePty(
       cols,
       rows,
       callbacks: {
+        onConnect: () => {
+          if (deps.startup?.command) {
+            // Why: setup commands are injected only after the PTY reports a live
+            // shell connection. Writing earlier is racy with shell startup files
+            // and can drop characters on slower shells.
+            transport.sendInput(`${deps.startup.command}\r`)
+          }
+        },
         onData: (data) => {
           if (deps.isActiveRef.current) {
             pane.terminal.write(data)
