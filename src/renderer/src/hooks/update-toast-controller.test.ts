@@ -19,10 +19,7 @@ function createUpdaterApi() {
 }
 
 function getInfoOptions(toastApi: ReturnType<typeof createToastApi>) {
-  const lastCall = toastApi.info.mock.calls[toastApi.info.mock.calls.length - 1] as [
-    string,
-    Record<string, unknown>
-  ]
+  const lastCall = toastApi.info.mock.calls.at(-1) as [string, Record<string, unknown>]
   const [, options] = lastCall
   return options
 }
@@ -151,4 +148,4 @@ describe('createUpdateToastController', () => {
       id: 'checking-toast'
     })
   })
-}
+})
