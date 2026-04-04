@@ -112,6 +112,40 @@ describe('OrcaRuntimeRpcServer', () => {
     expect(readRuntimeMetadata(userDataPath)).toBeNull()
   })
 
+  it('does not clear metadata published by a different runtime owner on stop', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    const firstRuntime = new OrcaRuntimeService()
+    const secondRuntime = new OrcaRuntimeService()
+    const firstServer = new OrcaRuntimeRpcServer({
+      runtime: firstRuntime,
+      userDataPath,
+      pid: 1001
+    })
+    const secondServer = new OrcaRuntimeRpcServer({
+      runtime: secondRuntime,
+      userDataPath,
+      pid: 1002
+    })
+
+    await firstServer.start()
+    const firstMetadata = readRuntimeMetadata(userDataPath)
+    expect(firstMetadata?.pid).toBe(1001)
+
+    await secondServer.start()
+    const secondMetadata = readRuntimeMetadata(userDataPath)
+    expect(secondMetadata?.pid).toBe(1002)
+    expect(secondMetadata?.runtimeId).toBe(secondRuntime.getRuntimeId())
+
+    await firstServer.stop()
+    expect(readRuntimeMetadata(userDataPath)).toMatchObject({
+      pid: 1002,
+      runtimeId: secondRuntime.getRuntimeId()
+    })
+
+    await secondServer.stop()
+    expect(readRuntimeMetadata(userDataPath)).toBeNull()
+  })
+
   it('serves status.get for authenticated callers', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()

@@ -23,6 +23,8 @@ export type RuntimeMetadata = {
   startedAt: number
 }
 
+type RuntimeMetadataOwner = Pick<RuntimeMetadata, 'runtimeId' | 'pid'>
+
 const RUNTIME_METADATA_FILE = 'orca-runtime.json'
 let cachedWindowsUserSid: string | null | undefined
 
@@ -60,6 +62,24 @@ export function readRuntimeMetadata(userDataPath: string): RuntimeMetadata | nul
 
 export function clearRuntimeMetadata(userDataPath: string): void {
   rmSync(getRuntimeMetadataPath(userDataPath), { force: true })
+}
+
+export function clearRuntimeMetadataIfOwned(
+  userDataPath: string,
+  owner: RuntimeMetadataOwner
+): void {
+  const current = readRuntimeMetadata(userDataPath)
+  if (!current) {
+    return
+  }
+  // Why: Orca development and packaged builds can briefly overlap on the same
+  // userData directory. Only the process that last published the shared runtime
+  // metadata is allowed to clear it, or one instance can make another healthy
+  // runtime undiscoverable to the CLI while that other app is still running.
+  if (current.runtimeId !== owner.runtimeId || current.pid !== owner.pid) {
+    return
+  }
+  clearRuntimeMetadata(userDataPath)
 }
 
 function hardenRuntimePath(

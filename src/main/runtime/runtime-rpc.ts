@@ -5,7 +5,7 @@ import { chmodSync, existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import type { OrcaRuntimeService } from './orca-runtime'
 import {
-  clearRuntimeMetadata,
+  clearRuntimeMetadataIfOwned,
   type RuntimeMetadata,
   type RuntimeTransportMetadata,
   writeRuntimeMetadata
@@ -113,7 +113,10 @@ export class OrcaRuntimeRpcServer {
     const transport = this.transport
     this.server = null
     this.transport = null
-    clearRuntimeMetadata(this.userDataPath)
+    clearRuntimeMetadataIfOwned(this.userDataPath, {
+      runtimeId: this.runtime.getRuntimeId(),
+      pid: this.pid
+    })
     if (!server) {
       return
     }

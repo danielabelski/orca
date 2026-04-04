@@ -4,6 +4,7 @@ import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   clearRuntimeMetadata,
+  clearRuntimeMetadataIfOwned,
   getRuntimeMetadataPath,
   readRuntimeMetadata,
   writeRuntimeMetadata
@@ -61,6 +62,29 @@ describe('runtime metadata', () => {
 
     expect(readRuntimeMetadata(userDataPath)).toBeNull()
     expect(getRuntimeMetadataPath(userDataPath)).toContain('orca-runtime.json')
+  })
+
+  it('does not clear runtime metadata owned by another Orca process', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
+    tempDirs.push(userDataPath)
+
+    writeRuntimeMetadata(userDataPath, {
+      runtimeId: 'rt_live',
+      pid: 42,
+      transport: null,
+      authToken: null,
+      startedAt: 100
+    })
+
+    clearRuntimeMetadataIfOwned(userDataPath, {
+      runtimeId: 'rt_other',
+      pid: 99
+    })
+
+    expect(readRuntimeMetadata(userDataPath)).toMatchObject({
+      runtimeId: 'rt_live',
+      pid: 42
+    })
   })
 
   it.runIf(process.platform !== 'win32')(
