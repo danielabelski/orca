@@ -970,12 +970,6 @@ function UncommittedEntryRow({
               title={entry.area === 'untracked' ? 'Revert untracked file' : 'Discard changes'}
               onClick={(event) => {
                 event.stopPropagation()
-                if (
-                  entry.area === 'untracked' &&
-                  !window.confirm(`Delete untracked file "${entry.path}"? This cannot be undone.`)
-                ) {
-                  return
-                }
                 void onDiscard()
               }}
             />
