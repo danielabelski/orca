@@ -68,12 +68,9 @@ npx skills add https://github.com/stablyai/orca --skill orca-cli
 ## Install
 
 Get started today:
+
 - **[Download from onOrca.dev](https://onOrca.dev)**
 - Or download the latest binaries via the **[GitHub Releases page](https://github.com/stablyai/orca/releases)**.
-
-**macOS Troubleshooting:**
-If you receive a warning that the app "cannot be opened because Apple cannot check it for malicious software":
-Go to **System Settings > Privacy & Security**, scroll down to the Security section, and click **Open Anyway** next to the Orca app.
 
 ---
 
