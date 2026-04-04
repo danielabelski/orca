@@ -6,6 +6,22 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { CliInstallStatus } from '../shared/cli-install-types'
 import type { RuntimeStatus, RuntimeSyncWindowGraph } from '../shared/runtime-types'
 
+type NativeFileDropTarget = 'editor' | 'terminal'
+
+function getNativeFileDropTarget(event: DragEvent): NativeFileDropTarget | null {
+  const path = event.composedPath()
+  for (const entry of path) {
+    if (!(entry instanceof HTMLElement)) {
+      continue
+    }
+    const target = entry.dataset.nativeFileDropTarget
+    if (target === 'editor' || target === 'terminal') {
+      return target
+    }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // File drag-and-drop: handled here in the preload because webUtils (which
 // resolves File objects to filesystem paths) is only available in Electron's
@@ -36,6 +52,7 @@ document.addEventListener(
     if (!files || files.length === 0) {
       return
     }
+    const target = getNativeFileDropTarget(e)
 
     const paths: string[] = []
     for (let i = 0; i < files.length; i++) {
@@ -47,7 +64,16 @@ document.addEventListener(
     }
 
     if (paths.length > 0) {
-      ipcRenderer.send('terminal:file-dropped-from-preload', { paths })
+      // Why: native OS file drops must be classified before the event crosses
+      // into the isolated renderer; otherwise every drop looks identical and we
+      // cannot distinguish "open this in Orca's editor" from "send this path to
+      // the active coding CLI". Falls back to 'editor' so drops on surfaces
+      // without an explicit marker (sidebar, editor body, etc.) preserve the
+      // prior open-in-editor behavior instead of being silently discarded.
+      ipcRenderer.send('terminal:file-dropped-from-preload', {
+        paths,
+        target: target ?? 'editor'
+      })
     }
   },
   true
@@ -347,8 +373,13 @@ const api = {
     readClipboardText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
     writeClipboardText: (text: string): Promise<void> =>
       ipcRenderer.invoke('clipboard:writeText', text),
-    onFileDrop: (callback: (data: { path: string }) => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: { path: string }) => callback(data)
+    onFileDrop: (
+      callback: (data: { path: string; target: 'editor' | 'terminal' }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { path: string; target: 'editor' | 'terminal' }
+      ) => callback(data)
       ipcRenderer.on('terminal:file-drop', listener)
       return () => ipcRenderer.removeListener('terminal:file-drop', listener)
     },
