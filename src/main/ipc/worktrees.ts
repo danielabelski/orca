@@ -16,6 +16,7 @@ import {
   shouldSetDisplayName,
   mergeWorktree,
   parseWorktreeId,
+  areWorktreePathsEqual,
   formatWorktreeRemovalError,
   isOrphanedWorktreeError
 } from './worktree-logic'
@@ -123,7 +124,7 @@ export function registerWorktreeHandlers(mainWindow: BrowserWindow, store: Store
 
       // Re-list to get the freshly created worktree info
       const gitWorktrees = await listWorktrees(repo.path)
-      const created = gitWorktrees.find((gw) => gw.path === worktreePath)
+      const created = gitWorktrees.find((gw) => areWorktreePathsEqual(gw.path, worktreePath))
       if (!created) {
         throw new Error('Worktree created but not found in listing')
       }

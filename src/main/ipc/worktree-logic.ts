@@ -1,4 +1,4 @@
-import { basename, join, resolve, relative, isAbsolute } from 'path'
+import { basename, join, normalize, resolve, relative, isAbsolute } from 'path'
 import type { GitWorktreeInfo, Worktree, WorktreeMeta } from '../../shared/types'
 
 /**
@@ -67,6 +67,23 @@ export function computeWorktreePath(
     return join(settings.workspaceDir, repoName, sanitizedName)
   }
   return join(settings.workspaceDir, sanitizedName)
+}
+
+export function areWorktreePathsEqual(
+  leftPath: string,
+  rightPath: string,
+  platform = process.platform
+): boolean {
+  const left = normalize(resolve(leftPath))
+  const right = normalize(resolve(rightPath))
+  if (platform === 'win32') {
+    // Why: `git worktree list` can report the same Windows path with different
+    // slash styles or drive-letter casing than the path we computed before
+    // creation. Orca must treat those as the same worktree or a successful
+    // create spuriously fails until the next full reload repopulates state.
+    return left.toLowerCase() === right.toLowerCase()
+  }
+  return left === right
 }
 
 /**

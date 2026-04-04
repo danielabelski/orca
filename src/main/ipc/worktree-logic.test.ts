@@ -1,4 +1,4 @@
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
   sanitizeWorktreeName,
@@ -9,7 +9,8 @@ import {
   mergeWorktree,
   parseWorktreeId,
   formatWorktreeRemovalError,
-  isOrphanedWorktreeError
+  isOrphanedWorktreeError,
+  areWorktreePathsEqual
 } from './worktree-logic'
 
 describe('sanitizeWorktreeName', () => {
@@ -53,7 +54,7 @@ describe('sanitizeWorktreeName', () => {
 describe('ensurePathWithinWorkspace', () => {
   it('returns resolved path when within workspace', () => {
     const result = ensurePathWithinWorkspace('/workspace/feature', '/workspace')
-    expect(result).toBe('/workspace/feature')
+    expect(result).toBe(resolve('/workspace/feature'))
   })
 
   it('throws when path traverses outside workspace', () => {
@@ -117,6 +118,22 @@ describe('computeWorktreePath', () => {
         workspaceDir: '/workspaces'
       })
     ).toBe(join('/workspaces', 'my-project', 'feature'))
+  })
+})
+
+describe('areWorktreePathsEqual', () => {
+  it('treats Windows slash and casing differences as the same path', () => {
+    expect(
+      areWorktreePathsEqual(
+        'C:\\Workspaces\\Improve-Dashboard',
+        'c:/workspaces/improve-dashboard',
+        'win32'
+      )
+    ).toBe(true)
+  })
+
+  it('keeps POSIX path comparison case-sensitive', () => {
+    expect(areWorktreePathsEqual('/tmp/Worktree', '/tmp/worktree', 'linux')).toBe(false)
   })
 })
 
