@@ -5,7 +5,6 @@ import { Store } from './persistence'
 import { killAllPty } from './ipc/pty'
 import { registerCoreHandlers } from './ipc/register-core-handlers'
 import { OrcaRuntimeService } from './runtime/orca-runtime'
-import { writeRuntimeMetadata } from './runtime/runtime-metadata'
 import { OrcaRuntimeRpcServer } from './runtime/runtime-rpc'
 import { registerAppMenu } from './menu/register-app-menu'
 import { checkForUpdatesFromMenu, isQuittingForUpdate } from './updater'
@@ -60,13 +59,6 @@ app.whenReady().then(async () => {
 
   store = new Store()
   runtime = new OrcaRuntimeService(store)
-  writeRuntimeMetadata(app.getPath('userData'), {
-    runtimeId: runtime.getRuntimeId(),
-    pid: process.pid,
-    transport: null,
-    authToken: null,
-    startedAt: runtime.getStartedAt()
-  })
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
 
   registerAppMenu({

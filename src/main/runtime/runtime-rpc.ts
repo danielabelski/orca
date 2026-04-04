@@ -5,7 +5,6 @@ import { chmodSync, existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import type { OrcaRuntimeService } from './orca-runtime'
 import {
-  clearRuntimeMetadata,
   type RuntimeMetadata,
   type RuntimeTransportMetadata,
   writeRuntimeMetadata
@@ -103,9 +102,34 @@ export class OrcaRuntimeRpcServer {
       chmodSync(transport.endpoint, 0o600)
     }
 
+    // Why: publish the transport into in-memory state before writing metadata
+    // so the bootstrap file always contains the real endpoint/token pair. The
+    // CLI only discovers the runtime through that file.
     this.server = server
     this.transport = transport
-    this.writeMetadata()
+
+    try {
+      this.writeMetadata()
+    } catch (error) {
+      // Why: a runtime that cannot publish bootstrap metadata is invisible to
+      // the `orca` CLI. Close the socket immediately instead of leaving behind
+      // a live but undiscoverable control plane.
+      this.server = null
+      this.transport = null
+      await new Promise<void>((resolve, reject) => {
+        server.close((closeError) => {
+          if (closeError) {
+            reject(closeError)
+            return
+          }
+          resolve()
+        })
+      }).catch(() => {})
+      if (transport.kind === 'unix' && existsSync(transport.endpoint)) {
+        rmSync(transport.endpoint, { force: true })
+      }
+      throw error
+    }
   }
 
   async stop(): Promise<void> {
@@ -113,7 +137,6 @@ export class OrcaRuntimeRpcServer {
     const transport = this.transport
     this.server = null
     this.transport = null
-    clearRuntimeMetadata(this.userDataPath)
     if (!server) {
       return
     }
@@ -129,6 +152,11 @@ export class OrcaRuntimeRpcServer {
     if (transport?.kind === 'unix' && existsSync(transport.endpoint)) {
       rmSync(transport.endpoint, { force: true })
     }
+    // Why: we intentionally leave the last metadata file behind instead of
+    // deleting it on shutdown. Shared userData paths can briefly host multiple
+    // Orca processes during restarts, updates, or development, and stale
+    // metadata is safer than letting one process erase another live runtime's
+    // bootstrap file.
   }
 
   private handleConnection(socket: Socket): void {

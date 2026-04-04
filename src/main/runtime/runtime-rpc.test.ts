@@ -1,12 +1,13 @@
 /* eslint-disable max-lines -- Why: this integration-style RPC test keeps the request/response contract together so regressions in the external CLI surface are easier to spot. */
-import { mkdtempSync } from 'fs'
+import { existsSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { createConnection } from 'net'
 import { describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
+import * as runtimeMetadataModule from './runtime-metadata'
 import { readRuntimeMetadata } from './runtime-metadata'
-import { OrcaRuntimeRpcServer } from './runtime-rpc'
+import { createRuntimeTransportMetadata, OrcaRuntimeRpcServer } from './runtime-rpc'
 
 vi.mock('../git/worktree', () => ({
   listWorktrees: vi.fn().mockResolvedValue([
@@ -107,9 +108,57 @@ describe('OrcaRuntimeRpcServer', () => {
     expect(metadata?.runtimeId).toBe(runtime.getRuntimeId())
     expect(metadata?.authToken).toBeTruthy()
     expect(metadata?.transport?.endpoint).toBeTruthy()
+    expect(metadata?.transport).toEqual(server['transport'])
 
     await server.stop()
+    expect(readRuntimeMetadata(userDataPath)).toMatchObject({
+      runtimeId: runtime.getRuntimeId()
+    })
+  })
+
+  it('leaves the last published metadata in place when a runtime stops', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    const runtime = new OrcaRuntimeService()
+    const server = new OrcaRuntimeRpcServer({
+      runtime,
+      userDataPath,
+      pid: 1001
+    })
+
+    await server.start()
+    const metadata = readRuntimeMetadata(userDataPath)
+    expect(metadata?.pid).toBe(1001)
+
+    await server.stop()
+    expect(readRuntimeMetadata(userDataPath)).toMatchObject({
+      pid: 1001,
+      runtimeId: runtime.getRuntimeId()
+    })
+  })
+
+  it('closes the socket if metadata publication fails during startup', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    const runtime = new OrcaRuntimeService()
+    const server = new OrcaRuntimeRpcServer({ runtime, userDataPath })
+    const writeMetadataSpy = vi
+      .spyOn(runtimeMetadataModule, 'writeRuntimeMetadata')
+      .mockImplementationOnce(() => {
+        throw new Error('write failed')
+      })
+    const endpoint = createRuntimeTransportMetadata(
+      userDataPath,
+      process.pid,
+      process.platform,
+      runtime.getRuntimeId()
+    ).endpoint
+
+    await expect(server.start()).rejects.toThrow('write failed')
     expect(readRuntimeMetadata(userDataPath)).toBeNull()
+    expect(existsSync(endpoint)).toBe(false)
+    expect(server['transport']).toBeNull()
+    expect(server['server']).toBeNull()
+
+    writeMetadataSpy.mockRestore()
   })
 
   it('serves status.get for authenticated callers', async () => {
