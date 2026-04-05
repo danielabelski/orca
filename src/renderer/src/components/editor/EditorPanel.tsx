@@ -58,6 +58,11 @@ export default function EditorPanel(): React.JSX.Element | null {
   const autoSaveScheduledContentRef = React.useRef<Map<string, string>>(new Map())
   const saveQueueRef = React.useRef<Map<string, Promise<void>>>(new Map())
   const saveGenerationRef = React.useRef<Map<string, number>>(new Map())
+  // Why: closing a dirty tab can show a modal while autosave is still racing in
+  // the background. Preserve the last clean baseline separately from the live
+  // saved content so "Don't Save" can restore what the user saw before this
+  // edit session, even if autosave writes newer bytes before the dialog wins.
+  const discardBaselinesRef = React.useRef<Map<string, string>>(new Map())
   const openFilesRef = React.useRef(openFiles)
   const editBuffersRef = React.useRef(editBuffers)
   const fileContentsRef = React.useRef(fileContents)
@@ -274,11 +279,12 @@ export default function EditorPanel(): React.JSX.Element | null {
       await quiesceFileSave(fileId)
 
       const baselineContent =
-        file.mode === 'edit'
+        discardBaselinesRef.current.get(fileId) ??
+        (file.mode === 'edit'
           ? (fileContentsRef.current[fileId]?.content ?? null)
           : diffContentsRef.current[fileId]?.kind === 'text'
             ? diffContentsRef.current[fileId].modifiedContent
-            : null
+            : null)
 
       if (baselineContent === null) {
         return
@@ -312,6 +318,7 @@ export default function EditorPanel(): React.JSX.Element | null {
           }
         })
       }
+      discardBaselinesRef.current.delete(fileId)
       markFileDirty(fileId, false)
     },
     [markFileDirty, quiesceFileSave]
@@ -322,17 +329,25 @@ export default function EditorPanel(): React.JSX.Element | null {
       if (!activeFile) {
         return
       }
+      const currentOpenFile =
+        openFilesRef.current.find((openFile) => openFile.id === activeFile.id) ?? activeFile
       const nextBuffers = { ...editBuffersRef.current, [activeFile.id]: content }
       editBuffersRef.current = nextBuffers
       setEditBuffers(nextBuffers)
       if (activeFile.mode === 'edit') {
         // Compare against saved content to determine dirty state
         const saved = fileContents[activeFile.id]?.content ?? ''
+        if (!currentOpenFile.isDirty) {
+          discardBaselinesRef.current.set(activeFile.id, saved)
+        }
         markFileDirty(activeFile.id, content !== saved)
       } else {
         // Diff mode: compare against the original modified content from git
         const dc = diffContents[activeFile.id]
         const original = dc?.kind === 'text' ? dc.modifiedContent : ''
+        if (!currentOpenFile.isDirty) {
+          discardBaselinesRef.current.set(activeFile.id, original)
+        }
         markFileDirty(activeFile.id, content !== original)
       }
 
@@ -432,6 +447,7 @@ export default function EditorPanel(): React.JSX.Element | null {
       for (const file of matchingFiles) {
         clearAutoSaveTimer(file.id)
         bumpSaveGeneration(file.id)
+        discardBaselinesRef.current.delete(file.id)
         markFileDirty(file.id, false)
       }
 
@@ -565,6 +581,11 @@ export default function EditorPanel(): React.JSX.Element | null {
       editBuffersRef.current = next
       return next
     })
+    for (const fileId of Array.from(discardBaselinesRef.current.keys())) {
+      if (!openIds.has(fileId)) {
+        discardBaselinesRef.current.delete(fileId)
+      }
+    }
   }, [openFiles])
 
   const handleCopyPath = useCallback(async (): Promise<void> => {
