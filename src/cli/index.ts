@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- Why: the public CLI entrypoint keeps command dispatch in one place so the bundled shell command and development fallback stay behaviorally identical. */
 
-import { resolve as resolvePath } from 'path'
+import { isAbsolute, relative, resolve as resolvePath } from 'path'
 import type {
   CliStatusResult,
   RuntimeRepoList,
@@ -248,7 +248,7 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()): P
 
     if (matches(commandPath, ['terminal', 'list'])) {
       const result = await client.call<RuntimeTerminalListResult>('terminal.list', {
-        worktree: getOptionalWorktreeSelector(parsed.flags, 'worktree', cwd),
+        worktree: await getOptionalWorktreeSelector(parsed.flags, 'worktree', cwd, client),
         limit: getOptionalPositiveIntegerFlag(parsed.flags, 'limit')
       })
       return printResult(result, json, formatTerminalList)
@@ -299,7 +299,7 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()): P
 
     if (matches(commandPath, ['terminal', 'stop'])) {
       const result = await client.call<{ stopped: number }>('terminal.stop', {
-        worktree: getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd)
+        worktree: await getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd, client)
       })
       return printResult(result, json, (value) => `Stopped ${value.stopped} terminals.`)
     }
@@ -321,14 +321,14 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()): P
 
     if (matches(commandPath, ['worktree', 'show'])) {
       const result = await client.call<{ worktree: RuntimeWorktreeRecord }>('worktree.show', {
-        worktree: getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd)
+        worktree: await getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd, client)
       })
       return printResult(result, json, formatWorktreeShow)
     }
 
     if (matches(commandPath, ['worktree', 'current'])) {
       const result = await client.call<{ worktree: RuntimeWorktreeRecord }>('worktree.show', {
-        worktree: buildCurrentWorktreeSelector(cwd)
+        worktree: await resolveCurrentWorktreeSelector(cwd, client)
       })
       return printResult(result, json, formatWorktreeShow)
     }
@@ -346,7 +346,7 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()): P
 
     if (matches(commandPath, ['worktree', 'set'])) {
       const result = await client.call<{ worktree: RuntimeWorktreeRecord }>('worktree.set', {
-        worktree: getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd),
+        worktree: await getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd, client),
         displayName: getOptionalStringFlag(parsed.flags, 'display-name'),
         linkedIssue: getOptionalNullableNumberFlag(parsed.flags, 'issue'),
         comment: getOptionalStringFlag(parsed.flags, 'comment')
@@ -356,7 +356,7 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()): P
 
     if (matches(commandPath, ['worktree', 'rm'])) {
       const result = await client.call<{ removed: boolean }>('worktree.rm', {
-        worktree: getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd),
+        worktree: await getRequiredWorktreeSelector(parsed.flags, 'worktree', cwd, client),
         force: parsed.flags.get('force') === true
       })
       return printResult(result, json, (value) => `removed: ${value.removed}`)
@@ -471,30 +471,66 @@ export function buildCurrentWorktreeSelector(cwd: string): string {
 
 export function normalizeWorktreeSelector(selector: string, cwd: string): string {
   if (selector === 'active' || selector === 'current') {
-    // Why: "active/current" depends on the shell invoking the CLI, so the CLI
-    // resolves it to a concrete path selector before crossing into the runtime.
-    // That keeps the runtime's selector logic canonical and free of per-process
-    // cwd semantics while still giving agents a self-aware shortcut.
     return buildCurrentWorktreeSelector(cwd)
   }
   return selector
 }
 
-function getOptionalWorktreeSelector(
-  flags: Map<string, string | boolean>,
-  name: string,
-  cwd: string
-): string | undefined {
-  const value = getOptionalStringFlag(flags, name)
-  return value ? normalizeWorktreeSelector(value, cwd) : undefined
+function isWithinPath(parentPath: string, childPath: string): boolean {
+  const relativePath = relative(parentPath, childPath)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function getRequiredWorktreeSelector(
+async function resolveCurrentWorktreeSelector(cwd: string, client: RuntimeClient): Promise<string> {
+  const currentPath = resolvePath(cwd)
+  const worktrees = await client.call<RuntimeWorktreeListResult>('worktree.list', {
+    limit: 10_000
+  })
+  const enclosingWorktree = worktrees.result.worktrees
+    .filter((worktree) => isWithinPath(resolvePath(worktree.path), currentPath))
+    .sort((left, right) => right.path.length - left.path.length)[0]
+
+  if (!enclosingWorktree) {
+    throw new RuntimeClientError(
+      'selector_not_found',
+      `No Orca-managed worktree contains the current directory: ${currentPath}`
+    )
+  }
+
+  // Why: users expect "active/current" to mean the enclosing managed worktree
+  // even from nested subdirectories. The CLI resolves that shell-local concept
+  // to the deepest matching worktree root, then hands the runtime a normal
+  // path selector so selector semantics stay centralized in one layer.
+  return buildCurrentWorktreeSelector(enclosingWorktree.path)
+}
+
+async function getOptionalWorktreeSelector(
   flags: Map<string, string | boolean>,
   name: string,
-  cwd: string
-): string {
-  return normalizeWorktreeSelector(getRequiredStringFlag(flags, name), cwd)
+  cwd: string,
+  client: RuntimeClient
+): Promise<string | undefined> {
+  const value = getOptionalStringFlag(flags, name)
+  if (!value) {
+    return undefined
+  }
+  if (value === 'active' || value === 'current') {
+    return await resolveCurrentWorktreeSelector(cwd, client)
+  }
+  return normalizeWorktreeSelector(value, cwd)
+}
+
+async function getRequiredWorktreeSelector(
+  flags: Map<string, string | boolean>,
+  name: string,
+  cwd: string,
+  client: RuntimeClient
+): Promise<string> {
+  const value = getRequiredStringFlag(flags, name)
+  if (value === 'active' || value === 'current') {
+    return await resolveCurrentWorktreeSelector(cwd, client)
+  }
+  return normalizeWorktreeSelector(value, cwd)
 }
 
 function getOptionalNumberFlag(

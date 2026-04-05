@@ -34,6 +34,7 @@ The following commands are implemented against the running Orca app:
 - `orca repo search-refs`
 - `orca worktree list`
 - `orca worktree show`
+- `orca worktree current`
 - `orca worktree create`
 - `orca worktree set`
 - `orca worktree rm`
