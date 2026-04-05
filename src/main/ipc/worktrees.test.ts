@@ -101,30 +101,34 @@ describe('registerWorktreeHandlers', () => {
   }
 
   beforeEach(() => {
-    handleMock.mockReset()
-    removeHandlerMock.mockReset()
-    listWorktreesMock.mockReset()
-    addWorktreeMock.mockReset()
-    removeWorktreeMock.mockReset()
-    getGitUsernameMock.mockReset()
-    getDefaultBaseRefMock.mockReset()
-    getBranchConflictKindMock.mockReset()
-    getPRForBranchMock.mockReset()
-    getEffectiveHooksMock.mockReset()
-    createSetupRunnerScriptMock.mockReset()
-    shouldRunSetupForCreateMock.mockReset()
-    runHookMock.mockReset()
-    hasHooksFileMock.mockReset()
-    loadHooksMock.mockReset()
-    computeWorktreePathMock.mockReset()
-    ensurePathWithinWorkspaceMock.mockReset()
-    mainWindow.webContents.send.mockReset()
-    store.getRepos.mockReset()
-    store.getRepo.mockReset()
-    store.getSettings.mockReset()
-    store.getWorktreeMeta.mockReset()
-    store.setWorktreeMeta.mockReset()
-    store.removeWorktreeMeta.mockReset()
+    for (const m of [
+      handleMock,
+      removeHandlerMock,
+      listWorktreesMock,
+      addWorktreeMock,
+      removeWorktreeMock,
+      getGitUsernameMock,
+      getDefaultBaseRefMock,
+      getBranchConflictKindMock,
+      getPRForBranchMock,
+      getEffectiveHooksMock,
+      createSetupRunnerScriptMock,
+      shouldRunSetupForCreateMock,
+      runHookMock,
+      hasHooksFileMock,
+      loadHooksMock,
+      computeWorktreePathMock,
+      ensurePathWithinWorkspaceMock,
+      mainWindow.webContents.send,
+      store.getRepos,
+      store.getRepo,
+      store.getSettings,
+      store.getWorktreeMeta,
+      store.setWorktreeMeta,
+      store.removeWorktreeMeta
+    ]) {
+      m.mockReset()
+    }
 
     for (const key of Object.keys(handlers)) {
       delete handlers[key]
@@ -134,14 +138,15 @@ describe('registerWorktreeHandlers', () => {
       handlers[channel] = handler
     })
 
-    store.getRepo.mockReturnValue({
+    const repo = {
       id: 'repo-1',
       path: '/workspace/repo',
       displayName: 'repo',
       badgeColor: '#000',
-      addedAt: 0,
-      worktreeBaseRef: null
-    })
+      addedAt: 0
+    }
+    store.getRepos.mockReturnValue([repo])
+    store.getRepo.mockReturnValue({ ...repo, worktreeBaseRef: null })
     store.getSettings.mockReturnValue({
       branchPrefix: 'none',
       nestWorkspaces: false,

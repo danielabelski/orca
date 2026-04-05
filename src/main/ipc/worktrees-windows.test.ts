@@ -134,6 +134,15 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
       handlers[channel] = handler
     })
 
+    store.getRepos.mockReturnValue([
+      {
+        id: 'repo-1',
+        path: 'C:\\repo',
+        displayName: 'repo',
+        badgeColor: '#000',
+        addedAt: 0
+      }
+    ])
     store.getRepo.mockReturnValue({
       id: 'repo-1',
       path: 'C:\\repo',
@@ -200,25 +209,20 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
   })
 
   it('preserves create-time metadata on the next list when Windows path formatting differs', async () => {
+    const worktreeEntry = {
+      path: 'C:/workspaces/improve-dashboard',
+      head: 'abc123',
+      branch: 'refs/heads/improve-dashboard',
+      isBare: false,
+      isMainWorktree: false
+    }
+    // Three calls: (1) worktrees:create finds the new worktree,
+    // (2) rebuildAuthorizedRootsCache enumerates worktrees for the repo,
+    // (3) worktrees:list enumerates worktrees again.
     listWorktreesMock
-      .mockResolvedValueOnce([
-        {
-          path: 'C:/workspaces/improve-dashboard',
-          head: 'abc123',
-          branch: 'refs/heads/improve-dashboard',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ])
-      .mockResolvedValueOnce([
-        {
-          path: 'C:/workspaces/improve-dashboard',
-          head: 'abc123',
-          branch: 'refs/heads/improve-dashboard',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ])
+      .mockResolvedValueOnce([worktreeEntry])
+      .mockResolvedValueOnce([worktreeEntry])
+      .mockResolvedValueOnce([worktreeEntry])
     store.setWorktreeMeta.mockReturnValue({
       lastActivityAt: 123,
       displayName: 'Improve Dashboard'

@@ -70,6 +70,7 @@ vi.mock('../git/worktree', () => ({
 }))
 
 import { registerFilesystemHandlers } from './filesystem'
+import { invalidateAuthorizedRootsCache } from './filesystem-auth'
 
 describe('registerFilesystemHandlers', () => {
   const store = {
@@ -113,6 +114,10 @@ describe('registerFilesystemHandlers', () => {
     handleMock.mockImplementation((channel, handler) => {
       handlers.set(channel, handler)
     })
+
+    // Reset module-level auth cache so each test starts with a fresh dirty
+    // flag — prevents stale worktree data from a prior test's cache rebuild.
+    invalidateAuthorizedRootsCache()
 
     realpathMock.mockImplementation(async (targetPath: string) => targetPath)
     listWorktreesMock.mockResolvedValue([
