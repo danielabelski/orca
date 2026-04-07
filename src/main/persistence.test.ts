@@ -20,10 +20,11 @@ vi.mock('./git/repo', () => ({
   getGitUsername: vi.fn().mockReturnValue('testuser')
 }))
 
-/** Reset modules and dynamically import Store so DATA_FILE picks up the current testState.dir */
+/** Reset modules and dynamically import Store so the data-file path picks up the current testState.dir */
 async function createStore() {
   vi.resetModules()
-  const { Store } = await import('./persistence')
+  const { Store, initDataPath } = await import('./persistence')
+  initDataPath()
   return new Store()
 }
 

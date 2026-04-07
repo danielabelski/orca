@@ -11,12 +11,31 @@ import {
   getDefaultWorkspaceSession
 } from '../shared/constants'
 
-// Why: this must be lazy (a getter, not a top-level const) because
-// persistence.ts is imported before configureDevUserDataPath() runs in
-// index.ts. A top-level const would capture the default 'orca' userData
-// path, ignoring the dev-mode redirect to 'orca-dev'.
+// Why: the data-file path must not be a module-level constant. Module-level
+// code runs at import time — before configureDevUserDataPath() redirects the
+// userData path in index.ts — so a constant would capture the default (non-dev)
+// path, causing dev and production instances to share the same file and silently
+// overwrite each other.
+//
+// It also must not be resolved lazily on every call, because app.setName('Orca')
+// runs before the Store constructor and would change the resolved path from
+// lowercase 'orca' to uppercase 'Orca'. On case-sensitive filesystems (Linux)
+// this would look in the wrong directory and lose existing user data.
+//
+// Solution: index.ts calls initDataPath() right after configureDevUserDataPath()
+// but before app.setName(), capturing the correct path at the right moment.
+let _dataFile: string | null = null
+
+export function initDataPath(): void {
+  _dataFile = join(app.getPath('userData'), 'orca-data.json')
+}
+
 function getDataFile(): string {
-  return join(app.getPath('userData'), 'orca-data.json')
+  if (!_dataFile) {
+    // Safety fallback — should not be hit in normal startup.
+    _dataFile = join(app.getPath('userData'), 'orca-data.json')
+  }
+  return _dataFile
 }
 
 function normalizeSortBy(sortBy: unknown): 'name' | 'recent' | 'repo' {
@@ -40,8 +59,9 @@ export class Store {
 
   private load(): PersistedState {
     try {
-      if (existsSync(getDataFile())) {
-        const raw = readFileSync(getDataFile(), 'utf-8')
+      const dataFile = getDataFile()
+      if (existsSync(dataFile)) {
+        const raw = readFileSync(dataFile, 'utf-8')
         const parsed = JSON.parse(raw) as PersistedState
         // Merge with defaults in case new fields were added
         const defaults = getDefaultPersistedState(homedir())
@@ -78,7 +98,8 @@ export class Store {
   }
 
   private writeToDisk(): void {
-    const dir = dirname(getDataFile())
+    const dataFile = getDataFile()
+    const dir = dirname(dataFile)
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
@@ -87,9 +108,9 @@ export class Store {
     // temp file from the other, which surfaces as ENOENT even though the final
     // state may already be on disk. Use a unique temp file per write so atomic
     // replaces remain race-safe across platforms.
-    const tmpFile = `${getDataFile()}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+    const tmpFile = `${dataFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
     writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
-    renameSync(tmpFile, getDataFile())
+    renameSync(tmpFile, dataFile)
   }
 
   // ── Repos ──────────────────────────────────────────────────────────

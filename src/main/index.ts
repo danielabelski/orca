@@ -1,7 +1,7 @@
 import { app, BrowserWindow, nativeImage, nativeTheme } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import devIcon from '../../resources/icon-dev.png?asset'
-import { Store } from './persistence'
+import { Store, initDataPath } from './persistence'
 import { killAllPty } from './ipc/pty'
 import { registerCoreHandlers } from './ipc/register-core-handlers'
 import { OrcaRuntimeService } from './runtime/orca-runtime'
@@ -25,6 +25,10 @@ let runtimeRpc: OrcaRuntimeRpcServer | null = null
 installUncaughtPipeErrorGuard()
 patchPackagedProcessPath()
 configureDevUserDataPath(is.dev)
+// Why: must run after configureDevUserDataPath (which redirects userData to
+// orca-dev in dev mode) but before app.setName('Orca') inside whenReady
+// (which would change the resolved path on case-sensitive filesystems).
+initDataPath()
 enableMainProcessGpuFeatures()
 
 function openMainWindow(): BrowserWindow {
