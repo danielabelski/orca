@@ -360,6 +360,16 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
 
               {cloneError && <p className="text-[11px] text-destructive">{cloneError}</p>}
 
+              <Button
+                onClick={handleClone}
+                disabled={!cloneUrl.trim() || !cloneDestination.trim() || isCloning}
+                className="w-full"
+              >
+                {isCloning ? 'Cloning...' : 'Clone'}
+              </Button>
+
+              {/* Why: progress bar lives below the button so it doesn't push the
+                 button down when it appears mid-clone. */}
               {isCloning && cloneProgress && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -374,14 +384,6 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
                   </div>
                 </div>
               )}
-
-              <Button
-                onClick={handleClone}
-                disabled={!cloneUrl.trim() || !cloneDestination.trim() || isCloning}
-                className="w-full"
-              >
-                {isCloning ? 'Cloning...' : 'Clone'}
-              </Button>
             </div>
           </>
         ) : (
