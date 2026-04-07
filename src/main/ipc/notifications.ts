@@ -1,11 +1,47 @@
-import { BrowserWindow, Notification, ipcMain } from 'electron'
+import { app, BrowserWindow, Notification, ipcMain, systemPreferences, shell } from 'electron'
 import type { Store } from '../persistence'
 import type { NotificationDispatchRequest } from '../../shared/types'
 
 const NOTIFICATION_COOLDOWN_MS = 5000
 
+export type NotificationPermissionStatus = 'authorized' | 'denied' | 'not-determined' | 'unknown'
+
+function getPermissionStatus(): NotificationPermissionStatus {
+  if (process.platform !== 'darwin') {
+    // Windows/Linux don't have a per-app notification permission gate.
+    return Notification.isSupported() ? 'authorized' : 'denied'
+  }
+  const settings = systemPreferences.getNotificationSettings()
+  switch (settings.authorizationStatus) {
+    case 'authorized':
+    case 'provisional':
+      return 'authorized'
+    case 'denied':
+      return 'denied'
+    case 'not determined':
+      return 'not-determined'
+    default:
+      return 'unknown'
+  }
+}
+
 export function registerNotificationHandlers(store: Store): void {
   const recentNotifications = new Map<string, number>()
+
+  ipcMain.removeHandler('notifications:getPermissionStatus')
+  ipcMain.handle('notifications:getPermissionStatus', (): NotificationPermissionStatus => {
+    return getPermissionStatus()
+  })
+
+  ipcMain.removeHandler('notifications:openSystemSettings')
+  ipcMain.handle('notifications:openSystemSettings', (): void => {
+    if (process.platform === 'darwin') {
+      // Deep-link into the macOS Notifications settings pane.
+      void shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings')
+    } else if (process.platform === 'win32') {
+      void shell.openExternal('ms-settings:notifications')
+    }
+  })
 
   ipcMain.removeHandler('notifications:dispatch')
   ipcMain.handle(
@@ -45,6 +81,34 @@ export function registerNotificationHandlers(store: Store): void {
       recentNotifications.set(dedupeKey, now)
 
       const notification = new Notification(buildNotificationOptions(args))
+
+      // Why: clicking a notification should bring Orca to the foreground and
+      // switch to the worktree that triggered it. We reuse the existing
+      // ui:activateWorktree IPC channel that the renderer already handles
+      // (setActiveRepo, setActiveView, setActiveWorktree, revealInSidebar).
+      if (args.worktreeId) {
+        const repoId = args.worktreeId.includes('::')
+          ? args.worktreeId.slice(0, args.worktreeId.indexOf('::'))
+          : ''
+        notification.on('click', () => {
+          const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+          if (!win) {
+            return
+          }
+          if (process.platform === 'darwin') {
+            app.focus({ steal: true })
+          }
+          if (win.isMinimized()) {
+            win.restore()
+          }
+          win.focus()
+          win.webContents.send('ui:activateWorktree', {
+            repoId,
+            worktreeId: args.worktreeId
+          })
+        })
+      }
+
       notification.show()
       return { delivered: true }
     }

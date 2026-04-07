@@ -247,7 +247,10 @@ const api = {
 
   notifications: {
     dispatch: (args: Record<string, unknown>): Promise<{ delivered: boolean }> =>
-      ipcRenderer.invoke('notifications:dispatch', args)
+      ipcRenderer.invoke('notifications:dispatch', args),
+    getPermissionStatus: (): Promise<string> =>
+      ipcRenderer.invoke('notifications:getPermissionStatus'),
+    openSystemSettings: (): Promise<void> => ipcRenderer.invoke('notifications:openSystemSettings')
   },
 
   shell: {

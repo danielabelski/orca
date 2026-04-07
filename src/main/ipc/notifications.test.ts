@@ -13,7 +13,8 @@ const {
   const notificationShowMock = vi.fn()
   const notificationCtorMock = vi.fn(function () {
     return {
-      show: notificationShowMock
+      show: notificationShowMock,
+      on: vi.fn()
     }
   })
   const notificationIsSupportedMock = vi.fn(() => true)
@@ -38,6 +39,15 @@ vi.mock('electron', () => ({
   }),
   BrowserWindow: {
     getAllWindows: getAllWindowsMock
+  },
+  app: {
+    focus: vi.fn()
+  },
+  systemPreferences: {
+    getNotificationSettings: vi.fn(() => ({ authorizationStatus: 'authorized' }))
+  },
+  shell: {
+    openExternal: vi.fn()
   }
 }))
 
@@ -56,6 +66,13 @@ describe('registerNotificationHandlers', () => {
     getAllWindowsMock.mockReset()
     getAllWindowsMock.mockReturnValue([])
   })
+
+  function getDispatchHandler(): (event: unknown, args: unknown) => unknown {
+    const call = handleMock.mock.calls.find(
+      ([channel]: [string]) => channel === 'notifications:dispatch'
+    )
+    return call[1] as (event: unknown, args: unknown) => unknown
+  }
 
   it('registers the IPC handler', () => {
     registerNotificationHandlers({
@@ -85,7 +102,7 @@ describe('registerNotificationHandlers', () => {
       })
     } as never)
 
-    const handler = handleMock.mock.calls[0][1] as (event: unknown, args: unknown) => unknown
+    const handler = getDispatchHandler()
     expect(handler({}, { source: 'agent-task-complete' })).toEqual({ delivered: false })
     expect(notificationCtorMock).not.toHaveBeenCalled()
   })
@@ -109,7 +126,7 @@ describe('registerNotificationHandlers', () => {
       })
     } as never)
 
-    const handler = handleMock.mock.calls[0][1] as (event: unknown, args: unknown) => unknown
+    const handler = getDispatchHandler()
     expect(handler({}, { source: 'agent-task-complete', isActiveWorktree: true })).toEqual({
       delivered: false
     })
@@ -128,7 +145,7 @@ describe('registerNotificationHandlers', () => {
       })
     } as never)
 
-    const handler = handleMock.mock.calls[0][1] as (event: unknown, args: unknown) => unknown
+    const handler = getDispatchHandler()
     expect(
       handler({}, { source: 'agent-task-complete', repoLabel: 'orca', worktreeLabel: 'feat/notis' })
     ).toEqual({ delivered: true })
@@ -151,7 +168,7 @@ describe('registerNotificationHandlers', () => {
       })
     } as never)
 
-    const handler = handleMock.mock.calls[0][1] as (event: unknown, args: unknown) => unknown
+    const handler = getDispatchHandler()
     expect(handler({}, { source: 'terminal-bell', worktreeId: 'repo::wt1' })).toEqual({
       delivered: true
     })
@@ -179,7 +196,7 @@ describe('registerNotificationHandlers', () => {
       })
     } as never)
 
-    const handler = handleMock.mock.calls[0][1] as (event: unknown, args: unknown) => unknown
+    const handler = getDispatchHandler()
 
     // Agent fires first — should deliver
     expect(handler({}, { source: 'agent-task-complete', worktreeId: 'repo::wt1' })).toEqual({

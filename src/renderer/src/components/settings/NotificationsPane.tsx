@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import type { GlobalSettings } from '../../../../shared/types'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
-import { BellRing, Bot, Siren } from 'lucide-react'
+import { BellRing, Bot, Siren, TriangleAlert } from 'lucide-react'
 import type { SettingsSearchEntry } from './settings-search'
 
 export const NOTIFICATIONS_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
@@ -44,6 +44,16 @@ export function NotificationsPane({
   updateSettings
 }: NotificationsPaneProps): React.JSX.Element {
   const notificationSettings = settings.notifications
+  const [permissionDenied, setPermissionDenied] = useState(false)
+
+  useEffect(() => {
+    if (!notificationSettings.enabled) {
+      return
+    }
+    void window.api.notifications.getPermissionStatus().then((status) => {
+      setPermissionDenied(status === 'denied')
+    })
+  }, [notificationSettings.enabled])
 
   const updateNotificationSettings = (updates: Partial<GlobalSettings['notifications']>): void => {
     updateSettings({
@@ -56,6 +66,25 @@ export function NotificationsPane({
 
   return (
     <div className="space-y-1">
+      {notificationSettings.enabled && permissionDenied && (
+        <div className="mx-1 mb-2 flex items-start gap-2.5 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2.5">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-yellow-500" />
+          <div className="space-y-1.5">
+            <p className="text-xs text-foreground">
+              Notifications are blocked by your system settings.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs"
+              onClick={() => void window.api.notifications.openSystemSettings()}
+            >
+              Open Notification Settings
+            </Button>
+          </div>
+        </div>
+      )}
+
       <SettingToggle
         label="Enable Notifications"
         description="Native system notifications for background events."
