@@ -1,7 +1,15 @@
-/* eslint-disable max-lines */
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import type { Tab, TabGroup, TabContentType, WorkspaceSessionState } from '../../../../shared/types'
+import {
+  findTabAndWorktree,
+  findGroupForTab,
+  ensureGroup,
+  pickNeighbor,
+  updateGroup,
+  patchTab
+} from './tabs-helpers'
+import { buildHydratedTabState } from './tabs-hydration'
 
 export type TabsSlice = {
   // ─── State ──────────────────────────────────────────────────────────
@@ -31,73 +39,6 @@ export type TabsSlice = {
   getTab: (tabId: string) => Tab | null
   hydrateTabsSession: (session: WorkspaceSessionState) => void
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────
-
-function findTabAndWorktree(
-  tabsByWorktree: Record<string, Tab[]>,
-  tabId: string
-): { tab: Tab; worktreeId: string } | null {
-  for (const [worktreeId, tabs] of Object.entries(tabsByWorktree)) {
-    const tab = tabs.find((t) => t.id === tabId)
-    if (tab) {
-      return { tab, worktreeId }
-    }
-  }
-  return null
-}
-
-function findGroupForTab(
-  groupsByWorktree: Record<string, TabGroup[]>,
-  worktreeId: string,
-  groupId: string
-): TabGroup | null {
-  const groups = groupsByWorktree[worktreeId] ?? []
-  return groups.find((g) => g.id === groupId) ?? null
-}
-
-function ensureGroup(
-  groupsByWorktree: Record<string, TabGroup[]>,
-  activeGroupIdByWorktree: Record<string, string>,
-  worktreeId: string
-): {
-  group: TabGroup
-  groupsByWorktree: Record<string, TabGroup[]>
-  activeGroupIdByWorktree: Record<string, string>
-} {
-  const existing = groupsByWorktree[worktreeId]?.[0]
-  if (existing) {
-    return { group: existing, groupsByWorktree, activeGroupIdByWorktree }
-  }
-  const groupId = globalThis.crypto.randomUUID()
-  const group: TabGroup = { id: groupId, worktreeId, activeTabId: null, tabOrder: [] }
-  return {
-    group,
-    groupsByWorktree: { ...groupsByWorktree, [worktreeId]: [group] },
-    activeGroupIdByWorktree: { ...activeGroupIdByWorktree, [worktreeId]: groupId }
-  }
-}
-
-/** Pick the nearest neighbor in visual order (right first, then left). */
-function pickNeighbor(tabOrder: string[], closingTabId: string): string | null {
-  const idx = tabOrder.indexOf(closingTabId)
-  if (idx === -1) {
-    return null
-  }
-  if (idx + 1 < tabOrder.length) {
-    return tabOrder[idx + 1]
-  }
-  if (idx - 1 >= 0) {
-    return tabOrder[idx - 1]
-  }
-  return null
-}
-
-function updateGroup(groups: TabGroup[], updated: TabGroup): TabGroup[] {
-  return groups.map((g) => (g.id === updated.id ? updated : g))
-}
-
-// ─── Slice ──────────────────────────────────────────────────────────
 
 export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, get) => ({
   unifiedTabsByWorktree: {},
@@ -142,7 +83,6 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         isPinned: init?.isPinned
       }
 
-      // Update group's tabOrder: remove replaced preview, append new tab
       const newTabOrder = removedPreviewId
         ? group.tabOrder.filter((tid) => tid !== removedPreviewId)
         : [...group.tabOrder]
@@ -259,90 +199,23 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
   },
 
   setTabLabel: (tabId, label) => {
-    set((s) => {
-      const found = findTabAndWorktree(s.unifiedTabsByWorktree, tabId)
-      if (!found) {
-        return {}
-      }
-      const { worktreeId } = found
-      const tabs = s.unifiedTabsByWorktree[worktreeId] ?? []
-      return {
-        unifiedTabsByWorktree: {
-          ...s.unifiedTabsByWorktree,
-          [worktreeId]: tabs.map((t) => (t.id === tabId ? { ...t, label } : t))
-        }
-      }
-    })
+    set((s) => patchTab(s.unifiedTabsByWorktree, tabId, { label }) ?? {})
   },
 
   setTabCustomLabel: (tabId, label) => {
-    set((s) => {
-      const found = findTabAndWorktree(s.unifiedTabsByWorktree, tabId)
-      if (!found) {
-        return {}
-      }
-      const { worktreeId } = found
-      const tabs = s.unifiedTabsByWorktree[worktreeId] ?? []
-      return {
-        unifiedTabsByWorktree: {
-          ...s.unifiedTabsByWorktree,
-          [worktreeId]: tabs.map((t) => (t.id === tabId ? { ...t, customLabel: label } : t))
-        }
-      }
-    })
+    set((s) => patchTab(s.unifiedTabsByWorktree, tabId, { customLabel: label }) ?? {})
   },
 
   setUnifiedTabColor: (tabId, color) => {
-    set((s) => {
-      const found = findTabAndWorktree(s.unifiedTabsByWorktree, tabId)
-      if (!found) {
-        return {}
-      }
-      const { worktreeId } = found
-      const tabs = s.unifiedTabsByWorktree[worktreeId] ?? []
-      return {
-        unifiedTabsByWorktree: {
-          ...s.unifiedTabsByWorktree,
-          [worktreeId]: tabs.map((t) => (t.id === tabId ? { ...t, color } : t))
-        }
-      }
-    })
+    set((s) => patchTab(s.unifiedTabsByWorktree, tabId, { color }) ?? {})
   },
 
   pinTab: (tabId) => {
-    set((s) => {
-      const found = findTabAndWorktree(s.unifiedTabsByWorktree, tabId)
-      if (!found) {
-        return {}
-      }
-      const { worktreeId } = found
-      const tabs = s.unifiedTabsByWorktree[worktreeId] ?? []
-      return {
-        unifiedTabsByWorktree: {
-          ...s.unifiedTabsByWorktree,
-          [worktreeId]: tabs.map((t) =>
-            t.id === tabId ? { ...t, isPinned: true, isPreview: false } : t
-          )
-        }
-      }
-    })
+    set((s) => patchTab(s.unifiedTabsByWorktree, tabId, { isPinned: true, isPreview: false }) ?? {})
   },
 
   unpinTab: (tabId) => {
-    set((s) => {
-      const found = findTabAndWorktree(s.unifiedTabsByWorktree, tabId)
-      if (!found) {
-        return {}
-      }
-      const { worktreeId } = found
-      const tabs = s.unifiedTabsByWorktree[worktreeId] ?? []
-      return {
-        unifiedTabsByWorktree: {
-          ...s.unifiedTabsByWorktree,
-          [worktreeId]: tabs.map((t) => (t.id === tabId ? { ...t, isPinned: false } : t))
-        }
-      }
-    })
+    set((s) => patchTab(s.unifiedTabsByWorktree, tabId, { isPinned: false }) ?? {})
   },
 
   closeOtherTabs: (tabId) => {
@@ -474,115 +347,6 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         .flat()
         .map((w) => w.id)
     )
-
-    // Check for new unified format first
-    if (session.unifiedTabs && session.tabGroups) {
-      const tabsByWorktree: Record<string, Tab[]> = {}
-      const groupsByWorktree: Record<string, TabGroup[]> = {}
-      const activeGroupIdByWorktree: Record<string, string> = {}
-
-      for (const [worktreeId, tabs] of Object.entries(session.unifiedTabs)) {
-        if (!validWorktreeIds.has(worktreeId)) {
-          continue
-        }
-        if (tabs.length === 0) {
-          continue
-        }
-        tabsByWorktree[worktreeId] = [...tabs].sort(
-          (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt
-        )
-      }
-
-      for (const [worktreeId, groups] of Object.entries(session.tabGroups)) {
-        if (!validWorktreeIds.has(worktreeId)) {
-          continue
-        }
-        if (groups.length === 0) {
-          continue
-        }
-
-        const validTabIds = new Set((tabsByWorktree[worktreeId] ?? []).map((t) => t.id))
-        const validatedGroups = groups.map((g) => ({
-          ...g,
-          tabOrder: g.tabOrder.filter((tid) => validTabIds.has(tid)),
-          activeTabId: g.activeTabId && validTabIds.has(g.activeTabId) ? g.activeTabId : null
-        }))
-
-        groupsByWorktree[worktreeId] = validatedGroups
-        activeGroupIdByWorktree[worktreeId] = validatedGroups[0].id
-      }
-
-      set({ unifiedTabsByWorktree: tabsByWorktree, groupsByWorktree, activeGroupIdByWorktree })
-      return
-    }
-
-    // Fall back to legacy format: convert TerminalTab[] + PersistedOpenFile[] → Tab[]
-    const tabsByWorktree: Record<string, Tab[]> = {}
-    const groupsByWorktree: Record<string, TabGroup[]> = {}
-    const activeGroupIdByWorktree: Record<string, string> = {}
-
-    for (const worktreeId of validWorktreeIds) {
-      const terminalTabs = session.tabsByWorktree[worktreeId] ?? []
-      const editorFiles = session.openFilesByWorktree?.[worktreeId] ?? []
-
-      if (terminalTabs.length === 0 && editorFiles.length === 0) {
-        continue
-      }
-
-      const groupId = globalThis.crypto.randomUUID()
-      const tabs: Tab[] = []
-      const tabOrder: string[] = []
-
-      for (const tt of terminalTabs) {
-        tabs.push({
-          id: tt.id,
-          groupId,
-          worktreeId,
-          contentType: 'terminal',
-          label: tt.title,
-          customLabel: tt.customTitle,
-          color: tt.color,
-          sortOrder: tt.sortOrder,
-          createdAt: tt.createdAt,
-          isPreview: false,
-          isPinned: false
-        })
-        tabOrder.push(tt.id)
-      }
-
-      for (const ef of editorFiles) {
-        tabs.push({
-          id: ef.filePath,
-          groupId,
-          worktreeId,
-          contentType: 'editor',
-          label: ef.relativePath,
-          customLabel: null,
-          color: null,
-          sortOrder: tabs.length,
-          createdAt: Date.now(),
-          isPreview: ef.isPreview,
-          isPinned: false
-        })
-        tabOrder.push(ef.filePath)
-      }
-
-      const activeTabType = session.activeTabTypeByWorktree?.[worktreeId] ?? 'terminal'
-      let activeTabId: string | null = null
-      if (activeTabType === 'editor') {
-        activeTabId = session.activeFileIdByWorktree?.[worktreeId] ?? null
-      } else if (session.activeTabId && terminalTabs.some((t) => t.id === session.activeTabId)) {
-        activeTabId = session.activeTabId
-      }
-      if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
-        activeTabId = tabs[0]?.id ?? null
-      }
-
-      tabsByWorktree[worktreeId] = tabs
-      groupsByWorktree[worktreeId] = [{ id: groupId, worktreeId, activeTabId, tabOrder }]
-      activeGroupIdByWorktree[worktreeId] = groupId
-    }
-
-    set({ unifiedTabsByWorktree: tabsByWorktree, groupsByWorktree, activeGroupIdByWorktree })
+    set(buildHydratedTabState(session, validWorktreeIds))
   }
 })

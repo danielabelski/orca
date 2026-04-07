@@ -1,8 +1,8 @@
-/* eslint-disable max-lines */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
+import { reconcileTabOrder } from '../tab-bar/reconcile-order'
 
 export type UnifiedTerminalItem = {
   type: 'terminal' | 'editor'
@@ -74,22 +74,14 @@ function useTerminalTabsInner() {
   const totalTabs = tabs.length + worktreeFiles.length
   const tabBarOrder = activeWorktreeId ? tabBarOrderByWorktree[activeWorktreeId] : undefined
 
-  // Build unified tab list respecting stored tab bar order
   const unifiedTabs = useMemo<UnifiedTerminalItem[]>(() => {
-    const terminalIdSet = new Set(tabs.map((t) => t.id))
-    const editorIdSet = new Set(worktreeFiles.map((f) => f.id))
-    const validIds = new Set([...terminalIdSet, ...editorIdSet])
-    const orderedIds: string[] = (tabBarOrder ?? []).filter((id) => validIds.has(id))
-    const inOrder = new Set(orderedIds)
-    // Why: append new items in a single pass rather than terminals-first.
-    // This ensures a newly created terminal appears after existing editor
-    // tabs instead of jumping to the front.
-    for (const id of [...tabs.map((t) => t.id), ...worktreeFiles.map((f) => f.id)]) {
-      if (!inOrder.has(id)) {
-        orderedIds.push(id)
-        inOrder.add(id)
-      }
-    }
+    const terminalIds = tabs.map((t) => t.id)
+    const terminalIdSet = new Set(terminalIds)
+    const orderedIds = reconcileTabOrder(
+      tabBarOrder,
+      terminalIds,
+      worktreeFiles.map((f) => f.id)
+    )
     return orderedIds.map((id) => ({
       type: (terminalIdSet.has(id) ? 'terminal' : 'editor') as 'terminal' | 'editor',
       id
@@ -177,24 +169,19 @@ function useTerminalTabsInner() {
     const newTab = createTab(activeWorktreeId)
     setActiveTabType('terminal')
     // Why: persist the tab bar order with the new terminal at the end of the
-    // current visual order. Without this, reconcileOrder falls back to
+    // current visual order. Without this, reconcileTabOrder falls back to
     // terminals-first when tabBarOrderByWorktree is unset, causing a new
     // terminal to jump to index 0 instead of appending after editor tabs.
     const state = useAppStore.getState()
-    const currentTerminals = state.tabsByWorktree[activeWorktreeId] ?? []
-    const currentEditors = state.openFiles.filter((f) => f.worktreeId === activeWorktreeId)
-    const stored = state.tabBarOrderByWorktree[activeWorktreeId]
-    const termIds = currentTerminals.map((t) => t.id)
-    const editorIds = currentEditors.map((f) => f.id)
-    const validIds = new Set([...termIds, ...editorIds])
-    const base = (stored ?? []).filter((id) => validIds.has(id))
-    const inBase = new Set(base)
-    for (const id of [...termIds, ...editorIds]) {
-      if (!inBase.has(id)) {
-        base.push(id)
-        inBase.add(id)
-      }
-    }
+    const termIds = (state.tabsByWorktree[activeWorktreeId] ?? []).map((t) => t.id)
+    const editorIds = state.openFiles
+      .filter((f) => f.worktreeId === activeWorktreeId)
+      .map((f) => f.id)
+    const base = reconcileTabOrder(
+      state.tabBarOrderByWorktree[activeWorktreeId],
+      termIds,
+      editorIds
+    )
     // The new tab is already in base via termIds; move it to the end
     const order = base.filter((id) => id !== newTab.id)
     order.push(newTab.id)
@@ -280,23 +267,13 @@ function useTerminalTabsInner() {
       const state = useAppStore.getState()
       const currentTerminalTabs = state.tabsByWorktree[activeWorktreeId] ?? []
       const currentEditorFiles = state.openFiles.filter((f) => f.worktreeId === activeWorktreeId)
-      const terminalIdSet = new Set(currentTerminalTabs.map((t) => t.id))
-      const editorIdSet = new Set(currentEditorFiles.map((f) => f.id))
-      const storedOrder = state.tabBarOrderByWorktree[activeWorktreeId]
-
-      // Build unified order (same reconciliation as TabBar)
-      const validIds = new Set([...terminalIdSet, ...editorIdSet])
-      const orderedIds: string[] = (storedOrder ?? []).filter((id) => validIds.has(id))
-      const inOrder = new Set(orderedIds)
-      for (const id of [
-        ...currentTerminalTabs.map((t) => t.id),
-        ...currentEditorFiles.map((f) => f.id)
-      ]) {
-        if (!inOrder.has(id)) {
-          orderedIds.push(id)
-          inOrder.add(id)
-        }
-      }
+      const terminalIds = currentTerminalTabs.map((t) => t.id)
+      const terminalIdSet = new Set(terminalIds)
+      const orderedIds = reconcileTabOrder(
+        state.tabBarOrderByWorktree[activeWorktreeId],
+        terminalIds,
+        currentEditorFiles.map((f) => f.id)
+      )
 
       const index = orderedIds.indexOf(tabId)
       if (index === -1) {

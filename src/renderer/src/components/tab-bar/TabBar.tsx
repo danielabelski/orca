@@ -15,6 +15,7 @@ import { buildStatusMap } from '../right-sidebar/status-display'
 import type { OpenFile } from '../../store/slices/editor'
 import SortableTab from './SortableTab'
 import EditorFileTab from './EditorFileTab'
+import { reconcileTabOrder } from './reconcile-order'
 
 type TabBarProps = {
   tabs: TerminalTab[]
@@ -43,34 +44,6 @@ type TabBarProps = {
 type TabItem =
   | { type: 'terminal'; id: string; data: TerminalTab }
   | { type: 'editor'; id: string; data: OpenFile }
-
-/**
- * Reconcile stored order with the current set of terminal + editor tabs.
- * Keeps items that still exist in their stored positions, appends new items
- * at the end in their natural array order (not grouped by type).
- */
-function reconcileOrder(
-  storedOrder: string[] | undefined,
-  terminalIds: string[],
-  editorFileIds: string[]
-): string[] {
-  const validIds = new Set([...terminalIds, ...editorFileIds])
-
-  const result: string[] = (storedOrder ?? []).filter((id) => validIds.has(id))
-  const inResult = new Set(result)
-
-  // Why: append new items in the order they appear across both lists rather
-  // than grouping by type. This ensures a newly created terminal tab appears
-  // after existing editor tabs instead of jumping to the front.
-  const allIds = [...terminalIds, ...editorFileIds]
-  for (const id of allIds) {
-    if (!inResult.has(id)) {
-      result.push(id)
-      inResult.add(id)
-    }
-  }
-  return result
-}
 
 export default function TabBar({
   tabs,
@@ -115,7 +88,7 @@ export default function TabBar({
 
   // Build the unified ordered list, reconciling stored order with current items
   const orderedItems = useMemo(() => {
-    const ids = reconcileOrder(tabBarOrder, terminalIds, editorFileIds)
+    const ids = reconcileTabOrder(tabBarOrder, terminalIds, editorFileIds)
     const items: TabItem[] = []
     for (const id of ids) {
       const terminal = terminalMap.get(id)
