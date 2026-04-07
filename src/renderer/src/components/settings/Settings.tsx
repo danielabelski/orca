@@ -345,16 +345,7 @@ function Settings(): React.JSX.Element {
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b border-border/50 bg-background/95 px-8 py-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold">Settings</h1>
-            <p className="text-sm text-muted-foreground">
-              Search across every settings section without leaving the page.
-            </p>
-          </div>
-        </div>
-
-        <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek">
           <div className="flex w-full max-w-5xl flex-col gap-10 px-8 py-8">
             {visibleNavSections.length === 0 ? (
               <div className="flex min-h-[24rem] items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card/30 text-sm text-muted-foreground">
