@@ -53,14 +53,16 @@ export default function EditorPanel(): React.JSX.Element | null {
     null
   )
   const [sideBySide, setSideBySide] = useState(settings?.diffDefaultView === 'side-by-side')
+  const [prevDiffView, setPrevDiffView] = useState(settings?.diffDefaultView)
 
   // Why: When the user changes their global diff-view preference in Settings,
-  // sync the local toggle to match, even if they manually toggled it this session.
-  useEffect(() => {
+  // sync the local toggle to match during render (avoids flash of stale diff mode).
+  if (settings?.diffDefaultView !== prevDiffView) {
+    setPrevDiffView(settings?.diffDefaultView)
     if (settings?.diffDefaultView !== undefined) {
       setSideBySide(settings.diffDefaultView === 'side-by-side')
     }
-  }, [settings?.diffDefaultView])
+  }
 
   const openFilesRef = React.useRef(openFiles)
   openFilesRef.current = openFiles

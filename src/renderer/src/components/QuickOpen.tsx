@@ -138,11 +138,6 @@ export default function QuickOpen(): React.JSX.Element | null {
     return results.slice(0, 50)
   }, [files, query])
 
-  // Reset selection when results change
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [filtered])
-
   // Scroll selected item into view
   useEffect(() => {
     if (!listRef.current) {
@@ -223,7 +218,10 @@ export default function QuickOpen(): React.JSX.Element | null {
             className="flex-1 bg-transparent text-sm py-2.5 outline-none text-foreground placeholder:text-muted-foreground"
             placeholder="Go to file..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setSelectedIndex(0)
+            }}
             onKeyDown={handleKeyDown}
             spellCheck={false}
           />

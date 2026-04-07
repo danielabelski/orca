@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { Editor } from '@tiptap/react'
 import { TextSelection } from '@tiptap/pm/state'
@@ -21,9 +21,32 @@ export function useRichMarkdownSearch({
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [matchCount, setMatchCount] = useState(0)
-  const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
+  const [rawActiveMatchIndex, setRawActiveMatchIndex] = useState(-1)
   const [searchRevision, setSearchRevision] = useState(0)
+
+  // Why: memoizing the match array avoids the old two-effect pattern where both
+  // effects independently called findRichMarkdownSearchMatches on every change.
+  const matches = useMemo(() => {
+    if (!editor || !isSearchOpen || !searchQuery) {
+      return []
+    }
+    return findRichMarkdownSearchMatches(editor.state.doc, searchQuery)
+    // searchRevision is bumped on ProseMirror doc edits to trigger recomputation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, isSearchOpen, searchQuery, searchRevision])
+
+  const matchCount = matches.length
+
+  // Clamp the user-controlled index to the valid range on every render.
+  // No state update needed — this is a pure derivation.
+  const activeMatchIndex =
+    !isSearchOpen || matchCount === 0
+      ? -1
+      : rawActiveMatchIndex >= 0 && rawActiveMatchIndex < matchCount
+        ? rawActiveMatchIndex
+        : matchCount > 0
+          ? 0
+          : -1
 
   const openSearch = useCallback(() => {
     setIsSearchOpen(true)
@@ -32,8 +55,7 @@ export function useRichMarkdownSearch({
   const closeSearch = useCallback(() => {
     setIsSearchOpen(false)
     setSearchQuery('')
-    setActiveMatchIndex(-1)
-    setMatchCount(0)
+    setRawActiveMatchIndex(-1)
   }, [])
 
   const moveToMatch = useCallback(
@@ -42,7 +64,7 @@ export function useRichMarkdownSearch({
         return
       }
 
-      setActiveMatchIndex((currentIndex) => {
+      setRawActiveMatchIndex((currentIndex) => {
         const baseIndex = currentIndex >= 0 ? currentIndex : direction === 1 ? -1 : 0
         return (baseIndex + direction + matchCount) % matchCount
       })
@@ -86,36 +108,9 @@ export function useRichMarkdownSearch({
     searchInputRef.current?.select()
   }, [isSearchOpen])
 
-  useEffect(() => {
-    if (!editor) {
-      return
-    }
-
-    if (!isSearchOpen || !searchQuery) {
-      setMatchCount(0)
-      setActiveMatchIndex(-1)
-      editor.view.dispatch(
-        editor.state.tr.setMeta(richMarkdownSearchPluginKey, {
-          activeIndex: -1,
-          query: ''
-        })
-      )
-      return
-    }
-
-    const matches = findRichMarkdownSearchMatches(editor.state.doc, searchQuery)
-    setMatchCount(matches.length)
-    setActiveMatchIndex((currentIndex) => {
-      if (matches.length === 0) {
-        return -1
-      }
-      if (currentIndex >= 0 && currentIndex < matches.length) {
-        return currentIndex
-      }
-      return 0
-    })
-  }, [editor, isSearchOpen, searchQuery, searchRevision])
-
+  // Why: single effect to sync search state to ProseMirror. The old two-effect
+  // chain (compute matches → set state → dispatch) caused an extra render cycle
+  // and called findRichMarkdownSearchMatches twice per change.
   useEffect(() => {
     if (!editor) {
       return
@@ -133,7 +128,6 @@ export function useRichMarkdownSearch({
       return
     }
 
-    const matches = findRichMarkdownSearchMatches(editor.state.doc, query)
     const activeMatch = matches[activeMatchIndex]
     if (!activeMatch) {
       return
@@ -147,7 +141,7 @@ export function useRichMarkdownSearch({
     tr.setSelection(TextSelection.create(tr.doc, activeMatch.from, activeMatch.to))
     tr.scrollIntoView()
     editor.view.dispatch(tr)
-  }, [activeMatchIndex, editor, isSearchOpen, searchQuery])
+  }, [activeMatchIndex, editor, isSearchOpen, matches, searchQuery])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Keyboard, Palette, SlidersHorizontal, SquareTerminal } from 'lucide-react'
 import type { OrcaHooks } from '../../../../shared/types'
 import { useAppStore } from '../../store'
-import { getSystemPrefersDark } from '@/lib/terminal-theme'
+import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-prefers-dark'
 import { SCROLLBACK_PRESETS_MB, getFallbackTerminalFonts } from './SettingsConstants'
 import { GeneralPane, GENERAL_PANE_SEARCH_ENTRIES } from './GeneralPane'
 import { AppearancePane, APPEARANCE_PANE_SEARCH_ENTRIES } from './AppearancePane'
@@ -50,9 +50,9 @@ function Settings(): React.JSX.Element {
   const [repoHooksMap, setRepoHooksMap] = useState<
     Record<string, { hasHooks: boolean; hooks: OrcaHooks | null }>
   >({})
-  const [systemPrefersDark, setSystemPrefersDark] = useState(getSystemPrefersDark())
+  const systemPrefersDark = useSystemPrefersDark()
   const [scrollbackMode, setScrollbackMode] = useState<'preset' | 'custom'>('preset')
-  const [prevSettings, setPrevSettings] = useState(settings)
+  const [prevScrollbackBytes, setPrevScrollbackBytes] = useState(settings?.terminalScrollbackBytes)
   const [terminalFontSuggestions, setTerminalFontSuggestions] = useState<string[]>(
     getFallbackTerminalFonts()
   )
@@ -90,16 +90,6 @@ function Settings(): React.JSX.Element {
   }, [clearSettingsTarget, settingsNavigationTarget])
 
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = (event: MediaQueryListEvent): void => {
-      setSystemPrefersDark(event.matches)
-    }
-    setSystemPrefersDark(media.matches)
-    media.addEventListener('change', handleChange)
-    return () => media.removeEventListener('change', handleChange)
-  }, [])
-
-  useEffect(() => {
     if (terminalFontsLoadedRef.current) {
       return
     }
@@ -126,8 +116,10 @@ function Settings(): React.JSX.Element {
     }
   }, [])
 
-  if (settings !== prevSettings) {
-    setPrevSettings(settings)
+  // Why: only recompute scrollback mode when the byte value actually changes,
+  // not on every unrelated settings mutation.
+  if (settings?.terminalScrollbackBytes !== prevScrollbackBytes) {
+    setPrevScrollbackBytes(settings?.terminalScrollbackBytes)
     if (settings) {
       const scrollbackMb = Math.max(1, Math.round(settings.terminalScrollbackBytes / 1_000_000))
       setScrollbackMode(

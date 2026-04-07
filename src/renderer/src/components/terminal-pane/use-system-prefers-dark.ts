@@ -13,7 +13,6 @@ export function useSystemPrefersDark(): boolean {
     }
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const handleChange = (event: MediaQueryListEvent): void => setSystemPrefersDark(event.matches)
-    setSystemPrefersDark(media.matches)
     media.addEventListener('change', handleChange)
     return () => media.removeEventListener('change', handleChange)
   }, [])

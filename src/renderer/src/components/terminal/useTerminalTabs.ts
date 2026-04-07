@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
@@ -74,7 +74,7 @@ function useTerminalTabsInner() {
   const tabBarOrder = activeWorktreeId ? tabBarOrderByWorktree[activeWorktreeId] : undefined
 
   // Build unified tab list respecting stored tab bar order
-  const unifiedTabs: UnifiedTerminalItem[] = (() => {
+  const unifiedTabs = useMemo<UnifiedTerminalItem[]>(() => {
     const terminalIdSet = new Set(tabs.map((t) => t.id))
     const editorIdSet = new Set(worktreeFiles.map((f) => f.id))
     const validIds = new Set([...terminalIdSet, ...editorIdSet])
@@ -94,10 +94,34 @@ function useTerminalTabsInner() {
       type: (terminalIdSet.has(id) ? 'terminal' : 'editor') as 'terminal' | 'editor',
       id
     }))
-  })()
+  }, [tabs, worktreeFiles, tabBarOrder])
 
   const [mountedWorktreeIds, setMountedWorktreeIds] = useState<string[]>([])
   const [initialTabCreationGuard, setInitialTabCreationGuard] = useState<string | null>(null)
+  const prevActiveWorktreeIdRef = useRef(activeWorktreeId)
+  const prevAllWorktreesRef = useRef(allWorktrees)
+
+  // Why: synchronize the keep-alive worktree set during render to avoid a
+  // one-frame flash where a newly-activated terminal pane is unmounted.
+  if (
+    activeWorktreeId !== prevActiveWorktreeIdRef.current ||
+    allWorktrees !== prevAllWorktreesRef.current
+  ) {
+    prevActiveWorktreeIdRef.current = activeWorktreeId
+    prevAllWorktreesRef.current = allWorktrees
+    setMountedWorktreeIds((current) => {
+      const allWorktreeIds = new Set(allWorktrees.map((worktree) => worktree.id))
+      const next = current.filter((id) => allWorktreeIds.has(id))
+      if (activeWorktreeId && !next.includes(activeWorktreeId)) {
+        next.push(activeWorktreeId)
+      }
+      if (next.length === current.length && next.every((id, index) => id === current[index])) {
+        return current
+      }
+      return next
+    })
+  }
+
   const mountedWorktrees = allWorktrees.filter((worktree) =>
     mountedWorktreeIds.includes(worktree.id)
   )
@@ -112,20 +136,6 @@ function useTerminalTabsInner() {
     setActiveTab(tabs[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tabs is derived from tabsByWorktree which is stable via useShallow
   }, [activeTabId, setActiveTab, tabsByWorktree, activeWorktreeId])
-
-  useEffect(() => {
-    setMountedWorktreeIds((current) => {
-      const allWorktreeIds = new Set(allWorktrees.map((worktree) => worktree.id))
-      const next = current.filter((id) => allWorktreeIds.has(id))
-      if (activeWorktreeId && !next.includes(activeWorktreeId)) {
-        next.push(activeWorktreeId)
-      }
-      if (next.length === current.length && next.every((id, index) => id === current[index])) {
-        return current
-      }
-      return next
-    })
-  }, [activeWorktreeId, allWorktrees])
 
   useEffect(() => {
     if (!workspaceSessionReady) {
