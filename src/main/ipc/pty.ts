@@ -121,17 +121,8 @@ export function registerPtyHandlers(mainWindow: BrowserWindow, runtime?: OrcaRun
             `It may have been deleted or is on an unmounted volume.`
         )
       }
-      try {
-        if (!statSync(cwd).isDirectory()) {
-          throw new Error(`Working directory "${cwd}" is not a directory.`)
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('is not a directory')) {
-          throw err
-        }
-        throw new Error(
-          `Cannot access working directory "${cwd}": ${err instanceof Error ? err.message : String(err)}`
-        )
+      if (!statSync(cwd).isDirectory()) {
+        throw new Error(`Working directory "${cwd}" is not a directory.`)
       }
 
       const spawnEnv = {
@@ -179,6 +170,9 @@ export function registerPtyHandlers(mainWindow: BrowserWindow, runtime?: OrcaRun
                 env: spawnEnv
               })
               // Fallback succeeded — update shellPath for the basename tracking below.
+              console.warn(
+                `[pty] Primary shell "${shellPath}" failed (${primaryError}), fell back to "${fallback}"`
+              )
               shellPath = fallback
               break
             } catch {
@@ -201,8 +195,11 @@ export function registerPtyHandlers(mainWindow: BrowserWindow, runtime?: OrcaRun
         }
       }
 
-      // Guaranteed non-null: the catch block throws if no fallback succeeds.
-      const proc = ptyProcess!
+      // Should be unreachable — the catch block throws when no fallback succeeds.
+      if (!ptyProcess) {
+        throw new Error('PTY process was not created')
+      }
+      const proc = ptyProcess
       ptyProcesses.set(id, proc)
       ptyShellName.set(id, basename(shellPath))
       ptyLoadGeneration.set(id, loadGeneration)
