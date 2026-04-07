@@ -81,6 +81,8 @@ type GhApi = {
     prNumber: number
     method?: 'merge' | 'squash' | 'rebase'
   }) => Promise<{ ok: true } | { ok: false; error: string }>
+  checkOrcaStarred: () => Promise<boolean | null>
+  starOrca: () => Promise<boolean>
 }
 
 type SettingsApi = {

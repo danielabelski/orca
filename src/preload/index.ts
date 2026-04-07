@@ -220,7 +220,10 @@ const api = {
       prNumber: number
       method?: 'merge' | 'squash' | 'rebase'
     }): Promise<{ ok: true } | { ok: false; error: string }> =>
-      ipcRenderer.invoke('gh:mergePR', args)
+      ipcRenderer.invoke('gh:mergePR', args),
+
+    checkOrcaStarred: (): Promise<boolean | null> => ipcRenderer.invoke('gh:checkOrcaStarred'),
+    starOrca: (): Promise<boolean> => ipcRenderer.invoke('gh:starOrca')
   },
 
   settings: {

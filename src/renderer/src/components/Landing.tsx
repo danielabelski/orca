@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ExternalLink, FolderPlus, GitBranchPlus } from 'lucide-react'
+import { AlertTriangle, ExternalLink, FolderPlus, GitBranchPlus, Star } from 'lucide-react'
+import { cn } from '../lib/utils'
 import { useAppStore } from '../store'
 import logo from '../../../../resources/logo.svg'
 
@@ -22,6 +23,66 @@ function KeyCap({ label }: { label: string }): React.JSX.Element {
     <span className="inline-flex min-w-6 items-center justify-center rounded border border-border/80 bg-secondary/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
       {label}
     </span>
+  )
+}
+
+type StarState = 'loading' | 'starred' | 'not-starred' | 'hidden'
+
+function GitHubStarButton(): React.JSX.Element | null {
+  const [state, setState] = useState<StarState>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.gh.checkOrcaStarred().then((result) => {
+      if (cancelled) {
+        return
+      }
+      if (result === null) {
+        setState('hidden')
+      } else {
+        setState(result ? 'starred' : 'not-starred')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleClick = async (): Promise<void> => {
+    if (state !== 'not-starred') {
+      return
+    }
+    setState('starred') // optimistic
+    const ok = await window.api.gh.starOrca()
+    if (!ok) {
+      setState('not-starred')
+    }
+  }
+
+  if (state === 'hidden') {
+    return null
+  }
+
+  return (
+    <button
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-[13px] font-medium transition-all duration-300',
+        state === 'loading' && 'pointer-events-none opacity-0',
+        state === 'not-starred' &&
+          'border-amber-400/30 text-amber-300/90 hover:border-amber-400/50 hover:bg-amber-400/[0.08] cursor-pointer',
+        state === 'starred' && 'border-amber-400/25 bg-amber-400/[0.06] text-amber-400/60'
+      )}
+      onClick={handleClick}
+      disabled={state === 'starred' || state === 'loading'}
+    >
+      <Star
+        className={cn(
+          'size-3.5 transition-all duration-300',
+          state === 'starred' ? 'fill-amber-400/60 text-amber-400/60' : 'text-amber-400/80'
+        )}
+      />
+      {state === 'starred' ? 'Starred on GitHub' : 'Star on GitHub'}
+    </button>
   )
 }
 
@@ -128,6 +189,8 @@ export default function Landing(): React.JSX.Element {
             <img src={logo} alt="Orca logo" className="size-12" />
           </div>
           <h1 className="text-4xl font-bold text-foreground tracking-tight">ORCA</h1>
+
+          <GitHubStarButton />
 
           {preflightIssues.length > 0 && <PreflightBanner issues={preflightIssues} />}
 

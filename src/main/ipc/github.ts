@@ -7,7 +7,9 @@ import {
   listIssues,
   getPRChecks,
   updatePRTitle,
-  mergePR
+  mergePR,
+  checkOrcaStarred,
+  starOrca
 } from '../github/client'
 
 function assertRegisteredRepoPath(repoPath: string, store: Store): string {
@@ -71,4 +73,8 @@ export function registerGitHubHandlers(store: Store): void {
       return mergePR(repoPath, args.prNumber, args.method)
     }
   )
+
+  // Star operations target the Orca repo itself — no repoPath validation needed
+  ipcMain.handle('gh:checkOrcaStarred', () => checkOrcaStarred())
+  ipcMain.handle('gh:starOrca', () => starOrca())
 }
