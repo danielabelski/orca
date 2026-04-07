@@ -68,9 +68,10 @@ describe('registerNotificationHandlers', () => {
   })
 
   function getDispatchHandler(): (event: unknown, args: unknown) => unknown {
-    const call = handleMock.mock.calls.find(
-      ([channel]: [string]) => channel === 'notifications:dispatch'
-    )
+    const call = handleMock.mock.calls.find((c: unknown[]) => c[0] === 'notifications:dispatch')
+    if (!call) {
+      throw new Error('notifications:dispatch handler not registered')
+    }
     return call[1] as (event: unknown, args: unknown) => unknown
   }
 

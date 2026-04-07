@@ -11,7 +11,14 @@ function getPermissionStatus(): NotificationPermissionStatus {
     // Windows/Linux don't have a per-app notification permission gate.
     return Notification.isSupported() ? 'authorized' : 'denied'
   }
-  const settings = systemPreferences.getNotificationSettings()
+  // Why: getNotificationSettings() is macOS-only and absent from Electron's
+  // cross-platform type definitions, so we need the cast.
+  const getSettings = (systemPreferences as unknown as Record<string, unknown>)
+    .getNotificationSettings as (() => { authorizationStatus: string }) | undefined
+  if (!getSettings) {
+    return 'unknown'
+  }
+  const settings = getSettings()
   switch (settings.authorizationStatus) {
     case 'authorized':
     case 'provisional':
