@@ -80,6 +80,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalActivePaneOpacity: 1,
     terminalPaneOpacityTransitionMs: 140,
     terminalDividerThicknessPx: 3,
+    terminalFocusFollowsMouse: false,
     terminalScrollbackBytes: 10_000_000,
     rightSidebarOpenByDefault: true,
     notifications: getDefaultNotificationSettings(),
