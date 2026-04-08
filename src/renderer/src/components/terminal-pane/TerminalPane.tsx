@@ -73,6 +73,11 @@ export default function TerminalPane({
   const [renamingPaneId, setRenamingPaneId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  // Guard against double-submit: when the user presses Enter, handleRenameSubmit
+  // runs and then the input unmounts causing onBlur to fire handleRenameSubmit
+  // again. Similarly, pressing Escape runs handleRenameCancel but blur would
+  // then call handleRenameSubmit, saving the title the user wanted to discard.
+  const renameSubmittedRef = useRef(false)
   const onPtyErrorRef = useRef((_paneId: number, message: string) => {
     setTerminalError((prev) => (prev ? `${prev}\n${message}` : message))
   })
@@ -104,7 +109,12 @@ export default function TerminalPane({
   const systemPrefersDark = useSystemPrefersDark()
   const dispatchNotification = useNotificationDispatch(worktreeId)
 
-  const persistLayoutSnapshot = (): void => {
+  // Memoized with useCallback so downstream hooks (useTerminalKeyboardShortcuts,
+  // useTerminalPaneLifecycle, createExpandCollapseActions) don't tear down and
+  // re-register event listeners on every render. All data it reads comes from
+  // refs (managerRef, containerRef, expandedPaneIdRef, paneTitlesRef) or
+  // stable values (tabId, setTabLayout), so the dependency array is minimal.
+  const persistLayoutSnapshot = useCallback((): void => {
     const manager = managerRef.current
     const container = containerRef.current
     if (!manager || !container) {
@@ -133,7 +143,7 @@ export default function TerminalPane({
       layout.titlesByLeafId = Object.fromEntries(titleEntries)
     }
     setTabLayout(tabId, layout)
-  }
+  }, [tabId, setTabLayout])
 
   const {
     setExpandedPane,
@@ -228,6 +238,7 @@ export default function TerminalPane({
     syncExpandedLayout,
     persistLayoutSnapshot,
     setPaneTitles,
+    paneTitlesRef,
     setRenamingPaneId
   })
 
@@ -410,9 +421,10 @@ export default function TerminalPane({
   }, [])
 
   const handleRenameSubmit = useCallback(() => {
-    if (renamingPaneId === null) {
+    if (renamingPaneId === null || renameSubmittedRef.current) {
       return
     }
+    renameSubmittedRef.current = true
     const trimmed = renameValue.trim()
     if (trimmed.length === 0) {
       // Empty input — just cancel, don't change anything.
@@ -431,6 +443,7 @@ export default function TerminalPane({
   }, [renamingPaneId, renameValue, persistLayoutSnapshot])
 
   const handleRenameCancel = useCallback(() => {
+    renameSubmittedRef.current = true
     setRenamingPaneId(null)
   }, [])
 
@@ -456,10 +469,12 @@ export default function TerminalPane({
   )
 
   // Auto-focus and select-all in the rename input when the dialog opens.
+  // Also reset the submit guard so the new rename session can accept input.
   useEffect(() => {
     if (renamingPaneId === null) {
       return
     }
+    renameSubmittedRef.current = false
     const frame = requestAnimationFrame(() => {
       renameInputRef.current?.focus()
       renameInputRef.current?.select()
@@ -558,7 +573,15 @@ export default function TerminalPane({
       />
       {/* Title bar overlays — portaled into each pane container that has a title
           or is currently being renamed (so the inline input appears even for
-          untitled panes when "Set Title..." is triggered). */}
+          untitled panes when "Set Title..." is triggered).
+
+          Note: managerRef is a React ref, so reading .getPanes() here does not
+          by itself trigger re-renders when the pane list changes. This works
+          because every operation that affects the pane list also updates React
+          state — title operations update `paneTitles` or `renamingPaneId`,
+          and structural changes (split, close) update those same signals via
+          onPaneClosed / onPaneCreated callbacks — so React always re-renders
+          this block when .getPanes() would return a different result. */}
       {managerRef.current?.getPanes().map((pane) => {
         const title = paneTitles[pane.id]
         const isEditing = renamingPaneId === pane.id

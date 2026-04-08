@@ -54,6 +54,7 @@ type UseTerminalPaneLifecycleDeps = {
   syncExpandedLayout: () => void
   persistLayoutSnapshot: () => void
   setPaneTitles: React.Dispatch<React.SetStateAction<Record<number, string>>>
+  paneTitlesRef: React.RefObject<Record<number, string>>
   setRenamingPaneId: React.Dispatch<React.SetStateAction<number | null>>
 }
 
@@ -87,6 +88,7 @@ export function useTerminalPaneLifecycle({
   syncExpandedLayout,
   persistLayoutSnapshot,
   setPaneTitles,
+  paneTitlesRef,
   setRenamingPaneId
 }: UseTerminalPaneLifecycleDeps): void {
   const systemPrefersDarkRef = useRef(systemPrefersDark)
@@ -239,6 +241,14 @@ export function useTerminalPaneLifecycle({
           delete next[paneId]
           return next
         })
+        // Eagerly update the ref so persistLayoutSnapshot (called from
+        // onLayoutChanged which fires right after onPaneClosed) reads the
+        // correct titles without waiting for React's async state flush.
+        if (paneId in paneTitlesRef.current) {
+          const next = { ...paneTitlesRef.current }
+          delete next[paneId]
+          paneTitlesRef.current = next
+        }
         // Dismiss the rename dialog if it was open for the closed pane,
         // otherwise it would submit against a non-existent pane.
         setRenamingPaneId((prev) => (prev === paneId ? null : prev))
