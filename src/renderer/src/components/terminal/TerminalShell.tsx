@@ -16,6 +16,7 @@ import type { TerminalTab, Worktree } from '../../../../shared/types'
 type TerminalShellProps = {
   activeWorktreeId: string | null
   activeView: string
+  totalTabs: number
   tabs: TerminalTab[]
   activeTabId: string | null
   activeFileId: string | null
@@ -51,6 +52,7 @@ type TerminalShellProps = {
 export function TerminalShell({
   activeWorktreeId,
   activeView,
+  totalTabs,
   tabs,
   activeTabId,
   activeFileId,
@@ -88,7 +90,7 @@ export function TerminalShell({
     >
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-        style={{ gridTemplateRows: activeWorktreeId ? '1fr' : '0fr' }}
+        style={{ gridTemplateRows: activeWorktreeId && totalTabs >= 2 ? '1fr' : '0fr' }}
       >
         <div className="overflow-hidden">
           {activeWorktreeId && (

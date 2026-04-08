@@ -419,48 +419,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           newFiles = s.openFiles.map((f, i) =>
             i === existingPreviewIdx ? { ...file, id, isDirty: false, isPreview: true } : f
           )
-          // Swap the old preview ID for the new one in the stored tab bar order
-          const prevOrder = s.tabBarOrderByWorktree?.[worktreeId]
-          const previewTabBarUpdate = prevOrder
-            ? {
-                tabBarOrderByWorktree: {
-                  ...s.tabBarOrderByWorktree,
-                  [worktreeId]: prevOrder.map((eid) => (eid === replacedPreview.id ? id : eid))
-                }
-              }
-            : {}
           return {
             openFiles: newFiles,
             editorDrafts: nextEditorDrafts,
             markdownViewMode: nextMarkdownViewMode,
-            ...previewTabBarUpdate,
             ...activeResult
           }
         }
-      }
-
-      // Why: append the new file to the persisted tab bar order so it appears
-      // at the end of the tab bar. Without this, reconcileOrder in TabBar
-      // falls back to type-grouped ordering (terminals first) when the stored
-      // order doesn't contain the new file.
-      const tabBarUpdate: Record<string, unknown> = {}
-      if (s.tabBarOrderByWorktree) {
-        const currentOrder = s.tabBarOrderByWorktree[worktreeId] ?? []
-        const terminalIds = (s.tabsByWorktree?.[worktreeId] ?? []).map((t) => t.id)
-        const editorFileIds = s.openFiles
-          .filter((f) => f.worktreeId === worktreeId)
-          .map((f) => f.id)
-        const allExisting = new Set([...terminalIds, ...editorFileIds])
-        const base = currentOrder.filter((eid) => allExisting.has(eid))
-        const inBase = new Set(base)
-        for (const eid of [...terminalIds, ...editorFileIds]) {
-          if (!inBase.has(eid)) {
-            base.push(eid)
-            inBase.add(eid)
-          }
-        }
-        base.push(id)
-        tabBarUpdate.tabBarOrderByWorktree = { ...s.tabBarOrderByWorktree, [worktreeId]: base }
       }
 
       return {
@@ -468,7 +433,6 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           ...newFiles,
           { ...file, id, isDirty: false, isPreview: isPreview || undefined }
         ],
-        ...tabBarUpdate,
         ...activeResult
       }
     }),

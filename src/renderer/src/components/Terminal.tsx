@@ -1,7 +1,6 @@
 /* eslint-disable max-lines */
 
 import { useEffect, useCallback, useRef, useState, lazy, Suspense } from 'react'
-import { createPortal } from 'react-dom'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { useAppStore } from '../store'
 import {
@@ -33,6 +32,7 @@ export default function Terminal(): React.JSX.Element | null {
   const createTab = useAppStore((s) => s.createTab)
   const closeTab = useAppStore((s) => s.closeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
+  const reorderTabs = useAppStore((s) => s.reorderTabs)
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
   const setTabCustomTitle = useAppStore((s) => s.setTabCustomTitle)
   const setTabColor = useAppStore((s) => s.setTabColor)
@@ -49,20 +49,9 @@ export default function Terminal(): React.JSX.Element | null {
   const pinFile = useAppStore((s) => s.pinFile)
 
   const markFileDirty = useAppStore((s) => s.markFileDirty)
-  const setTabBarOrder = useAppStore((s) => s.setTabBarOrder)
-  const tabBarOrderByWorktree = useAppStore((s) => s.tabBarOrderByWorktree)
-  const tabBarOrder = activeWorktreeId ? tabBarOrderByWorktree[activeWorktreeId] : undefined
 
   const tabs = activeWorktreeId ? (tabsByWorktree[activeWorktreeId] ?? []) : []
   const allWorktrees = Object.values(worktreesByRepo).flat()
-
-  // Why: the TabBar is rendered into the titlebar via a portal so tabs share
-  // the same row as the "Orca" title. The target element is created by App.tsx.
-  // Uses useEffect because the DOM element doesn't exist during the render phase.
-  const [titlebarTabsTarget, setTitlebarTabsTarget] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    setTitlebarTabsTarget(document.getElementById('titlebar-tabs'))
-  }, [])
 
   // Filter editor files to only show those belonging to the active worktree
   const worktreeFiles = activeWorktreeId
@@ -160,11 +149,7 @@ export default function Terminal(): React.JSX.Element | null {
       return
     }
 
-    // Why: skip auto-creation if terminal tabs already exist, or if editor files
-    // are open for this worktree. The user may have intentionally closed all
-    // terminal tabs while keeping editors open — auto-spawning a terminal would
-    // be disruptive.
-    if (tabs.length > 0 || worktreeFiles.length > 0) {
+    if (tabs.length > 0) {
       if (initialTabCreationGuardRef.current === activeWorktreeId) {
         initialTabCreationGuardRef.current = null
       }
@@ -178,38 +163,16 @@ export default function Terminal(): React.JSX.Element | null {
     }
     initialTabCreationGuardRef.current = activeWorktreeId
     createTab(activeWorktreeId)
-  }, [workspaceSessionReady, activeWorktreeId, tabs.length, worktreeFiles.length, createTab])
+  }, [workspaceSessionReady, activeWorktreeId, tabs.length, createTab])
+
+  const totalTabs = tabs.length + worktreeFiles.length
 
   const handleNewTab = useCallback(() => {
     if (!activeWorktreeId) {
       return
     }
-    const newTab = createTab(activeWorktreeId)
-    setActiveTabType('terminal')
-    // Why: persist the tab bar order with the new terminal at the end of the
-    // current visual order. Without this, reconcileOrder falls back to
-    // terminals-first when tabBarOrderByWorktree is unset, causing a new
-    // terminal to jump to index 0 instead of appending after editor tabs.
-    const state = useAppStore.getState()
-    const currentTerminals = state.tabsByWorktree[activeWorktreeId] ?? []
-    const currentEditors = state.openFiles.filter((f) => f.worktreeId === activeWorktreeId)
-    const stored = state.tabBarOrderByWorktree[activeWorktreeId]
-    const termIds = currentTerminals.map((t) => t.id)
-    const editorIds = currentEditors.map((f) => f.id)
-    const validIds = new Set([...termIds, ...editorIds])
-    const base = (stored ?? []).filter((id) => validIds.has(id))
-    const inBase = new Set(base)
-    for (const id of [...termIds, ...editorIds]) {
-      if (!inBase.has(id)) {
-        base.push(id)
-        inBase.add(id)
-      }
-    }
-    // The new tab is already in base via termIds; move it to the end
-    const order = base.filter((id) => id !== newTab.id)
-    order.push(newTab.id)
-    setTabBarOrder(activeWorktreeId, order)
-  }, [activeWorktreeId, createTab, setActiveTabType, setTabBarOrder])
+    createTab(activeWorktreeId)
+  }, [activeWorktreeId, createTab])
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -225,18 +188,11 @@ export default function Terminal(): React.JSX.Element | null {
 
       const currentTabs = state.tabsByWorktree[owningWorktreeId] ?? []
       if (currentTabs.length <= 1) {
+        // Last tab in this worktree. Only clear the active worktree if this
+        // tab belongs to the currently focused worktree.
         closeTab(tabId)
         if (state.activeWorktreeId === owningWorktreeId) {
-          // Why: only deactivate the worktree when no tabs of any kind remain.
-          // Editor files are a separate tab type; closing the last terminal tab
-          // should switch to the editor view instead of tearing down the workspace.
-          const worktreeFile = state.openFiles.find((f) => f.worktreeId === owningWorktreeId)
-          if (worktreeFile) {
-            setActiveFile(worktreeFile.id)
-            setActiveTabType('editor')
-          } else {
-            setActiveWorktree(null)
-          }
+          setActiveWorktree(null)
         }
         return
       }
@@ -251,7 +207,7 @@ export default function Terminal(): React.JSX.Element | null {
       }
       closeTab(tabId)
     },
-    [closeTab, setActiveTab, setActiveFile, setActiveTabType, setActiveWorktree]
+    [closeTab, setActiveTab, setActiveWorktree]
   )
 
   const handlePtyExit = useCallback(
@@ -435,40 +391,41 @@ export default function Terminal(): React.JSX.Element | null {
     >
       <EditorAutosaveController />
 
-      {/* Why: the tab bar is rendered into the titlebar via a portal so it
-          shares the same visual row as the "Orca" title. The portal target
-          (#titlebar-tabs) lives in App.tsx's titlebar. */}
-      {activeWorktreeId &&
-        titlebarTabsTarget &&
-        createPortal(
-          <TabBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            worktreeId={activeWorktreeId}
-            onActivate={handleActivateTab}
-            onClose={handleCloseTab}
-            onCloseOthers={handleCloseOthers}
-            onCloseToRight={handleCloseTabsToRight}
-            onReorder={setTabBarOrder}
-            onNewTab={handleNewTab}
-            onSetCustomTitle={setTabCustomTitle}
-            onSetTabColor={setTabColor}
-            expandedPaneByTabId={expandedPaneByTabId}
-            onTogglePaneExpand={handleTogglePaneExpand}
-            editorFiles={worktreeFiles}
-            activeFileId={activeFileId}
-            activeTabType={activeTabType}
-            onActivateFile={(fileId) => {
-              setActiveFile(fileId)
-              setActiveTabType('editor')
-            }}
-            onCloseFile={handleCloseFile}
-            onCloseAllFiles={closeAllFiles}
-            onPinFile={pinFile}
-            tabBarOrder={tabBarOrder}
-          />,
-          titlebarTabsTarget
-        )}
+      {/* Animated tab bar container using CSS grid for smooth height animation */}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+        style={{ gridTemplateRows: activeWorktreeId && totalTabs >= 2 ? '1fr' : '0fr' }}
+      >
+        <div className="overflow-hidden">
+          {activeWorktreeId && (
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              worktreeId={activeWorktreeId}
+              onActivate={handleActivateTab}
+              onClose={handleCloseTab}
+              onCloseOthers={handleCloseOthers}
+              onCloseToRight={handleCloseTabsToRight}
+              onReorder={reorderTabs}
+              onNewTab={handleNewTab}
+              onSetCustomTitle={setTabCustomTitle}
+              onSetTabColor={setTabColor}
+              expandedPaneByTabId={expandedPaneByTabId}
+              onTogglePaneExpand={handleTogglePaneExpand}
+              editorFiles={worktreeFiles}
+              activeFileId={activeFileId}
+              activeTabType={activeTabType}
+              onActivateFile={(fileId) => {
+                setActiveFile(fileId)
+                setActiveTabType('editor')
+              }}
+              onCloseFile={handleCloseFile}
+              onCloseAllFiles={closeAllFiles}
+              onPinFile={pinFile}
+            />
+          )}
+        </div>
+      </div>
 
       {/* Terminal panes container - hidden when editor tab active */}
       <div

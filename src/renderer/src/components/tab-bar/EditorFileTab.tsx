@@ -100,11 +100,6 @@ export default function EditorFileTab({
           onMouseDown={(e) => {
             if (e.button === 1) {
               e.preventDefault()
-            }
-          }}
-          onAuxClick={(e) => {
-            if (e.button === 1) {
-              e.preventDefault()
               e.stopPropagation()
               onClose()
             }

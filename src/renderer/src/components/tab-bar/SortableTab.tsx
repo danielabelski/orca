@@ -137,15 +137,6 @@ export default function SortableTab({
             listeners?.onPointerDown?.(e)
           }}
           onMouseDown={(e) => {
-            // Why: prevent default browser middle-click behavior (auto-scroll)
-            // but do NOT close here — closing removes the element before mouseup,
-            // causing the mouseup to fall through to the terminal and trigger
-            // an X11 primary selection paste on Linux.
-            if (e.button === 1) {
-              e.preventDefault()
-            }
-          }}
-          onAuxClick={(e) => {
             if (e.button === 1) {
               e.preventDefault()
               e.stopPropagation()

@@ -15,7 +15,6 @@ import { buildStatusMap } from '../right-sidebar/status-display'
 import type { OpenFile } from '../../store/slices/editor'
 import SortableTab from './SortableTab'
 import EditorFileTab from './EditorFileTab'
-import { reconcileTabOrder } from './reconcile-order'
 
 type TabBarProps = {
   tabs: TerminalTab[]
@@ -44,6 +43,33 @@ type TabBarProps = {
 type TabItem =
   | { type: 'terminal'; id: string; data: TerminalTab }
   | { type: 'editor'; id: string; data: OpenFile }
+
+/**
+ * Reconcile stored order with the current set of terminal + editor tabs.
+ * Keeps items that still exist in their stored positions, appends new items at the end.
+ */
+function reconcileOrder(
+  storedOrder: string[] | undefined,
+  terminalIds: string[],
+  editorFileIds: string[]
+): string[] {
+  const validIds = new Set([...terminalIds, ...editorFileIds])
+
+  const result: string[] = (storedOrder ?? []).filter((id) => validIds.has(id))
+  const inResult = new Set(result)
+
+  for (const id of terminalIds) {
+    if (!inResult.has(id)) {
+      result.push(id)
+    }
+  }
+  for (const id of editorFileIds) {
+    if (!inResult.has(id)) {
+      result.push(id)
+    }
+  }
+  return result
+}
 
 export default function TabBar({
   tabs,
@@ -88,7 +114,7 @@ export default function TabBar({
 
   // Build the unified ordered list, reconciling stored order with current items
   const orderedItems = useMemo(() => {
-    const ids = reconcileTabOrder(tabBarOrder, terminalIds, editorFileIds)
+    const ids = reconcileOrder(tabBarOrder, terminalIds, editorFileIds)
     const items: TabItem[] = []
     for (const id of ids) {
       const terminal = terminalMap.get(id)
@@ -144,7 +170,7 @@ export default function TabBar({
 
   return (
     <div
-      className="flex items-stretch h-full overflow-hidden flex-1 min-w-0"
+      className="flex items-stretch h-9 bg-card border-b border-border overflow-hidden shrink-0"
       // Why: only drops aimed at the top tab/session strip should open files in
       // Orca's editor. Terminal-pane drops need to keep inserting file paths
       // into the active coding CLI, so preload routes native OS drops based on
@@ -154,13 +180,9 @@ export default function TabBar({
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
-          {/* Why: no-drag lets tab interactions work inside the titlebar's drag
-              region. The outer container inherits drag so empty space after the
-              "+" button remains window-draggable. */}
           <div
             ref={tabStripRef}
             className="terminal-tab-strip flex items-stretch overflow-x-auto overflow-y-hidden"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             {orderedItems.map((item, index) => {
               if (item.type === 'terminal') {
@@ -202,7 +224,6 @@ export default function TabBar({
       </DndContext>
       <button
         className="flex items-center justify-center w-9 h-full shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         onClick={onNewTab}
         title="New terminal (Cmd+T)"
       >

@@ -1,17 +1,10 @@
 import { create } from 'zustand'
 import type { AppState } from '../types'
-import type {
-  Worktree,
-  TerminalTab,
-  TerminalLayoutSnapshot,
-  Tab,
-  TabGroup
-} from '../../../../shared/types'
+import type { Worktree, TerminalTab, TerminalLayoutSnapshot } from '../../../../shared/types'
 import type { OpenFile } from './editor'
 import { createRepoSlice } from './repos'
 import { createWorktreeSlice } from './worktrees'
 import { createTerminalSlice } from './terminals'
-import { createTabsSlice } from './tabs'
 import { createUISlice } from './ui'
 import { createSettingsSlice } from './settings'
 import { createGitHubSlice } from './github'
@@ -30,7 +23,6 @@ export function createTestStore() {
     ...createRepoSlice(...a),
     ...createWorktreeSlice(...a),
     ...createTerminalSlice(...a),
-    ...createTabsSlice(...a),
     ...createUISlice(...a),
     ...createSettingsSlice(...a),
     ...createGitHubSlice(...a),
@@ -99,30 +91,6 @@ export function makeOpenFile(
     language: 'typescript',
     isDirty: false,
     mode: 'edit',
-    ...overrides
-  }
-}
-
-export function makeUnifiedTab(
-  overrides: Partial<Tab> & { id: string; worktreeId: string; groupId: string }
-): Tab {
-  return {
-    contentType: 'terminal',
-    label: 'Terminal 1',
-    customLabel: null,
-    color: null,
-    sortOrder: 0,
-    createdAt: Date.now(),
-    ...overrides
-  }
-}
-
-export function makeTabGroup(
-  overrides: Partial<TabGroup> & { id: string; worktreeId: string }
-): TabGroup {
-  return {
-    activeTabId: null,
-    tabOrder: [],
     ...overrides
   }
 }
