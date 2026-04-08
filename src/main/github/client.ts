@@ -277,7 +277,11 @@ export async function getPRComments(
       const cacheArgs = options?.noCache ? [] : ['--cache', '60s']
       const base = `repos/${ownerRepo.owner}/${ownerRepo.repo}`
 
-      const [issueOut, threadsOut, reviewsOut] = await Promise.all([
+      // Why: use allSettled so a single failing endpoint (e.g. GraphQL
+      // permissions, transient network error) doesn't blank out all comments.
+      // Each source is parsed independently; failed sources contribute zero
+      // comments instead of aborting the entire fetch.
+      const [issueResult, threadsResult, reviewsResult] = await Promise.allSettled([
         execFileAsync(
           'gh',
           ['api', ...cacheArgs, `${base}/issues/${prNumber}/comments?per_page=100`],
@@ -318,16 +322,21 @@ export async function getPRComments(
         created_at: string
         html_url: string
       }
-      const issueComments = (JSON.parse(issueOut.stdout) as RESTComment[]).map(
-        (c): PRComment => ({
-          id: c.id,
-          author: c.user?.login ?? 'ghost',
-          authorAvatarUrl: c.user?.avatar_url ?? '',
-          body: c.body ?? '',
-          createdAt: c.created_at,
-          url: c.html_url
-        })
-      )
+      let issueComments: PRComment[] = []
+      if (issueResult.status === 'fulfilled') {
+        issueComments = (JSON.parse(issueResult.value.stdout) as RESTComment[]).map(
+          (c): PRComment => ({
+            id: c.id,
+            author: c.user?.login ?? 'ghost',
+            authorAvatarUrl: c.user?.avatar_url ?? '',
+            body: c.body ?? '',
+            createdAt: c.created_at,
+            url: c.html_url
+          })
+        )
+      } else {
+        console.warn('Failed to fetch issue comments:', issueResult.reason)
+      }
 
       // Parse review threads (GraphQL)
       type GQLThread = {
@@ -348,30 +357,34 @@ export async function getPRComments(
           }[]
         }
       }
-      const threadsData = JSON.parse(threadsOut.stdout) as {
-        data: { repository: { pullRequest: { reviewThreads: { nodes: GQLThread[] } } } }
-      }
-      const threads = threadsData.data.repository.pullRequest.reviewThreads.nodes
       const reviewComments: PRComment[] = []
-      for (const thread of threads) {
-        for (const c of thread.comments.nodes) {
-          reviewComments.push({
-            id: c.databaseId,
-            author: c.author?.login ?? 'ghost',
-            authorAvatarUrl: c.author?.avatarUrl ?? '',
-            body: c.body ?? '',
-            createdAt: c.createdAt,
-            url: c.url,
-            path: c.path,
-            threadId: thread.id,
-            isResolved: thread.isResolved,
-            // Why: GitHub nulls out line/startLine when the commented code is
-            // outdated (e.g. after a force-push). Fall back to originalLine which
-            // always preserves the line numbers from when the comment was created.
-            line: thread.line ?? thread.originalLine ?? undefined,
-            startLine: thread.startLine ?? thread.originalStartLine ?? undefined
-          })
+      if (threadsResult.status === 'fulfilled') {
+        const threadsData = JSON.parse(threadsResult.value.stdout) as {
+          data: { repository: { pullRequest: { reviewThreads: { nodes: GQLThread[] } } } }
         }
+        const threads = threadsData.data.repository.pullRequest.reviewThreads.nodes
+        for (const thread of threads) {
+          for (const c of thread.comments.nodes) {
+            reviewComments.push({
+              id: c.databaseId,
+              author: c.author?.login ?? 'ghost',
+              authorAvatarUrl: c.author?.avatarUrl ?? '',
+              body: c.body ?? '',
+              createdAt: c.createdAt,
+              url: c.url,
+              path: c.path,
+              threadId: thread.id,
+              isResolved: thread.isResolved,
+              // Why: GitHub nulls out line/startLine when the commented code is
+              // outdated (e.g. after a force-push). Fall back to originalLine which
+              // always preserves the line numbers from when the comment was created.
+              line: thread.line ?? thread.originalLine ?? undefined,
+              startLine: thread.startLine ?? thread.originalStartLine ?? undefined
+            })
+          }
+        }
+      } else {
+        console.warn('Failed to fetch review threads:', threadsResult.reason)
       }
 
       // Parse review summaries (REST) — only include reviews with a body,
@@ -384,18 +397,23 @@ export async function getPRComments(
         submitted_at: string
         html_url: string
       }
-      const reviewSummaries = (JSON.parse(reviewsOut.stdout) as RESTReview[])
-        .filter((r) => r.body?.trim())
-        .map(
-          (r): PRComment => ({
-            id: r.id,
-            author: r.user?.login ?? 'ghost',
-            authorAvatarUrl: r.user?.avatar_url ?? '',
-            body: r.body,
-            createdAt: r.submitted_at,
-            url: r.html_url
-          })
-        )
+      let reviewSummaries: PRComment[] = []
+      if (reviewsResult.status === 'fulfilled') {
+        reviewSummaries = (JSON.parse(reviewsResult.value.stdout) as RESTReview[])
+          .filter((r) => r.body?.trim())
+          .map(
+            (r): PRComment => ({
+              id: r.id,
+              author: r.user?.login ?? 'ghost',
+              authorAvatarUrl: r.user?.avatar_url ?? '',
+              body: r.body,
+              createdAt: r.submitted_at,
+              url: r.html_url
+            })
+          )
+      } else {
+        console.warn('Failed to fetch review summaries:', reviewsResult.reason)
+      }
 
       const all = [...issueComments, ...reviewComments, ...reviewSummaries]
       all.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())

@@ -164,13 +164,17 @@ export default function ChecksPanel(): React.JSX.Element {
   // The manual refresh path calls this directly; the auto-fetch effect below uses
   // its own cancellation guard to discard stale responses after PR switches.
   const fetchComments = useCallback(
-    async ({ force = false }: { force?: boolean } = {}) => {
-      if (!repo || !prNumber) {
+    async ({
+      force = false,
+      prNumberOverride
+    }: { force?: boolean; prNumberOverride?: number | null } = {}) => {
+      const targetPRNumber = prNumberOverride ?? prNumber
+      if (!repo || !targetPRNumber) {
         return
       }
       setCommentsLoading(true)
       try {
-        const result = await fetchPRComments(repo.path, prNumber, { force })
+        const result = await fetchPRComments(repo.path, targetPRNumber, { force })
         setComments(result)
       } catch (err) {
         console.warn('Failed to fetch PR comments:', err)
@@ -220,7 +224,7 @@ export default function ChecksPanel(): React.JSX.Element {
       if (refreshedPR) {
         await Promise.all([
           fetchChecks({ force: true, prNumberOverride: refreshedPR.number }),
-          fetchComments({ force: true })
+          fetchComments({ force: true, prNumberOverride: refreshedPR.number })
         ])
       } else {
         setChecks([])
