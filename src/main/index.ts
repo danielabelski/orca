@@ -84,7 +84,6 @@ app.whenReady().then(async () => {
     }
   })
   registerCoreHandlers(store, runtime)
-  triggerStartupNotificationRegistration(store)
   runtimeRpc = new OrcaRuntimeRpcServer({
     runtime,
     userDataPath: app.getPath('userData')
@@ -96,7 +95,15 @@ app.whenReady().then(async () => {
     // still boot as an editor if the socket cannot be opened on this launch.
     console.error('[runtime] Failed to start local RPC transport:', error)
   }
-  openMainWindow()
+  const win = openMainWindow()
+
+  // Why: the macOS notification permission dialog must fire after the window
+  // is visible and focused. If it fires before the window exists, the system
+  // dialog either doesn't appear or gets immediately covered by the maximized
+  // window, making it impossible for the user to click "Allow".
+  win.once('show', () => {
+    triggerStartupNotificationRegistration(store!)
+  })
 
   app.on('activate', () => {
     // Don't re-open a window while Squirrel's ShipIt is replacing the .app

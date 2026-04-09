@@ -150,14 +150,28 @@ export function triggerStartupNotificationRegistration(store: Store): void {
     body: 'Allow notifications so Orca can alert you when agents finish or terminals need attention.'
   })
 
+  // Why: prevent GC from collecting the notification (and its click handler)
+  // while it's still visible in macOS Notification Center.
+  activeNotifications.add(notification)
+
   let handled = false
   const cleanup = (): void => {
     if (handled) {
       return
     }
     handled = true
+    activeNotifications.delete(notification)
     notification.close()
   }
+
+  // Why: clicking the startup notification should take the user to macOS
+  // Notification Settings so they can verify/enable notifications for Orca.
+  // Without this, the notification reads like an actionable prompt ("Allow
+  // notifications…") but clicking it does nothing, which is confusing.
+  notification.on('click', () => {
+    cleanup()
+    void shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings')
+  })
 
   notification.on('show', () => {
     // Why: close after a short delay so the notification doesn't linger in
