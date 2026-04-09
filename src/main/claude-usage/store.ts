@@ -255,6 +255,7 @@ export class ClaudeUsageStore {
     let cacheReadTokens = 0
     let cacheWriteTokens = 0
     let turns = 0
+    let zeroCacheReadTurns = 0
     const byModel = new Map<string, number>()
     const byProject = new Map<string, number>()
     let estimatedCostUsd = 0
@@ -266,6 +267,7 @@ export class ClaudeUsageStore {
       cacheReadTokens += row.cacheReadTokens
       cacheWriteTokens += row.cacheWriteTokens
       turns += row.turnCount
+      zeroCacheReadTurns += row.zeroCacheReadTurnCount
       const modelKey = row.model ?? 'Unknown model'
       byModel.set(modelKey, (byModel.get(modelKey) ?? 0) + row.inputTokens + row.outputTokens)
       byProject.set(
@@ -295,6 +297,7 @@ export class ClaudeUsageStore {
       range,
       sessions: filteredSessions.length,
       turns,
+      zeroCacheReadTurns,
       inputTokens,
       outputTokens,
       cacheReadTokens,

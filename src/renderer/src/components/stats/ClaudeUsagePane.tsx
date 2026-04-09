@@ -4,6 +4,7 @@ import {
   Coins,
   DatabaseZap,
   FolderKanban,
+  Gauge,
   RefreshCw,
   SlidersHorizontal,
   Sparkles,
@@ -220,7 +221,7 @@ export function ClaudeUsagePane(): React.JSX.Element {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <StatCard
               label="Input tokens"
               value={formatTokens(summary?.inputTokens ?? 0)}
@@ -242,6 +243,24 @@ export function ClaudeUsagePane(): React.JSX.Element {
               icon={<Waypoints className="size-4" />}
             />
             <StatCard
+              label="Cache reuse rate"
+              value={
+                summary?.cacheReuseRate !== null && summary?.cacheReuseRate !== undefined
+                  ? `${Math.round(summary.cacheReuseRate * 100)}%`
+                  : 'n/a'
+              }
+              icon={<Gauge className="size-4" />}
+            />
+            <StatCard
+              label="Zero-cache-read turns"
+              value={
+                summary && summary.turns > 0
+                  ? `${Math.round((summary.zeroCacheReadTurns / summary.turns) * 100)}%`
+                  : 'n/a'
+              }
+              icon={<DatabaseZap className="size-4" />}
+            />
+            <StatCard
               label="Sessions / Turns"
               value={`${(summary?.sessions ?? 0).toLocaleString()} / ${(summary?.turns ?? 0).toLocaleString()}`}
               icon={<FolderKanban className="size-4" />}
@@ -252,6 +271,10 @@ export function ClaudeUsagePane(): React.JSX.Element {
               icon={<Coins className="size-4" />}
             />
           </div>
+          <p className="px-1 text-xs text-muted-foreground">
+            Cache reuse rate is calculated as cache read tokens / (input tokens + cache read
+            tokens).
+          </p>
 
           <ClaudeUsageDailyChart daily={daily} />
 

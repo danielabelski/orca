@@ -301,6 +301,9 @@ export function aggregateClaudeUsage(turns: ClaudeUsageAttributedTurn[]): {
     const existingDaily = dailyByKey.get(dailyKey)
     if (existingDaily) {
       existingDaily.turnCount++
+      if (turn.cacheReadTokens === 0) {
+        existingDaily.zeroCacheReadTurnCount++
+      }
       existingDaily.inputTokens += turn.inputTokens
       existingDaily.outputTokens += turn.outputTokens
       existingDaily.cacheReadTokens += turn.cacheReadTokens
@@ -314,6 +317,7 @@ export function aggregateClaudeUsage(turns: ClaudeUsageAttributedTurn[]): {
         repoId: turn.repoId,
         worktreeId: turn.worktreeId,
         turnCount: 1,
+        zeroCacheReadTurnCount: turn.cacheReadTokens === 0 ? 1 : 0,
         inputTokens: turn.inputTokens,
         outputTokens: turn.outputTokens,
         cacheReadTokens: turn.cacheReadTokens,

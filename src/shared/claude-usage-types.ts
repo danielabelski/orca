@@ -16,6 +16,7 @@ export type ClaudeUsageSummary = {
   range: ClaudeUsageRange
   sessions: number
   turns: number
+  zeroCacheReadTurns: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number

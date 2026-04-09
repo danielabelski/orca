@@ -79,6 +79,7 @@ describe('ClaudeUsageStore', () => {
           repoId: null,
           worktreeId: null,
           turnCount: 1,
+          zeroCacheReadTurnCount: 0,
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 10,
@@ -92,6 +93,7 @@ describe('ClaudeUsageStore', () => {
     expect(summary.hasAnyClaudeData).toBe(false)
     expect(summary.sessions).toBe(0)
     expect(summary.turns).toBe(0)
+    expect(summary.zeroCacheReadTurns).toBe(0)
   })
 
   it('filters sessions by local calendar day instead of raw UTC date prefixes', async () => {
@@ -135,6 +137,7 @@ describe('ClaudeUsageStore', () => {
           repoId: 'repo-1',
           worktreeId: 'repo-1::/workspace/repo-a',
           turnCount: 1,
+          zeroCacheReadTurnCount: 0,
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 10,
@@ -147,5 +150,31 @@ describe('ClaudeUsageStore', () => {
 
     expect(recentSessions).toHaveLength(1)
     expect(recentSessions[0]?.sessionId).toBe('session-1')
+  })
+
+  it('reports zero-cache-read turns from daily aggregates', async () => {
+    const store = createStoreWithState({
+      dailyAggregates: [
+        {
+          day: '2026-04-09',
+          model: 'claude-sonnet-4-6',
+          projectKey: 'worktree:repo-1::/workspace/repo-a',
+          projectLabel: 'Repo A',
+          repoId: 'repo-1',
+          worktreeId: 'repo-1::/workspace/repo-a',
+          turnCount: 5,
+          zeroCacheReadTurnCount: 2,
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 10,
+          cacheWriteTokens: 5
+        }
+      ]
+    })
+
+    const summary = await store.getSummary('orca', '30d')
+
+    expect(summary.turns).toBe(5)
+    expect(summary.zeroCacheReadTurns).toBe(2)
   })
 })

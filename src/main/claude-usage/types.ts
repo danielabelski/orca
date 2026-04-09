@@ -41,6 +41,7 @@ export type ClaudeUsageDailyAggregate = {
   repoId: string | null
   worktreeId: string | null
   turnCount: number
+  zeroCacheReadTurnCount: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
