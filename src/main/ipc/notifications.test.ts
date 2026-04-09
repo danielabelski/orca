@@ -131,6 +131,12 @@ describe('registerNotificationHandlers', () => {
   })
 
   it('returns system-denied when macOS permission is denied', () => {
+    // Why: getPermissionStatus only consults systemPreferences.getNotificationSettings
+    // on macOS. On Linux CI the non-darwin branch would check Notification.isSupported()
+    // instead, so we must force the darwin path to exercise the 'denied' gate.
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+
     getNotificationSettingsMock.mockReturnValue({ authorizationStatus: 'denied' })
 
     registerNotificationHandlers({
@@ -150,6 +156,8 @@ describe('registerNotificationHandlers', () => {
       reason: 'system-denied'
     })
     expect(notificationCtorMock).not.toHaveBeenCalled()
+
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   })
 
   it('suppresses active-worktree notifications while Orca is focused', () => {
