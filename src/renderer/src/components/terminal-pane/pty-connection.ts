@@ -1,13 +1,10 @@
 import type { PaneManager, ManagedPane } from '@/lib/pane-manager/pane-manager'
-import {
-  isGeminiTerminalTitle,
-  isClaudeAgent,
-  detectAgentStatusFromTitle
-} from '@/lib/agent-status'
+import { isGeminiTerminalTitle, isClaudeAgent } from '@/lib/agent-status'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 import type { PtyTransport } from './pty-transport'
 import { createIpcPtyTransport, getEagerPtyBufferHandle } from './pty-transport'
+import { shouldSeedCacheTimerOnInitialTitle } from './cache-timer-seeding'
 
 type PtyConnectionDeps = {
   tabId: string
@@ -71,24 +68,27 @@ export function connectPanePty(
   // Why: on app restart, restored Claude tabs may already be idle when we first
   // see their title. The agent status tracker only fires onBecameIdle for
   // working→idle transitions, so the cache timer would never start for these
-  // sessions. This one-time flag seeds the timer on the first idle Claude title.
-  let hasSeededCacheTimer = false
+  // sessions. We only allow this one-time seed for reattached PTYs; fresh
+  // Claude launches also start idle, but they have no prompt cache yet.
+  let hasConsideredInitialCacheTimerSeed = false
+  let allowInitialIdleCacheSeed = false
 
   const onTitleChange = (title: string, rawTitle: string): void => {
     manager.setPaneGpuRendering(pane.id, !isGeminiTerminalTitle(rawTitle))
     deps.updateTabTitle(deps.tabId, title)
 
-    if (!hasSeededCacheTimer && isClaudeAgent(rawTitle)) {
-      hasSeededCacheTimer = true
-      const status = detectAgentStatusFromTitle(rawTitle)
-      if (status !== null && status !== 'working') {
-        const existing = useAppStore.getState().cacheTimerByKey[cacheKey]
-        if (existing == null) {
-          const settings = useAppStore.getState().settings
-          if (settings === null || settings.promptCacheTimerEnabled) {
-            deps.setCacheTimerStartedAt(cacheKey, Date.now())
-          }
-        }
+    if (!hasConsideredInitialCacheTimerSeed) {
+      hasConsideredInitialCacheTimerSeed = true
+      const state = useAppStore.getState()
+      if (
+        shouldSeedCacheTimerOnInitialTitle({
+          rawTitle,
+          allowInitialIdleSeed: allowInitialIdleCacheSeed,
+          existingTimerStartedAt: state.cacheTimerByKey[cacheKey],
+          promptCacheTimerEnabled: state.settings?.promptCacheTimerEnabled ?? null
+        })
+      ) {
+        deps.setCacheTimerStartedAt(cacheKey, Date.now())
       }
     }
   }
@@ -203,6 +203,7 @@ export function connectPanePty(
     // this guard, every split pane would try to share the same PTY ID, and the
     // last one's handler would overwrite the earlier ones' in the dispatcher.
     if (existingPtyId && getEagerPtyBufferHandle(existingPtyId)) {
+      allowInitialIdleCacheSeed = true
       // Why: this tab had a PTY eagerly spawned by reconnectPersistedTerminals().
       // Attach to it instead of spawning a duplicate. Startup commands are
       // intentionally skipped — the PTY was already spawned with a fresh shell.
@@ -216,6 +217,7 @@ export function connectPanePty(
         }
       })
     } else {
+      allowInitialIdleCacheSeed = false
       transport.connect({
         url: '',
         cols,
