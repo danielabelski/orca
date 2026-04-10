@@ -134,6 +134,7 @@ export function RepositoryHooksSection({
   issueCommandDraftRef.current = issueCommandDraft
   const lastCommittedIssueCommandRef = useRef('')
 
+  // Keep the local override editor in sync with the selected repo and flush unsaved edits on exit.
   useEffect(() => {
     let cancelled = false
     const repoId = repo.id

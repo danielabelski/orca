@@ -368,6 +368,7 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     }
   }, [eligibleRepos.length, handleOpenChange, isOpen, repos.length])
 
+  // Load hook state and the effective issue-command template for the selected repo.
   React.useEffect(() => {
     if (!isOpen || !repoId) {
       return
@@ -442,6 +443,7 @@ const AddWorktreeDialog = React.memo(function AddWorktreeDialog() {
     setSetupDecision(setupPolicy === 'run-by-default' ? 'run' : 'skip')
   }, [setupConfig, setupPolicy, shouldWaitForSetupCheck])
 
+  // Auto-enable issue automation when a valid linked issue can use the repo template.
   React.useEffect(() => {
     if (!canOfferIssueAutomation) {
       setRunIssueAutomation(issueAutomationUserChoiceRef.current ?? false)

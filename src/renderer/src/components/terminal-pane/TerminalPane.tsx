@@ -114,6 +114,7 @@ export default function TerminalPane({
     }
   }, [setupSplit, tabId, consumeTabSetupSplit])
 
+  // Clear the queued issue-command split once this tab has captured it for initial mount.
   useEffect(() => {
     if (issueCommandSplit) {
       consumeTabIssueCommandSplit(tabId)
