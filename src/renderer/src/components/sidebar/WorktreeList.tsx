@@ -292,17 +292,15 @@ const WorktreeList = React.memo(function WorktreeList() {
     }
   })
 
-  // Invalidate cached sizes when async PR data arrives or card props change,
-  // so the virtualizer re-measures and eliminates overlap / scroll jumps.
-  useEffect(() => {
-    if (!prCache) {
-      return
-    }
-    virtualizer.measure()
-  }, [prCache, virtualizer])
-  useEffect(() => {
-    virtualizer.measure()
-  }, [cardProps, virtualizer])
+  // Why no virtualizer.measure() on prCache / cardProps changes:
+  // measure() resets ALL cached DOM measurements back to estimateSize()
+  // predictions. Because measureElement uses a ResizeObserver, visible
+  // items already re-measure automatically when their content changes
+  // (e.g. a PR row appears, card properties toggle on/off). Calling
+  // measure() discards those accurate measurements and replaces them
+  // with imprecise estimates, causing cards to overlap until the next
+  // paint re-measures them — which is exactly the bug users see when
+  // clicking a card triggers a prCache refresh.
 
   React.useEffect(() => {
     if (!pendingRevealWorktreeId) {
