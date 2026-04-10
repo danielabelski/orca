@@ -7,6 +7,7 @@ import { Minimize2, PanelLeft, PanelRight } from 'lucide-react'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
 import { Toaster } from '@/components/ui/sonner'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from './store'
 import { useIpcEvents } from './hooks/useIpcEvents'
 import Sidebar from './components/Sidebar'
@@ -564,54 +565,79 @@ function App(): React.JSX.Element {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">
-      <div className="titlebar">
-        {/* Why: the left section of the titlebar matches the sidebar width so
-            tabs start exactly where the sidebar ends, creating a clean vertical
-            alignment between the sidebar edge and the first tab. */}
-        <div
-          className="flex items-center shrink-0 overflow-hidden"
-          style={{ width: showSidebar && sidebarOpen ? sidebarWidth : undefined }}
-        >
-          <div className={isMac && !isFullScreen ? 'titlebar-traffic-light-pad' : 'pl-2'} />
-          <button
-            className="sidebar-toggle"
-            onClick={toggleSidebar}
-            title={showSidebar ? 'Toggle sidebar' : 'Sidebar unavailable in settings'}
-            aria-label={showSidebar ? 'Toggle sidebar' : 'Sidebar unavailable in settings'}
-            disabled={!showSidebar}
+      <TooltipProvider delayDuration={400}>
+        <div className="titlebar">
+          {/* Why: the left section of the titlebar matches the sidebar width so
+              tabs start exactly where the sidebar ends, creating a clean vertical
+              alignment between the sidebar edge and the first tab. */}
+          <div
+            className="flex items-center shrink-0 overflow-hidden"
+            style={{ width: showSidebar && sidebarOpen ? sidebarWidth : undefined }}
           >
-            <PanelLeft size={16} />
-          </button>
-          <div className="titlebar-title">Orca</div>
+            <div className={isMac && !isFullScreen ? 'titlebar-traffic-light-pad' : 'pl-2'} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="sidebar-toggle"
+                  onClick={toggleSidebar}
+                  aria-label={showSidebar ? 'Toggle sidebar' : 'Sidebar unavailable in settings'}
+                  disabled={!showSidebar}
+                >
+                  <PanelLeft size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                {showSidebar
+                  ? `Toggle sidebar (${isMac ? '⌘B' : 'Ctrl+B'})`
+                  : 'Sidebar unavailable in settings'}
+              </TooltipContent>
+            </Tooltip>
+            <div className="titlebar-title">Orca</div>
+          </div>
+          {/* Why: keep the center titlebar slot mounted even when tabs are hidden.
+              Using `hidden` here collapsed the spacer entirely, which let the
+              right-sidebar toggle slide left in the no-tabs empty state. `invisible`
+              still suppresses any stale portal content without breaking the far-right
+              titlebar alignment. */}
+          <div
+            id="titlebar-tabs"
+            className={`flex flex-1 min-w-0 self-stretch${activeView === 'settings' || !activeWorktreeId ? ' invisible pointer-events-none' : ''}`}
+          />
+          {showTitlebarExpandButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="titlebar-icon-button"
+                  onClick={handleToggleExpand}
+                  aria-label="Collapse pane"
+                  disabled={!activeTabCanExpand}
+                >
+                  <Minimize2 size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                Collapse pane
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {showSidebar ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="sidebar-toggle mr-2"
+                  onClick={toggleRightSidebar}
+                  aria-label="Toggle right sidebar"
+                >
+                  <PanelRight size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                {`Toggle right sidebar (${isMac ? '⌘L' : 'Ctrl+L'})`}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
-        {/* Why: portal target for the TabBar rendered by Terminal.tsx.
-            Hidden when tabs should not be visible (settings view, no active worktree)
-            so the portal content does not leak through. */}
-        <div
-          id="titlebar-tabs"
-          className={`flex flex-1 min-w-0 self-stretch${activeView === 'settings' || !activeWorktreeId ? ' hidden' : ''}`}
-        />
-        {showTitlebarExpandButton && (
-          <button
-            className="titlebar-icon-button"
-            onClick={handleToggleExpand}
-            title="Collapse pane"
-            aria-label="Collapse pane"
-            disabled={!activeTabCanExpand}
-          >
-            <Minimize2 size={14} />
-          </button>
-        )}
-        <button
-          className="sidebar-toggle mr-2"
-          onClick={toggleRightSidebar}
-          title={`Toggle right sidebar (${isMac ? '⌘L' : 'Ctrl+L'})`}
-          aria-label="Toggle right sidebar"
-          disabled={!showSidebar}
-        >
-          <PanelRight size={16} />
-        </button>
-      </div>
+      </TooltipProvider>
       <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
         {showSidebar ? <Sidebar /> : null}
         <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
