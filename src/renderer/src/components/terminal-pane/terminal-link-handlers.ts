@@ -197,15 +197,10 @@ export function handleOscLink(
 
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
     const store = useAppStore.getState()
-    // Why: when the user opts into Orca's browser tabs, terminal links should
-    // stay worktree-scoped instead of escaping to the system browser. We still
-    // fall back externally when the setting is off or no worktree owns the pane.
-    // Missing settings should still follow Orca's persisted default (`true`);
-    // otherwise a terminal link clicked before settings hydration flashes open
-    // in the system browser even though the app-wide default is in-app tabs.
-    // Shift is the explicit escape hatch for "open this one in my system browser"
-    // without forcing the user to toggle the global in-app browser preference.
-    if (store.settings?.openLinksInApp !== false && deps.worktreeId && !event?.shiftKey) {
+    // Why: terminal URL clicks are now always worktree-scoped by default so
+    // Cmd/Ctrl+click reliably stays inside Orca's browser. Shift is the only
+    // escape hatch for opening the same URL in the system browser instead.
+    if (deps.worktreeId && !event?.shiftKey) {
       store.setActiveWorktree(deps.worktreeId)
       store.createBrowserTab(deps.worktreeId, parsed.toString())
       return

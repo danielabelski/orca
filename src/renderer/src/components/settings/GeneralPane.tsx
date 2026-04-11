@@ -304,36 +304,18 @@ export function GeneralPane({ settings, updateSettings }: GeneralPaneProps): Rea
         </div>
 
         <SearchableSetting
-          title="Open Links In Orca"
-          description="Open terminal http(s) links in Orca browser tabs instead of the system browser."
+          title="Terminal Link Routing"
+          description="Cmd/Ctrl+click opens terminal http(s) links in Orca. Shift+Cmd/Ctrl+click uses the system browser."
           keywords={['browser', 'preview', 'links', 'localhost', 'webview']}
-          className="flex items-center justify-between gap-4 px-1 py-2"
+          className="px-1 py-2"
         >
           <div className="space-y-0.5">
-            <Label>Open Links In Orca</Label>
+            <Label>Terminal Link Routing</Label>
             <p className="text-xs text-muted-foreground">
-              Open terminal http(s) links in isolated Orca browser tabs instead of the system
-              browser.
+              Cmd/Ctrl+click opens terminal links in Orca. Shift+Cmd/Ctrl+click opens the same link
+              in your system browser.
             </p>
           </div>
-          <button
-            role="switch"
-            aria-checked={settings.openLinksInApp}
-            onClick={() =>
-              updateSettings({
-                openLinksInApp: !settings.openLinksInApp
-              })
-            }
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors ${
-              settings.openLinksInApp ? 'bg-foreground' : 'bg-muted-foreground/30'
-            }`}
-          >
-            <span
-              className={`pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform ${
-                settings.openLinksInApp ? 'translate-x-4' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
         </SearchableSetting>
       </section>
     ) : null,
