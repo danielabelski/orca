@@ -6,15 +6,20 @@ const openFileUriMock = vi.fn()
 const openFileMock = vi.fn()
 const authorizeExternalPathMock = vi.fn()
 const statMock = vi.fn().mockResolvedValue({ isDirectory: false })
+const setActiveWorktreeMock = vi.fn()
+const createBrowserTabMock = vi.fn()
 
 const deps = { worktreeId: 'wt-1', worktreePath: '/tmp' }
+const storeState = {
+  settings: undefined as { openLinksInApp?: boolean } | undefined,
+  setActiveWorktree: setActiveWorktreeMock,
+  createBrowserTab: createBrowserTabMock,
+  openFile: openFileMock
+}
 
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => ({
-      setActiveWorktree: vi.fn(),
-      openFile: openFileMock
-    })
+    getState: () => storeState
   }
 }))
 
@@ -28,6 +33,7 @@ function setPlatform(userAgent: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  storeState.settings = undefined
   vi.stubGlobal('window', {
     api: {
       shell: {
@@ -73,6 +79,27 @@ describe('handleOscLink', () => {
 
     handleOscLink('https://example.com', { metaKey: true, ctrlKey: false }, deps)
     expect(openUrlMock).toHaveBeenCalledWith('https://example.com/')
+  })
+
+  it('keeps cmd/ctrl+click in Orca when the in-app browser setting is enabled', () => {
+    setPlatform('Macintosh')
+    storeState.settings = { openLinksInApp: true }
+
+    handleOscLink('https://example.com', { metaKey: true, ctrlKey: false, shiftKey: false }, deps)
+
+    expect(createBrowserTabMock).toHaveBeenCalledWith('wt-1', 'https://example.com/')
+    expect(setActiveWorktreeMock).toHaveBeenCalledWith('wt-1')
+    expect(openUrlMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the system browser for shift+cmd/ctrl+click even when Orca browser tabs are enabled', () => {
+    setPlatform('Windows')
+    storeState.settings = { openLinksInApp: true }
+
+    handleOscLink('https://example.com', { metaKey: false, ctrlKey: true, shiftKey: true }, deps)
+
+    expect(openUrlMock).toHaveBeenCalledWith('https://example.com/')
+    expect(createBrowserTabMock).not.toHaveBeenCalled()
   })
 
   it('opens file links in Orca instead of via shell when the platform modifier is pressed', async () => {

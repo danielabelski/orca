@@ -3,7 +3,12 @@ import { useEffect, useRef } from 'react'
 import type { IDisposable } from '@xterm/xterm'
 import { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { useAppStore } from '@/store'
-import { createFilePathLinkProvider, handleOscLink } from './terminal-link-handlers'
+import {
+  createFilePathLinkProvider,
+  getTerminalFileOpenHint,
+  getTerminalUrlOpenHint,
+  handleOscLink
+} from './terminal-link-handlers'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
 import type { GlobalSettings, TerminalLayoutSnapshot } from '../../../../shared/types'
 import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
@@ -209,13 +214,13 @@ export function useTerminalPaneLifecycle({
       getPtyIdForPane: (paneId) => paneTransportsRef.current.get(paneId)?.getPtyId() ?? null
     })
 
-    const isMac = navigator.userAgent.includes('Mac')
-    const openLinkHint = isMac ? '⌘+click to open' : 'Ctrl+click to open'
+    const fileOpenLinkHint = getTerminalFileOpenHint()
+    const urlOpenLinkHint = getTerminalUrlOpenHint()
 
     const manager = new PaneManager(container, {
       onPaneCreated: (pane) => {
         const linkProviderDisposable = pane.terminal.registerLinkProvider(
-          createFilePathLinkProvider(pane.id, linkDeps, pane.linkTooltip, openLinkHint)
+          createFilePathLinkProvider(pane.id, linkDeps, pane.linkTooltip, fileOpenLinkHint)
         )
         linkProviderDisposablesRef.current.set(pane.id, linkProviderDisposable)
         pane.terminal.options.linkHandler = {
@@ -225,7 +230,7 @@ export function useTerminalPaneLifecycle({
           // GitHub owner/repo#issue references emitted by CLI tools) — same
           // behaviour as the WebLinksAddon provides for plain-text URLs.
           hover: (_event, text) => {
-            pane.linkTooltip.textContent = `${text} (${openLinkHint})`
+            pane.linkTooltip.textContent = `${text} (${urlOpenLinkHint})`
             pane.linkTooltip.style.display = ''
           },
           leave: () => {

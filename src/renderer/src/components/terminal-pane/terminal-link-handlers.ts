@@ -18,6 +18,23 @@ export type LinkHandlerDeps = {
   pathExistsCache: Map<string, boolean>
 }
 
+type TerminalLinkEvent = Pick<MouseEvent, 'metaKey' | 'ctrlKey'> &
+  Partial<Pick<MouseEvent, 'shiftKey'>>
+
+function isMacPlatform(): boolean {
+  return navigator.userAgent.includes('Mac')
+}
+
+export function getTerminalFileOpenHint(): string {
+  return isMacPlatform() ? '⌘+click to open' : 'Ctrl+click to open'
+}
+
+export function getTerminalUrlOpenHint(): string {
+  return isMacPlatform()
+    ? '⌘+click to open in Orca, ⇧⌘+click for system browser'
+    : 'Ctrl+click to open in Orca, Shift+Ctrl+click for system browser'
+}
+
 export function openDetectedFilePath(
   filePath: string,
   line: number | null,
@@ -152,13 +169,13 @@ export function createFilePathLinkProvider(
 export function isTerminalLinkActivation(
   event: Pick<MouseEvent, 'metaKey' | 'ctrlKey'> | undefined
 ): boolean {
-  const isMac = navigator.userAgent.includes('Mac')
+  const isMac = isMacPlatform()
   return isMac ? Boolean(event?.metaKey) : Boolean(event?.ctrlKey)
 }
 
 export function handleOscLink(
   rawText: string,
-  event: Pick<MouseEvent, 'metaKey' | 'ctrlKey'> | undefined,
+  event: TerminalLinkEvent | undefined,
   deps: Pick<LinkHandlerDeps, 'worktreeId' | 'worktreePath'>
 ): void {
   if (!isTerminalLinkActivation(event)) {
@@ -177,7 +194,9 @@ export function handleOscLink(
     // Why: when the user opts into Orca's browser tabs, terminal links should
     // stay worktree-scoped instead of escaping to the system browser. We still
     // fall back externally when the setting is off or no worktree owns the pane.
-    if (store.settings?.openLinksInApp && deps.worktreeId) {
+    // Shift is the explicit escape hatch for "open this one in my system browser"
+    // without forcing the user to toggle the global in-app browser preference.
+    if (store.settings?.openLinksInApp && deps.worktreeId && !event?.shiftKey) {
       store.setActiveWorktree(deps.worktreeId)
       store.createBrowserTab(deps.worktreeId, parsed.toString())
       return
