@@ -223,6 +223,7 @@ class BrowserManager {
   private readonly rendererWebContentsIdByTabId = new Map<string, number>()
   private readonly contextMenuCleanupByTabId = new Map<string, () => void>()
   private readonly grabShortcutCleanupByTabId = new Map<string, () => void>()
+  private readonly shortcutForwardingCleanupByTabId = new Map<string, () => void>()
   private readonly policyAttachedGuestIds = new Set<number>()
   private readonly pendingLoadFailuresByGuestId = new Map<
     number,
@@ -319,6 +320,7 @@ class BrowserManager {
 
     this.setupContextMenu(browserTabId, guest)
     this.setupGrabShortcut(browserTabId, guest)
+    this.setupShortcutForwarding(browserTabId, guest)
     this.flushPendingLoadFailure(browserTabId, webContentsId)
   }
 
@@ -337,6 +339,11 @@ class BrowserManager {
     if (shortcutCleanup) {
       shortcutCleanup()
       this.grabShortcutCleanupByTabId.delete(browserTabId)
+    }
+    const fwdCleanup = this.shortcutForwardingCleanupByTabId.get(browserTabId)
+    if (fwdCleanup) {
+      fwdCleanup()
+      this.shortcutForwardingCleanupByTabId.delete(browserTabId)
     }
     this.webContentsIdByTabId.delete(browserTabId)
     this.rendererWebContentsIdByTabId.delete(browserTabId)
@@ -870,6 +877,72 @@ class BrowserManager {
       } catch {
         // Why: browser tabs can outlive the guest webContents briefly during
         // teardown. Cleanup should be best-effort.
+      }
+    })
+  }
+
+  // Why: a focused webview guest is a separate Chromium process — keyboard
+  // events go to the guest's own webContents and never fire the renderer's
+  // window-level keydown handler or the main window's before-input-event.
+  // Intercept common app shortcuts on the guest and forward them to the
+  // renderer so they work consistently regardless of which surface has focus.
+  private setupShortcutForwarding(browserTabId: string, guest: Electron.WebContents): void {
+    const previousCleanup = this.shortcutForwardingCleanupByTabId.get(browserTabId)
+    if (previousCleanup) {
+      previousCleanup()
+      this.shortcutForwardingCleanupByTabId.delete(browserTabId)
+    }
+
+    const handler = (_event: Electron.Event, input: Electron.Input): void => {
+      if (input.type !== 'keyDown') {
+        return
+      }
+      const isMod = process.platform === 'darwin' ? input.meta : input.control
+      if (!isMod || input.alt) {
+        return
+      }
+
+      const rendererWcId = this.rendererWebContentsIdByTabId.get(browserTabId)
+      if (!rendererWcId) {
+        return
+      }
+      const rendererWc = webContents.fromId(rendererWcId)
+      if (!rendererWc || rendererWc.isDestroyed()) {
+        return
+      }
+
+      if (input.code === 'KeyB' && input.shift) {
+        rendererWc.send('ui:newBrowserTab')
+      } else if (input.code === 'KeyT' && !input.shift) {
+        rendererWc.send('ui:newTerminalTab')
+      } else if (input.code === 'KeyW' && !input.shift) {
+        rendererWc.send('ui:closeActiveTab')
+      } else if (input.shift && (input.code === 'BracketRight' || input.code === 'BracketLeft')) {
+        rendererWc.send('ui:switchTab', input.code === 'BracketRight' ? 1 : -1)
+      } else if (
+        input.code === 'KeyJ' &&
+        ((process.platform === 'darwin' && !input.shift) ||
+          (process.platform !== 'darwin' && input.shift))
+      ) {
+        rendererWc.send('ui:toggleWorktreePalette')
+      } else if (input.code === 'KeyP' && !input.shift) {
+        rendererWc.send('ui:openQuickOpen')
+      } else if (input.key >= '1' && input.key <= '9' && !input.shift) {
+        rendererWc.send('ui:jumpToWorktreeIndex', parseInt(input.key, 10) - 1)
+      } else {
+        return
+      }
+      // Why: preventDefault stops the guest page from also processing the chord
+      // (e.g. Cmd+T opening a browser-internal new-tab page).
+      _event.preventDefault()
+    }
+
+    guest.on('before-input-event', handler)
+    this.shortcutForwardingCleanupByTabId.set(browserTabId, () => {
+      try {
+        guest.off('before-input-event', handler)
+      } catch {
+        // Why: best-effort — guest may already be destroyed during teardown.
       }
     })
   }

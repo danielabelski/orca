@@ -578,6 +578,26 @@ const api = {
       ipcRenderer.on('ui:jumpToWorktreeIndex', listener)
       return () => ipcRenderer.removeListener('ui:jumpToWorktreeIndex', listener)
     },
+    onNewBrowserTab: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('ui:newBrowserTab', listener)
+      return () => ipcRenderer.removeListener('ui:newBrowserTab', listener)
+    },
+    onNewTerminalTab: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('ui:newTerminalTab', listener)
+      return () => ipcRenderer.removeListener('ui:newTerminalTab', listener)
+    },
+    onCloseActiveTab: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('ui:closeActiveTab', listener)
+      return () => ipcRenderer.removeListener('ui:closeActiveTab', listener)
+    },
+    onSwitchTab: (callback: (direction: 1 | -1) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, direction: 1 | -1) => callback(direction)
+      ipcRenderer.on('ui:switchTab', listener)
+      return () => ipcRenderer.removeListener('ui:switchTab', listener)
+    },
     onActivateWorktree: (
       callback: (data: {
         repoId: string

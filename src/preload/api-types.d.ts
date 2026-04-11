@@ -346,6 +346,10 @@ export type PreloadApi = {
     onToggleWorktreePalette: (callback: () => void) => () => void
     onOpenQuickOpen: (callback: () => void) => () => void
     onJumpToWorktreeIndex: (callback: (index: number) => void) => () => void
+    onNewBrowserTab: (callback: () => void) => () => void
+    onNewTerminalTab: (callback: () => void) => () => void
+    onCloseActiveTab: (callback: () => void) => () => void
+    onSwitchTab: (callback: (direction: 1 | -1) => void) => () => void
     onActivateWorktree: (
       callback: (data: { repoId: string; worktreeId: string; setup?: WorktreeSetupLaunch }) => void
     ) => () => void

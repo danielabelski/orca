@@ -1,13 +1,17 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../store'
 import { applyUIZoom } from '@/lib/ui-zoom'
-import { activateAndRevealWorktree, ensureWorktreeHasInitialTerminal } from '@/lib/worktree-activation'
+import {
+  activateAndRevealWorktree,
+  ensureWorktreeHasInitialTerminal
+} from '@/lib/worktree-activation'
 import { getVisibleWorktreeIds } from '@/components/sidebar/visible-worktrees'
 import { nextEditorFontZoomLevel, computeEditorFontSize } from '@/lib/editor-font-zoom'
 import type { UpdateStatus } from '../../../shared/types'
 import { createUpdateToastController } from './update-toast-controller'
 import { zoomLevelToPercent, ZOOM_MIN, ZOOM_MAX } from '@/components/settings/SettingsConstants'
 import { dispatchZoomLevelChanged } from '@/lib/zoom-events'
+import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
 
 const ZOOM_STEP = 0.5
 
@@ -161,6 +165,120 @@ export function useIpcEvents(): void {
           canGoBack: false,
           canGoForward: false
         })
+      })
+    )
+
+    // Shortcut forwarding for embedded browser guests whose webContents
+    // capture keyboard focus and bypass the renderer's window-level keydown.
+    unsubs.push(
+      window.api.ui.onNewBrowserTab(() => {
+        const store = useAppStore.getState()
+        const worktreeId = store.activeWorktreeId
+        if (worktreeId) {
+          store.createBrowserTab(worktreeId, 'about:blank', { title: 'New Browser Tab' })
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onNewTerminalTab(() => {
+        const store = useAppStore.getState()
+        const worktreeId = store.activeWorktreeId
+        if (!worktreeId) {
+          return
+        }
+        const newTab = store.createTab(worktreeId)
+        store.setActiveTabType('terminal')
+        // Why: replicate the full reconciliation from Terminal.tsx handleNewTab
+        // so the new tab appends at the visual end instead of jumping to index 0
+        // when tabBarOrderByWorktree is unset (e.g. restored worktrees).
+        const currentTerminals = store.tabsByWorktree[worktreeId] ?? []
+        const currentEditors = store.openFiles.filter((f) => f.worktreeId === worktreeId)
+        const currentBrowsers = store.browserTabsByWorktree[worktreeId] ?? []
+        const stored = store.tabBarOrderByWorktree[worktreeId]
+        const termIds = currentTerminals.map((t) => t.id)
+        const editorIds = currentEditors.map((f) => f.id)
+        const browserIds = currentBrowsers.map((tab) => tab.id)
+        const validIds = new Set([...termIds, ...editorIds, ...browserIds])
+        const base = (stored ?? []).filter((id) => validIds.has(id))
+        const inBase = new Set(base)
+        for (const id of [...termIds, ...editorIds, ...browserIds]) {
+          if (!inBase.has(id)) {
+            base.push(id)
+            inBase.add(id)
+          }
+        }
+        const order = base.filter((id) => id !== newTab.id)
+        order.push(newTab.id)
+        store.setTabBarOrder(worktreeId, order)
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onCloseActiveTab(() => {
+        const store = useAppStore.getState()
+        // Why: this IPC fires only from browser guest webContents, so
+        // activeTabType is always 'browser'. We intentionally skip the
+        // editor case — closing dirty editor files requires the save
+        // confirmation dialog which lives in Terminal.tsx component state.
+        if (store.activeTabType === 'browser' && store.activeBrowserTabId) {
+          store.closeBrowserTab(store.activeBrowserTabId)
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onSwitchTab((direction) => {
+        const store = useAppStore.getState()
+        const worktreeId = store.activeWorktreeId
+        if (!worktreeId) {
+          return
+        }
+        const terminalTabs = store.tabsByWorktree[worktreeId] ?? []
+        const editorFiles = store.openFiles.filter((f) => f.worktreeId === worktreeId)
+        const browserTabs = store.browserTabsByWorktree[worktreeId] ?? []
+        const terminalIds = terminalTabs.map((t) => t.id)
+        const editorIds = editorFiles.map((f) => f.id)
+        const browserIds = browserTabs.map((t) => t.id)
+        const reconciledOrder = reconcileTabOrder(
+          store.tabBarOrderByWorktree[worktreeId],
+          terminalIds,
+          editorIds,
+          browserIds
+        )
+        const terminalIdSet = new Set(terminalIds)
+        const editorIdSet = new Set(editorIds)
+        const browserIdSet = new Set(browserIds)
+        const allTabIds = reconciledOrder.map((id) => ({
+          type: terminalIdSet.has(id)
+            ? ('terminal' as const)
+            : editorIdSet.has(id)
+              ? ('editor' as const)
+              : browserIdSet.has(id)
+                ? ('browser' as const)
+                : (null as never),
+          id
+        }))
+        if (allTabIds.length > 1) {
+          const currentId =
+            store.activeTabType === 'editor'
+              ? store.activeFileId
+              : store.activeTabType === 'browser'
+                ? store.activeBrowserTabId
+                : store.activeTabId
+          const idx = allTabIds.findIndex((t) => t.id === currentId)
+          const next = allTabIds[(idx + direction + allTabIds.length) % allTabIds.length]
+          if (next.type === 'terminal') {
+            store.setActiveTab(next.id)
+            store.setActiveTabType('terminal')
+          } else if (next.type === 'browser') {
+            store.setActiveBrowserTab(next.id)
+            store.setActiveTabType('browser')
+          } else {
+            store.setActiveFile(next.id)
+            store.setActiveTabType('editor')
+          }
+        }
       })
     )
 
