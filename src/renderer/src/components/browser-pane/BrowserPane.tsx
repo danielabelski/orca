@@ -563,13 +563,6 @@ export default function BrowserPane({
         focusAddressBarNow()
       } else {
         keepAddressBarFocusRef.current = false
-        // Why: a freshly opened blank tab should start in the address bar, but
-        // after the user actually navigates somewhere the browser surface
-        // should take focus so keyboard interaction continues in the page
-        // instead of leaving the location bar selected after load completes.
-        if (document.activeElement === addressBarInputRef.current) {
-          focusWebviewNow()
-        }
       }
       onUpdatePageStateRef.current(browserTab.id, {
         loading: false,
@@ -701,8 +694,14 @@ export default function BrowserPane({
       // event so only real navigations, not tab activation churn, show loading UI.
       trackNextLoadingEventRef.current = normalizedUrl !== ORCA_BROWSER_BLANK_URL
       webview.src = normalizedUrl
+      if (normalizedUrl !== ORCA_BROWSER_BLANK_URL) {
+        keepAddressBarFocusRef.current = false
+        if (document.activeElement === addressBarInputRef.current) {
+          focusWebviewNow()
+        }
+      }
     }
-  }, [browserTab.url])
+  }, [browserTab.url, focusWebviewNow])
 
   useEffect(() => {
     if (!browserTab.loading) {

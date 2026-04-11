@@ -832,7 +832,8 @@ class BrowserManager {
             active instanceof HTMLInputElement ||
             active instanceof HTMLTextAreaElement ||
             active?.isContentEditable === true ||
-            tag === 'SELECT'
+            tag === 'SELECT' ||
+            tag === 'IFRAME'
           if (isEditable) {
             return false
           }
