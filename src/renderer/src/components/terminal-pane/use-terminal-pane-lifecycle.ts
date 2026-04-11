@@ -42,11 +42,13 @@ type UseTerminalPaneLifecycleDeps = {
   >
   paneFontSizesRef: React.RefObject<Map<number, number>>
   paneTransportsRef: React.RefObject<Map<number, PtyTransport>>
+  panePtyBindingsRef: React.RefObject<Map<number, IDisposable>>
   pendingWritesRef: React.RefObject<Map<number, string>>
   isActiveRef: React.RefObject<boolean>
   onPtyExitRef: React.RefObject<(ptyId: string) => void>
   onPtyErrorRef?: React.RefObject<(paneId: number, message: string) => void>
   clearTabPtyId: (tabId: string, ptyId: string) => void
+  consumeSuppressedPtyExit: (ptyId: string) => boolean
   updateTabTitle: (tabId: string, title: string) => void
   setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
@@ -84,11 +86,13 @@ export function useTerminalPaneLifecycle({
   expandedStyleSnapshotRef,
   paneFontSizesRef,
   paneTransportsRef,
+  panePtyBindingsRef,
   pendingWritesRef,
   isActiveRef,
   onPtyExitRef,
   onPtyErrorRef,
   clearTabPtyId,
+  consumeSuppressedPtyExit,
   updateTabTitle,
   setRuntimePaneTitle,
   clearRuntimePaneTitle,
@@ -131,6 +135,7 @@ export function useTerminalPaneLifecycle({
     }
     const expandedStyleSnapshots = expandedStyleSnapshotRef.current
     const paneTransports = paneTransportsRef.current
+    const panePtyBindings = panePtyBindingsRef.current
     const pendingWrites = pendingWritesRef.current
     const linkDisposables = linkProviderDisposablesRef.current
     const worktreePath =
@@ -186,6 +191,7 @@ export function useTerminalPaneLifecycle({
       onPtyExitRef,
       onPtyErrorRef,
       clearTabPtyId,
+      consumeSuppressedPtyExit,
       updateTabTitle,
       setRuntimePaneTitle,
       clearRuntimePaneTitle,
@@ -227,7 +233,8 @@ export function useTerminalPaneLifecycle({
           }
         }
         applyAppearance(manager)
-        connectPanePty(pane, manager, ptyDeps)
+        const panePtyBinding = connectPanePty(pane, manager, ptyDeps)
+        panePtyBindings.set(pane.id, panePtyBinding)
         scheduleRuntimeGraphSync()
         queueResizeAll(true)
       },
@@ -238,6 +245,11 @@ export function useTerminalPaneLifecycle({
           linkProviderDisposablesRef.current.delete(paneId)
         }
         const transport = paneTransportsRef.current.get(paneId)
+        const panePtyBinding = panePtyBindings.get(paneId)
+        if (panePtyBinding) {
+          panePtyBinding.dispose()
+          panePtyBindings.delete(paneId)
+        }
         if (transport) {
           const ptyId = transport.getPtyId()
           if (ptyId) {
@@ -431,6 +443,10 @@ export function useTerminalPaneLifecycle({
       for (const transport of paneTransports.values()) {
         transport.destroy?.()
       }
+      for (const panePtyBinding of panePtyBindings.values()) {
+        panePtyBinding.dispose()
+      }
+      panePtyBindings.clear()
       paneTransports.clear()
       pendingWrites.clear()
       manager.destroy()
