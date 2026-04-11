@@ -100,6 +100,7 @@ describe('useIpcEvents updater integration', () => {
           activeTabType: 'terminal',
           editorFontZoomLevel: 0,
           setEditorFontZoomLevel: vi.fn(),
+          setRateLimitsFromPush: vi.fn(),
           settings: { terminalFontSize: 13 }
         })
       }
@@ -148,6 +149,7 @@ describe('useIpcEvents updater integration', () => {
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
           onSwitchTab: () => () => {},
+          onToggleStatusBar: () => () => {},
           onFullscreenChanged: () => () => {},
           onTerminalZoom: () => () => {},
           getZoomLevel: () => 0,
@@ -162,6 +164,10 @@ describe('useIpcEvents updater integration', () => {
         },
         browser: {
           onGuestLoadFailed: () => () => {}
+        },
+        rateLimits: {
+          get: () => Promise.resolve({ limits: {}, lastUpdatedAt: Date.now() }),
+          onUpdate: () => () => {}
         }
       }
     })
