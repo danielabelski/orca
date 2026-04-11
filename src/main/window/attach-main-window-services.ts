@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
 import { app, clipboard, ipcMain, nativeImage, session } from 'electron'
 import type { BrowserWindow } from 'electron'
 import type { Store } from '../persistence'
@@ -129,8 +132,21 @@ export function registerClipboardHandlers(): void {
   ipcMain.removeHandler('clipboard:readText')
   ipcMain.removeHandler('clipboard:writeText')
   ipcMain.removeHandler('clipboard:writeImage')
+  ipcMain.removeHandler('clipboard:saveImageAsTempFile')
 
   ipcMain.handle('clipboard:readText', () => clipboard.readText())
+  // Why: terminals need to detect clipboard images to support tools like Claude
+  // Code that accept image input via paste. Writes the clipboard image to a
+  // temp file and returns the path, or null if the clipboard has no image.
+  ipcMain.handle('clipboard:saveImageAsTempFile', async () => {
+    const image = clipboard.readImage()
+    if (image.isEmpty()) {
+      return null
+    }
+    const tempPath = path.join(app.getPath('temp'), `orca-paste-${Date.now()}.png`)
+    await fs.writeFile(tempPath, image.toPNG())
+    return tempPath
+  })
   ipcMain.handle('clipboard:writeText', (_event, text: string) => clipboard.writeText(text))
   ipcMain.handle('clipboard:writeImage', (_event, dataUrl: string) => {
     // Why: only accept validated PNG data URIs to prevent writing arbitrary
