@@ -98,6 +98,8 @@ export default function TerminalPane({
   const setTabLayout = useAppStore((store) => store.setTabLayout)
   const initialLayoutRef = useRef(savedLayout)
   const updateTabTitle = useAppStore((store) => store.updateTabTitle)
+  const setRuntimePaneTitle = useAppStore((store) => store.setRuntimePaneTitle)
+  const clearRuntimePaneTitle = useAppStore((store) => store.clearRuntimePaneTitle)
   const updateTabPtyId = useAppStore((store) => store.updateTabPtyId)
   const clearTabPtyId = useAppStore((store) => store.clearTabPtyId)
   const markWorktreeUnread = useAppStore((store) => store.markWorktreeUnread)
@@ -268,6 +270,8 @@ export default function TerminalPane({
     clearTabPtyId,
     consumeSuppressedPtyExit: useAppStore((store) => store.consumeSuppressedPtyExit),
     updateTabTitle,
+    setRuntimePaneTitle,
+    clearRuntimePaneTitle,
     updateTabPtyId,
     markWorktreeUnread,
     dispatchNotification,
@@ -323,6 +327,8 @@ export default function TerminalPane({
         clearTabPtyId,
         consumeSuppressedPtyExit: useAppStore.getState().consumeSuppressedPtyExit,
         updateTabTitle,
+        setRuntimePaneTitle,
+        clearRuntimePaneTitle,
         updateTabPtyId,
         markWorktreeUnread,
         dispatchNotification,

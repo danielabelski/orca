@@ -21,6 +21,9 @@ export type TerminalSlice = {
    *  the user returns to the same tab they left, not always tabs[0]. */
   activeTabIdByWorktree: Record<string, string | null>
   ptyIdsByTabId: Record<string, string[]>
+  /** Live pane titles keyed by tabId then paneId. Unlike the legacy tab title,
+   *  this preserves split-pane agent status per pane while TerminalPane is mounted. */
+  runtimePaneTitlesByTabId: Record<string, Record<number, string>>
   suppressedPtyExitIds: Record<string, true>
   pendingCodexPaneRestartIds: Record<string, true>
   codexRestartNoticeByPtyId: Record<
@@ -49,6 +52,8 @@ export type TerminalSlice = {
   setTabBarOrder: (worktreeId: string, order: string[]) => void
   setActiveTab: (tabId: string) => void
   updateTabTitle: (tabId: string, title: string) => void
+  setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
+  clearRuntimePaneTitle: (tabId: string, paneId: number) => void
   setTabCustomTitle: (tabId: string, title: string | null) => void
   setTabColor: (tabId: string, color: string | null) => void
   updateTabPtyId: (tabId: string, ptyId: string) => void
@@ -101,6 +106,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   activeTabId: null,
   activeTabIdByWorktree: {},
   ptyIdsByTabId: {},
+  runtimePaneTitlesByTabId: {},
   suppressedPtyExitIds: {},
   pendingCodexPaneRestartIds: {},
   codexRestartNoticeByPtyId: {},
@@ -216,6 +222,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextLayouts[tabId]
       const nextPtyIdsByTabId = { ...s.ptyIdsByTabId }
       delete nextPtyIdsByTabId[tabId]
+      const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
+      delete nextRuntimePaneTitlesByTabId[tabId]
       const nextPendingStartupByTabId = { ...s.pendingStartupByTabId }
       delete nextPendingStartupByTabId[tabId]
       const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
@@ -245,6 +253,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         activeTabId: s.activeTabId === tabId ? null : s.activeTabId,
         activeTabIdByWorktree: nextActiveTabIdByWorktree,
         ptyIdsByTabId: nextPtyIdsByTabId,
+        runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
         expandedPaneByTabId: nextExpanded,
         canExpandPaneByTabId: nextCanExpand,
         terminalLayoutsByTabId: nextLayouts,
@@ -343,6 +352,41 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       return isActive
         ? { tabsByWorktree: next }
         : { tabsByWorktree: next, sortEpoch: s.sortEpoch + 1 }
+    })
+  },
+
+  setRuntimePaneTitle: (tabId, paneId, title) => {
+    set((s) => {
+      const currentByPane = s.runtimePaneTitlesByTabId[tabId] ?? {}
+      if (currentByPane[paneId] === title) {
+        return s
+      }
+      return {
+        runtimePaneTitlesByTabId: {
+          ...s.runtimePaneTitlesByTabId,
+          [tabId]: { ...currentByPane, [paneId]: title }
+        }
+      }
+    })
+  },
+
+  clearRuntimePaneTitle: (tabId, paneId) => {
+    set((s) => {
+      const currentByPane = s.runtimePaneTitlesByTabId[tabId]
+      if (!currentByPane || !(paneId in currentByPane)) {
+        return s
+      }
+      const nextByPane = { ...currentByPane }
+      delete nextByPane[paneId]
+
+      const next = { ...s.runtimePaneTitlesByTabId }
+      if (Object.keys(nextByPane).length > 0) {
+        next[tabId] = nextByPane
+      } else {
+        delete next[tabId]
+      }
+
+      return { runtimePaneTitlesByTabId: next }
     })
   },
 
@@ -467,6 +511,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ...s.ptyIdsByTabId,
         ...Object.fromEntries(tabs.map((tab) => [tab.id, [] as string[]] as const))
       }
+      const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       const nextSuppressedPtyExitIds = {
         ...s.suppressedPtyExitIds,
         ...Object.fromEntries(ptyIds.map((ptyId) => [ptyId, true] as const))
@@ -483,6 +528,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
       const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
       for (const tab of tabs) {
+        delete nextRuntimePaneTitlesByTabId[tab.id]
         delete nextPendingSetupSplitByTabId[tab.id]
         delete nextPendingIssueCommandSplitByTabId[tab.id]
       }
@@ -508,6 +554,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       return {
         tabsByWorktree: nextTabsByWorktree,
         ptyIdsByTabId: nextPtyIdsByTabId,
+        runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
         suppressedPtyExitIds: nextSuppressedPtyExitIds,
         pendingCodexPaneRestartIds: nextPendingCodexPaneRestartIds,
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
