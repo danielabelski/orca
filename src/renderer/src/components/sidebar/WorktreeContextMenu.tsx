@@ -15,7 +15,7 @@ import {
   MessageSquare,
   Pencil,
   XCircle,
-  Trash2
+  Trash
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import type { Worktree } from '../../../../shared/types'
@@ -170,7 +170,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({ worktree, 
             disabled={isDeleting || removalAction.disabled}
             title={removalAction.disabledReason}
           >
-            <Trash2 className="size-3.5" />
+            <Trash className="size-3.5" />
             {isDeleting ? 'Deleting…' : removalAction.label}
           </DropdownMenuItem>
         </DropdownMenuContent>

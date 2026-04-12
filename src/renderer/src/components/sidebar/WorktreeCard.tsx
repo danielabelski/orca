@@ -4,7 +4,7 @@ import { useAppStore } from '@/store'
 import { Badge } from '@/components/ui/badge'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { Bell, GitMerge, LoaderCircle, CircleDot, CircleCheck, CircleX, Trash2 } from 'lucide-react'
+import { Bell, GitMerge, LoaderCircle, CircleDot, CircleCheck, CircleX, Trash } from 'lucide-react'
 import StatusIndicator from './StatusIndicator'
 import CacheTimer from './CacheTimer'
 import CommentMarkdown from './CommentMarkdown'
@@ -307,7 +307,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
         {/* Content area */}
         <div className="flex-1 min-w-0 flex flex-col gap-1.5">
           {/* Header row: Title and Checks */}
-          <div className="flex items-center justify-between min-w-0 gap-2">
+          <div className="flex items-start justify-between min-w-0 gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
               <div className="text-[12px] font-semibold text-foreground truncate leading-tight">
                 {worktree.displayName}
@@ -382,10 +382,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
                         : 'hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive active:scale-95'
                     )}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash className="size-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8}>
+                <TooltipContent side="right" sideOffset={4}>
                   <span>{removalAction.disabledReason ?? removalAction.label}</span>
                 </TooltipContent>
               </Tooltip>
