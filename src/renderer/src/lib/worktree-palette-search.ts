@@ -17,7 +17,6 @@ export type PaletteSearchResult = {
   displayNameRange: MatchRange | null
   branchRange: MatchRange | null
   repoRange: MatchRange | null
-  badgeLabel: 'Branch' | 'Repo' | 'Comment' | 'PR' | 'Issue' | null
   supportingText: PaletteSupportingText | null
 }
 
@@ -67,18 +66,6 @@ function makeResult(
     displayNameRange: null,
     branchRange: null,
     repoRange: null,
-    badgeLabel:
-      matchedField === 'branch'
-        ? 'Branch'
-        : matchedField === 'repo'
-          ? 'Repo'
-          : matchedField === 'comment'
-            ? 'Comment'
-            : matchedField === 'pr'
-              ? 'PR'
-              : matchedField === 'issue'
-                ? 'Issue'
-                : null,
     supportingText: null,
     ...overrides
   }

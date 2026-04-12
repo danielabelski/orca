@@ -9,6 +9,7 @@ import {
   CommandEmpty,
   CommandItem
 } from '@/components/ui/command'
+import { CornerDownLeft, Plus } from 'lucide-react'
 import { branchName } from '@/lib/git-utils'
 import { sortWorktreesRecent } from '@/components/sidebar/smart-sort'
 import StatusIndicator from '@/components/sidebar/StatusIndicator'
@@ -65,6 +66,7 @@ function FooterKey({ children }: { children: React.ReactNode }): React.JSX.Eleme
 export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
   const closeModal = useAppStore((s) => s.closeModal)
+  const openModal = useAppStore((s) => s.openModal)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const repos = useAppStore((s) => s.repos)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
@@ -105,6 +107,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
   // Loading state: repos exist but worktreesByRepo is still empty
   const isLoading = repos.length > 0 && Object.keys(worktreesByRepo).length === 0
+  const hasWorktrees = sortedWorktrees.length > 0
 
   useEffect(() => {
     if (visible && !wasVisibleRef.current) {
@@ -123,7 +126,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       return
     }
     if (matches.length === 0) {
-      setSelectedWorktreeId('')
+      // Why: when no worktrees match but the "Create new worktree" item is shown,
+      // pre-select it so the user can press Enter to immediately create one.
+      setSelectedWorktreeId(hasWorktrees && query.trim() ? '__create_worktree__' : '')
       return
     }
     if (!matches.some((match) => match.worktreeId === selectedWorktreeId)) {
@@ -132,7 +137,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       // logical worktree selected instead of drifting to a new visual index.
       setSelectedWorktreeId(matches[0].worktreeId)
     }
-  }, [visible, matches, selectedWorktreeId])
+  }, [visible, matches, selectedWorktreeId, hasWorktrees, query])
 
   const focusActiveSurface = useCallback(() => {
     // Why: double rAF — first waits for React to commit state (palette closes),
@@ -184,6 +189,13 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     [closeModal, focusActiveSurface]
   )
 
+  const handleCreateWorktree = useCallback(() => {
+    closeModal()
+    // Why: we open create-worktree in a microtask so Radix Dialog fully unmounts
+    // before the next modal mounts, avoiding stacked-dialog focus conflicts.
+    queueMicrotask(() => openModal('create-worktree'))
+  }, [closeModal, openModal])
+
   const handleCloseAutoFocus = useCallback((e: Event) => {
     // Why: prevent Radix from stealing focus to the trigger element. We manage
     // focus ourselves via the double-rAF approach.
@@ -192,7 +204,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
   // Result count for screen readers
   const resultCount = matches.length
-  const hasWorktrees = sortedWorktrees.length > 0
 
   return (
     <CommandDialog
@@ -203,7 +214,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       title="Open Worktree"
       description="Search across all worktrees by name, branch, comment, PR, or issue"
       overlayClassName="bg-black/55 backdrop-blur-[2px]"
-      contentClassName="top-[13%] w-[736px] max-w-[94vw] overflow-hidden rounded-[22px] border border-border/70 bg-background/96 shadow-[0_26px_84px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+      contentClassName="top-[13%] w-[736px] max-w-[94vw] overflow-hidden rounded-xl border border-border/70 bg-background/96 shadow-[0_26px_84px_rgba(0,0,0,0.32)] backdrop-blur-xl"
       commandProps={{
         loop: true,
         value: selectedWorktreeId,
@@ -215,7 +226,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         placeholder="Jump to worktree..."
         value={query}
         onValueChange={setQuery}
-        wrapperClassName="mx-3 mt-3 rounded-[16px] border border-border/55 bg-muted/28 px-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+        wrapperClassName="mx-3 mt-3 rounded-lg border border-border/55 bg-muted/28 px-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
         iconClassName="mr-2.5 h-4 w-4 text-muted-foreground/60"
         className="h-12 text-[14px] placeholder:text-muted-foreground/75"
       />
@@ -233,12 +244,31 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
             />
           </CommandEmpty>
         ) : matches.length === 0 ? (
-          <CommandEmpty className="py-0">
-            <PaletteState
-              title="No worktrees match your search"
-              subtitle="Try a name, branch, repo, comment, PR, or issue."
-            />
-          </CommandEmpty>
+          <>
+            <CommandEmpty className="py-0">
+              <PaletteState
+                title="No worktrees match your search"
+                subtitle="Try a name, branch, repo, comment, PR, or issue."
+              />
+            </CommandEmpty>
+            <CommandItem
+              value="__create_worktree__"
+              onSelect={handleCreateWorktree}
+              className="group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow] data-[selected=true]:border-border data-[selected=true]:bg-neutral-100 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-neutral-800"
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border/60 bg-muted/25 text-muted-foreground/70">
+                <Plus size={14} aria-hidden="true" />
+              </div>
+              <span className="flex-1 text-[14px] font-medium text-foreground/90">
+                Create new worktree…
+              </span>
+              <CornerDownLeft
+                size={14}
+                aria-hidden="true"
+                className="shrink-0 self-center text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100"
+              />
+            </CommandItem>
+          </>
         ) : (
           matches.map((match) => {
             const w = worktreeMap.get(match.worktreeId)
@@ -262,19 +292,17 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                 onSelect={() => handleSelect(w.id)}
                 data-current={isCurrentWorktree ? 'true' : undefined}
                 className={cn(
-                  'mx-0.5 flex items-start gap-3 rounded-[14px] border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                  'data-[selected=true]:border-border/70 data-[selected=true]:bg-accent/55 data-[selected=true]:text-foreground data-[selected=true]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]',
-                  'data-[current=true]:border-emerald-500/25 data-[current=true]:bg-emerald-500/[0.05]'
+                  'group mx-0.5 flex cursor-pointer items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
+                  'data-[selected=true]:border-border data-[selected=true]:bg-neutral-100 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-neutral-800',
+                  'data-[current=true]:border-emerald-500/25 data-[current=true]:bg-emerald-500/[0.08]'
                 )}
               >
-                <div className="mt-0.5 flex w-7 shrink-0 items-start justify-center">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border/45 bg-muted/35">
-                    <StatusIndicator status={status} aria-hidden="true" />
-                    <span className="sr-only">{statusLabel}</span>
-                  </div>
+                <div className="mt-1.5 flex w-4 shrink-0 items-start justify-center">
+                  <StatusIndicator status={status} aria-hidden="true" />
+                  <span className="sr-only">{statusLabel}</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2.5">
+                  <div className="flex items-center justify-between gap-2.5">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground">
@@ -288,8 +316,13 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                           )}
                         </span>
                         {isCurrentWorktree && (
-                          <span className="shrink-0 rounded-[6px] border border-border/60 bg-background/45 px-1.5 py-0.5 text-[9px] font-medium leading-none text-muted-foreground/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+                          <span className="shrink-0 self-center rounded-[6px] border border-border/60 bg-background/45 px-1.5 py-px text-[9px] font-medium leading-normal text-muted-foreground/88">
                             Current
+                          </span>
+                        )}
+                        {w.isMainWorktree && (
+                          <span className="shrink-0 self-center rounded border border-muted-foreground/30 bg-muted-foreground/5 px-1.5 py-px text-[9px] font-medium leading-normal text-muted-foreground">
+                            primary
                           </span>
                         )}
                       </div>
@@ -316,9 +349,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                         </div>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
                       {repoName && (
-                        <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-[7px] border border-border/55 bg-muted/38 px-2 py-1 text-[10px] font-semibold leading-none text-foreground/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+                        <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] font-semibold leading-none text-foreground">
                           <span
                             aria-hidden="true"
                             className="size-1.5 shrink-0 rounded-full"
@@ -335,17 +368,17 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                           </span>
                         </span>
                       )}
-                      {match.badgeLabel && (
-                        <span
-                          className="rounded-full border border-border/40 bg-background/45 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/82"
-                          aria-label={`Matched in ${match.badgeLabel}`}
-                        >
-                          {match.badgeLabel}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
+                {/* Why: always rendered to reserve space and prevent layout shift
+                   when selection moves between items. Opacity toggled by the
+                   parent CommandItem's data-selected attribute. */}
+                <CornerDownLeft
+                  size={14}
+                  aria-hidden="true"
+                  className="shrink-0 self-center text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100"
+                />
               </CommandItem>
             )
           })
