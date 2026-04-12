@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: group panels intentionally co-locate group-scoped tab chrome, activation/close handlers, and surface rendering so split groups cannot drift into a separate behavior path from the original root group. */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -427,7 +427,11 @@ export default function TabGroupPanel({
      split, every group renders its own inline tab bar so each pane keeps
      its own chrome — no visual "jump". */
   const [titlebarSlot, setTitlebarSlot] = useState<HTMLElement | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // Why: the root group's tab bar must move into the titlebar before the
+    // browser paints. A passive effect briefly renders the inline strip first,
+    // then reparents it a frame later, recreating the visual "jump" this
+    // titlebar portal is supposed to eliminate.
     if (!hasSplitGroups) {
       setTitlebarSlot(document.getElementById('titlebar-tabs'))
     } else {
