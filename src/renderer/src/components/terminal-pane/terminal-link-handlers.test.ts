@@ -6,15 +6,20 @@ const openFileUriMock = vi.fn()
 const openFileMock = vi.fn()
 const authorizeExternalPathMock = vi.fn()
 const statMock = vi.fn().mockResolvedValue({ isDirectory: false })
+const setActiveWorktreeMock = vi.fn()
+const createBrowserTabMock = vi.fn()
 
 const deps = { worktreeId: 'wt-1', worktreePath: '/tmp' }
+const storeState = {
+  settings: undefined as { openLinksInApp?: boolean } | undefined,
+  setActiveWorktree: setActiveWorktreeMock,
+  createBrowserTab: createBrowserTabMock,
+  openFile: openFileMock
+}
 
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => ({
-      setActiveWorktree: vi.fn(),
-      openFile: openFileMock
-    })
+    getState: () => storeState
   }
 }))
 
@@ -28,6 +33,7 @@ function setPlatform(userAgent: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  storeState.settings = undefined
   vi.stubGlobal('window', {
     api: {
       shell: {
@@ -65,14 +71,64 @@ describe('isTerminalLinkActivation', () => {
 })
 
 describe('handleOscLink', () => {
-  it('opens http links only when the platform modifier is pressed', () => {
+  it('ignores http links without the platform modifier', () => {
     setPlatform('Macintosh')
 
     handleOscLink('https://example.com', { metaKey: false, ctrlKey: false }, deps)
     expect(openUrlMock).not.toHaveBeenCalled()
+  })
 
-    handleOscLink('https://example.com', { metaKey: true, ctrlKey: false }, deps)
+  it('uses Orca for cmd/ctrl+click even when the setting is off', () => {
+    setPlatform('Macintosh')
+    storeState.settings = { openLinksInApp: false }
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+
+    handleOscLink(
+      'https://example.com',
+      { metaKey: true, ctrlKey: false, shiftKey: false, preventDefault, stopPropagation },
+      deps
+    )
+
+    expect(createBrowserTabMock).toHaveBeenCalledWith('wt-1', 'https://example.com/')
+    expect(setActiveWorktreeMock).toHaveBeenCalledWith('wt-1')
+    expect(openUrlMock).not.toHaveBeenCalled()
+    expect(preventDefault).toHaveBeenCalled()
+    expect(stopPropagation).toHaveBeenCalled()
+  })
+
+  it('defaults to Orca when settings have not hydrated yet', () => {
+    setPlatform('Macintosh')
+    storeState.settings = undefined
+
+    handleOscLink('https://example.com', { metaKey: true, ctrlKey: false, shiftKey: false }, deps)
+
+    expect(createBrowserTabMock).toHaveBeenCalledWith('wt-1', 'https://example.com/')
+    expect(openUrlMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the system browser for shift+cmd/ctrl+click even when Orca browser tabs are enabled', () => {
+    setPlatform('Windows')
+    storeState.settings = { openLinksInApp: true }
+
+    handleOscLink('https://example.com', { metaKey: false, ctrlKey: true, shiftKey: true }, deps)
+
     expect(openUrlMock).toHaveBeenCalledWith('https://example.com/')
+    expect(createBrowserTabMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the system browser when no worktree owns the terminal pane', () => {
+    setPlatform('Macintosh')
+    storeState.settings = { openLinksInApp: true }
+
+    handleOscLink(
+      'https://example.com',
+      { metaKey: true, ctrlKey: false, shiftKey: false },
+      { worktreeId: '', worktreePath: '/tmp' }
+    )
+
+    expect(openUrlMock).toHaveBeenCalledWith('https://example.com/')
+    expect(createBrowserTabMock).not.toHaveBeenCalled()
   })
 
   it('opens file links in Orca instead of via shell when the platform modifier is pressed', async () => {

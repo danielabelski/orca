@@ -1,6 +1,23 @@
 import { app } from 'electron'
 import { join } from 'path'
 
+const DEV_PARENT_SHUTDOWN_GRACE_MS = 3000
+
+function requestDevParentShutdown(): void {
+  app.quit()
+
+  const forceExitTimer = setTimeout(() => {
+    // Why: in dev, losing the supervising parent means this Electron process is
+    // already orphaned from the terminal session. We try app.quit() first so
+    // normal cleanup still runs, but fall back to app.exit() when macOS quit
+    // handlers or window-close guards stall and would otherwise leave Orca
+    // hanging after Ctrl+C ends `pnpm dev`.
+    app.exit(0)
+  }, DEV_PARENT_SHUTDOWN_GRACE_MS)
+
+  forceExitTimer.unref()
+}
+
 export function installUncaughtPipeErrorGuard(): void {
   process.on('uncaughtException', (error) => {
     if (
@@ -66,7 +83,7 @@ export function installDevParentDisconnectQuit(isDev: boolean): void {
   // without terminating the app window, so in dev we quit explicitly when the
   // supervising IPC channel disconnects instead of leaving a stray Electron app.
   process.once('disconnect', () => {
-    app.quit()
+    requestDevParentShutdown()
   })
 }
 
@@ -106,7 +123,7 @@ export function installDevParentWatchdog(isDev: boolean): void {
       // the dev runner while leaving Orca open. Watching the original parent PID
       // keeps dev shutdown coupled to the terminal session without affecting the
       // packaged app, which is not supervised by electron-vite.
-      app.quit()
+      requestDevParentShutdown()
     }
   }, 1000)
 

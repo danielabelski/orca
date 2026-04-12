@@ -18,6 +18,23 @@ export type LinkHandlerDeps = {
   pathExistsCache: Map<string, boolean>
 }
 
+type TerminalLinkEvent = Pick<MouseEvent, 'metaKey' | 'ctrlKey'> &
+  Partial<Pick<MouseEvent, 'shiftKey' | 'preventDefault' | 'stopPropagation'>>
+
+function isMacPlatform(): boolean {
+  return navigator.userAgent.includes('Mac')
+}
+
+export function getTerminalFileOpenHint(): string {
+  return isMacPlatform() ? '⌘+click to open' : 'Ctrl+click to open'
+}
+
+export function getTerminalUrlOpenHint(): string {
+  return isMacPlatform()
+    ? '⌘+click to open or ⇧⌘+click for system browser'
+    : 'Ctrl+click to open or Shift+Ctrl+click for system browser'
+}
+
 export function openDetectedFilePath(
   filePath: string,
   line: number | null,
@@ -152,18 +169,24 @@ export function createFilePathLinkProvider(
 export function isTerminalLinkActivation(
   event: Pick<MouseEvent, 'metaKey' | 'ctrlKey'> | undefined
 ): boolean {
-  const isMac = navigator.userAgent.includes('Mac')
+  const isMac = isMacPlatform()
   return isMac ? Boolean(event?.metaKey) : Boolean(event?.ctrlKey)
 }
 
 export function handleOscLink(
   rawText: string,
-  event: Pick<MouseEvent, 'metaKey' | 'ctrlKey'> | undefined,
+  event: TerminalLinkEvent | undefined,
   deps: Pick<LinkHandlerDeps, 'worktreeId' | 'worktreePath'>
 ): void {
   if (!isTerminalLinkActivation(event)) {
     return
   }
+
+  // Why: xterm renders URL links as clickable anchors. Once Orca decides to
+  // handle a modified click itself, we must suppress the browser's default
+  // anchor navigation or Electron will still launch the system browser.
+  event?.preventDefault?.()
+  event?.stopPropagation?.()
 
   let parsed: URL
   try {
@@ -174,10 +197,10 @@ export function handleOscLink(
 
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
     const store = useAppStore.getState()
-    // Why: when the user opts into Orca's browser tabs, terminal links should
-    // stay worktree-scoped instead of escaping to the system browser. We still
-    // fall back externally when the setting is off or no worktree owns the pane.
-    if (store.settings?.openLinksInApp && deps.worktreeId) {
+    // Why: terminal URL clicks are now always worktree-scoped by default so
+    // Cmd/Ctrl+click reliably stays inside Orca's browser. Shift is the only
+    // escape hatch for opening the same URL in the system browser instead.
+    if (deps.worktreeId && !event?.shiftKey) {
       store.setActiveWorktree(deps.worktreeId)
       store.createBrowserTab(deps.worktreeId, parsed.toString())
       return

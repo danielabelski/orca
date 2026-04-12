@@ -19,6 +19,12 @@ import { safeFit } from './pane-tree-ops'
 
 const ENABLE_WEBGL_RENDERER = true
 
+function getTerminalUrlOpenHint(): string {
+  return navigator.userAgent.includes('Mac')
+    ? '⌘+click to open or ⇧⌘+click for system browser'
+    : 'Ctrl+click to open or Shift+Ctrl+click for system browser'
+}
+
 export function createPaneDOM(
   id: number,
   options: PaneManagerOptions,
@@ -65,8 +71,7 @@ export function createPaneDOM(
   const fitAddon = new FitAddon()
   const searchAddon = new SearchAddon()
   const unicode11Addon = new Unicode11Addon()
-  const isMac = navigator.userAgent.includes('Mac')
-  const openLinkHint = isMac ? '⌘+click to open' : 'Ctrl+click to open'
+  const openLinkHint = getTerminalUrlOpenHint()
 
   // URL tooltip element — Ghostty-style bottom-left hint on hover
   const linkTooltip = document.createElement('div')
@@ -199,7 +204,12 @@ export function attachWebgl(pane: ManagedPaneInternal): void {
       // to initialise before we ask it to repaint.
       requestAnimationFrame(() => {
         try {
+          const buf = pane.terminal.buffer.active
+          const wasAtBottom = buf.viewportY >= buf.baseY
           pane.fitAddon.fit()
+          if (wasAtBottom) {
+            pane.terminal.scrollToBottom()
+          }
           pane.terminal.refresh(0, pane.terminal.rows - 1)
         } catch {
           /* ignore — pane may have been disposed in the meantime */

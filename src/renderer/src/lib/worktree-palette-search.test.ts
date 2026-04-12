@@ -47,7 +47,6 @@ describe('worktree-palette-search', () => {
         displayNameRange: null,
         branchRange: null,
         repoRange: null,
-        badgeLabel: null,
         supportingText: null
       }
     ])
@@ -68,7 +67,6 @@ describe('worktree-palette-search', () => {
     )
 
     expect(results).toHaveLength(1)
-    expect(results[0].badgeLabel).toBe('Comment')
     expect(results[0].supportingText?.label).toBe('Comment')
     expect(results[0].supportingText?.text).toContain('implementation')
     expect(
@@ -96,7 +94,6 @@ describe('worktree-palette-search', () => {
     )
 
     expect(results).toHaveLength(1)
-    expect(results[0].badgeLabel).toBe('PR')
     expect(results[0].supportingText).toEqual({
       label: 'PR',
       text: 'Refresh the worktree quick jump palette',
@@ -114,7 +111,6 @@ describe('worktree-palette-search', () => {
     )
 
     expect(results).toHaveLength(1)
-    expect(results[0].badgeLabel).toBe('Issue')
     expect(results[0].supportingText).toEqual({
       label: 'Issue',
       text: 'Issue #304',

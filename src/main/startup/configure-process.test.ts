@@ -10,6 +10,7 @@ vi.mock('electron', () => {
         paths.set(name, value)
       }),
       quit: vi.fn(),
+      exit: vi.fn(),
       commandLine: {
         appendSwitch: vi.fn()
       }
@@ -50,6 +51,7 @@ describe('installDevParentDisconnectQuit', () => {
     const { app } = await import('electron')
     const { installDevParentDisconnectQuit } = await import('./configure-process')
 
+    vi.useFakeTimers()
     const originalSend = process.send
     const originalOnce = process.once.bind(process)
     const disconnectHandlers: (() => void)[] = []
@@ -74,6 +76,10 @@ describe('installDevParentDisconnectQuit', () => {
     expect(disconnectHandlers).toHaveLength(1)
     disconnectHandlers[0]()
     expect(app.quit).toHaveBeenCalledTimes(1)
+    expect(app.exit).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(app.exit).toHaveBeenCalledWith(0)
   })
 
   it('does not register the disconnect hook outside dev ipc launches', async () => {
@@ -104,6 +110,7 @@ describe('installDevParentWatchdog', () => {
 
     vi.useFakeTimers()
     vi.mocked(app.quit).mockClear()
+    vi.mocked(app.exit).mockClear()
 
     let parentExists = true
     vi.spyOn(process, 'kill').mockImplementation(((
@@ -132,6 +139,10 @@ describe('installDevParentWatchdog', () => {
       parentExists = false
       await vi.advanceTimersByTimeAsync(1000)
       expect(app.quit).toHaveBeenCalledTimes(1)
+      expect(app.exit).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(app.exit).toHaveBeenCalledWith(0)
     } finally {
       if (originalPpid) {
         Object.defineProperty(process, 'ppid', originalPpid)
