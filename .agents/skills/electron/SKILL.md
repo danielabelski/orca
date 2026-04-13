@@ -1,17 +1,27 @@
 ---
 name: electron
-description: Automate Electron desktop apps (VS Code, Slack, Discord, Figma, Notion, Spotify, etc.) using agent-browser via Chrome DevTools Protocol. Use when the user needs to interact with an Electron app, automate a desktop app, connect to a running app, control a native app, or test an Electron application. Triggers include "automate Slack app", "control VS Code", "interact with Discord app", "test this Electron app", "connect to desktop app", or any task requiring automation of a native Electron application.
-allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*)
+description: Automate Electron desktop apps (VS Code, Slack, Discord, Figma, Notion, Spotify, etc.) using playwright-cli via Chrome DevTools Protocol. Use when the user needs to interact with an Electron app, automate a desktop app, connect to a running app, control a native app, or test an Electron application. Triggers include "automate Slack app", "control VS Code", "interact with Discord app", "test this Electron app", "connect to desktop app", or any task requiring automation of a native Electron application.
+allowed-tools: Bash(playwright-cli:*), Bash(npx playwright-cli:*), Bash(curl:*), Bash(lsof:*), Bash(open:*), Bash(ps:*), Bash(kill:*)
 ---
 
 # Electron App Automation
 
-Automate any Electron desktop app using agent-browser. Electron apps are built on Chromium and expose a Chrome DevTools Protocol (CDP) port that agent-browser can connect to, enabling the same snapshot-interact workflow used for web pages.
+Automate any Electron desktop app using playwright-cli's CDP attach mode. Electron apps are built on Chromium and expose a Chrome DevTools Protocol (CDP) port that playwright-cli can connect to, enabling the same snapshot-interact workflow used for web pages.
+
+## Critical Safety Rule: Never Kill Processes You Didn't Start
+
+**You may be running inside an Electron app (e.g., Orca).** Killing the wrong process will terminate your own session.
+
+- **NEVER** run `killall Electron`, `pkill Electron`, or any broad process-killing command.
+- **NEVER** kill a process unless you launched it yourself in this session and you recorded its PID.
+- Before killing, **always verify** the PID belongs to the process you started — check the command line includes the workspace path or args you used to launch it.
+- When quitting apps to relaunch with `--remote-debugging-port`, use `osascript -e 'quit app "AppName"'` for named apps (Slack, VS Code, etc.) — **never for Orca or the app you're running inside**.
+- If unsure whether a process is safe to kill, **ask the user**.
 
 ## Core Workflow
 
-1. **Launch** the Electron app with remote debugging enabled
-2. **Connect** agent-browser to the CDP port
+1. **Launch** the Electron app with remote debugging enabled (or find an already-running app with CDP)
+2. **Attach** playwright-cli to the CDP endpoint
 3. **Snapshot** to discover interactive elements
 4. **Interact** using element refs
 5. **Re-snapshot** after navigation or state changes
@@ -20,13 +30,16 @@ Automate any Electron desktop app using agent-browser. Electron apps are built o
 # Launch an Electron app with remote debugging
 open -a "Slack" --args --remote-debugging-port=9222
 
-# Connect agent-browser to the app
-agent-browser connect 9222
+# Wait for the app to initialize
+sleep 3
+
+# Attach playwright-cli to the app via CDP
+playwright-cli attach --cdp="http://localhost:9222"
 
 # Standard workflow from here
-agent-browser snapshot -i
-agent-browser click @e5
-agent-browser screenshot slack-desktop.png
+playwright-cli snapshot
+playwright-cli click e5
+playwright-cli screenshot
 ```
 
 ## Launching Electron Apps with CDP
@@ -72,60 +85,55 @@ discord --remote-debugging-port=9224
 
 **Important:** If the app is already running, quit it first, then relaunch with the flag. The `--remote-debugging-port` flag must be present at launch time.
 
-## Connecting
+## Connecting to an Already-Running App
+
+If an Electron app was already launched with `--remote-debugging-port`, you can attach directly:
 
 ```bash
-# Connect to a specific port
-agent-browser connect 9222
+# Check what's listening on a port
+lsof -i :9222
 
-# Or use --cdp on each command
-agent-browser --cdp 9222 snapshot -i
+# Verify the CDP endpoint has targets
+curl -s http://localhost:9222/json
 
-# Auto-discover a running Chromium-based app
-agent-browser --auto-connect snapshot -i
+# Attach playwright-cli
+playwright-cli attach --cdp="http://localhost:9222"
 ```
 
-After `connect`, all subsequent commands target the connected app without needing `--cdp`.
+## Attaching
+
+```bash
+# Attach to a specific CDP port
+playwright-cli attach --cdp="http://localhost:9222"
+
+# Attach with a named session (for controlling multiple apps)
+playwright-cli -s=slack attach --cdp="http://localhost:9222"
+playwright-cli -s=vscode attach --cdp="http://localhost:9223"
+```
+
+After `attach`, all subsequent commands (in that session) target the connected app.
 
 ## Tab Management
 
-Electron apps often have multiple windows or webviews. Use tab commands to list and switch between them:
+Electron apps may have multiple windows or webviews. Use tab commands to list and switch between them:
 
 ```bash
-# List all available targets (windows, webviews, etc.)
-agent-browser tab
+# List all available targets
+playwright-cli tab-list
 
 # Switch to a specific tab by index
-agent-browser tab 2
-
-# Switch by URL pattern
-agent-browser tab --url "*settings*"
+playwright-cli tab-select 2
 ```
 
-## Webview Support
-
-Electron `<webview>` elements are automatically discovered and can be controlled like regular pages. Webviews appear as separate targets in the tab list with `type: "webview"`:
+If `tab-list` doesn't show all targets, query the CDP endpoint directly to see everything:
 
 ```bash
-# Connect to running Electron app
-agent-browser connect 9222
-
-# List targets -- webviews appear alongside pages
-agent-browser tab
-# Example output:
-#   0: [page]    Slack - Main Window     https://app.slack.com/
-#   1: [webview] Embedded Content        https://example.com/widget
-
-# Switch to a webview
-agent-browser tab 1
-
-# Interact with the webview normally
-agent-browser snapshot -i
-agent-browser click @e3
-agent-browser screenshot webview.png
+curl -s http://localhost:9222/json | python3 -c "
+import sys, json
+for i, t in enumerate(json.load(sys.stdin)):
+    print(f'[{i}] ({t[\"type\"]}) {t[\"title\"][:60]} - {t[\"url\"][:60]}')
+"
 ```
-
-**Note:** Webview support works via raw CDP connection.
 
 ## Common Patterns
 
@@ -133,41 +141,40 @@ agent-browser screenshot webview.png
 
 ```bash
 open -a "Slack" --args --remote-debugging-port=9222
-sleep 3  # Wait for app to start
-agent-browser connect 9222
-agent-browser snapshot -i
+sleep 3
+playwright-cli attach --cdp="http://localhost:9222"
+playwright-cli snapshot
 # Read the snapshot output to identify UI elements
-agent-browser click @e10  # Navigate to a section
-agent-browser snapshot -i  # Re-snapshot after navigation
+playwright-cli click e10   # Navigate to a section
+playwright-cli snapshot    # Re-snapshot after navigation
 ```
 
 ### Take Screenshots of Desktop Apps
 
 ```bash
-agent-browser connect 9222
-agent-browser screenshot app-state.png
-agent-browser screenshot --full full-app.png
-agent-browser screenshot --annotate annotated-app.png
+playwright-cli attach --cdp="http://localhost:9222"
+playwright-cli screenshot
+playwright-cli screenshot e5  # Screenshot a specific element
+playwright-cli screenshot --filename=app-state.png
 ```
 
 ### Extract Data from a Desktop App
 
 ```bash
-agent-browser connect 9222
-agent-browser snapshot -i
-agent-browser get text @e5
-agent-browser snapshot --json > app-state.json
+playwright-cli attach --cdp="http://localhost:9222"
+playwright-cli snapshot
+playwright-cli eval "document.title"
+playwright-cli eval "el => el.textContent" e5
 ```
 
 ### Fill Forms in Desktop Apps
 
 ```bash
-agent-browser connect 9222
-agent-browser snapshot -i
-agent-browser fill @e3 "search query"
-agent-browser press Enter
-agent-browser wait 1000
-agent-browser snapshot -i
+playwright-cli attach --cdp="http://localhost:9222"
+playwright-cli snapshot
+playwright-cli fill e3 "search query"
+playwright-cli press Enter
+playwright-cli snapshot
 ```
 
 ### Run Multiple Apps Simultaneously
@@ -175,30 +182,27 @@ agent-browser snapshot -i
 Use named sessions to control multiple Electron apps at the same time:
 
 ```bash
-# Connect to Slack
-agent-browser --session slack connect 9222
+# Attach to Slack
+playwright-cli -s=slack attach --cdp="http://localhost:9222"
 
-# Connect to VS Code
-agent-browser --session vscode connect 9223
+# Attach to VS Code
+playwright-cli -s=vscode attach --cdp="http://localhost:9223"
 
 # Interact with each independently
-agent-browser --session slack snapshot -i
-agent-browser --session vscode snapshot -i
+playwright-cli -s=slack snapshot
+playwright-cli -s=vscode snapshot
 ```
 
-## Color Scheme
+### Run Custom Playwright Code
 
-The default color scheme when connecting via CDP may be `light`. To preserve dark mode:
-
-```bash
-agent-browser connect 9222
-agent-browser --color-scheme dark snapshot -i
-```
-
-Or set it globally:
+For advanced scenarios, use `run-code` to execute arbitrary Playwright code:
 
 ```bash
-AGENT_BROWSER_COLOR_SCHEME=dark agent-browser connect 9222
+playwright-cli run-code "async page => {
+  await page.waitForSelector('.loading', { state: 'hidden' });
+  const items = await page.locator('.item').allTextContents();
+  return items;
+}"
 ```
 
 ## Troubleshooting
@@ -209,20 +213,29 @@ AGENT_BROWSER_COLOR_SCHEME=dark agent-browser connect 9222
 - If the app was already running, quit and relaunch with the flag
 - Check that the port isn't in use by another process: `lsof -i :9222`
 
-### App launches but connect fails
+### App launches but attach fails
 
-- Wait a few seconds after launch before connecting (`sleep 3`)
+- Wait a few seconds after launch before attaching (`sleep 3`)
 - Some apps take time to initialize their webview
+- Verify the endpoint is responding: `curl -s http://localhost:9222/json`
 
 ### Elements not appearing in snapshot
 
-- The app may use multiple webviews. Use `agent-browser tab` to list targets and switch to the right one
-- Use `agent-browser snapshot -i -C` to include cursor-interactive elements (divs with onclick handlers)
+- The app may use multiple webviews. Use `playwright-cli tab-list` to list targets and switch
+- Use `curl -s http://localhost:<port>/json` to see all CDP targets if tab-list shows fewer
+- Try `playwright-cli snapshot` without flags first
 
 ### Cannot type in input fields
 
-- Try `agent-browser keyboard type "text"` to type at the current focus without a selector
-- Some Electron apps use custom input components; use `agent-browser keyboard inserttext "text"` to bypass key events
+- Some Electron apps use custom input components
+- Try `playwright-cli press` for keyboard events
+- Use `playwright-cli run-code` for complex input scenarios
+
+### Stale element refs after interaction
+
+- Element refs change when the page state updates
+- Always re-snapshot after clicking, navigating, or filling forms
+- Use the new refs from the latest snapshot
 
 ## Supported Apps
 
@@ -234,4 +247,17 @@ Any app built on Electron works, including:
 - **Media:** Spotify, Tidal
 - **Productivity:** Todoist, Linear, 1Password
 
-If an app is built with Electron, it supports `--remote-debugging-port` and can be automated with agent-browser.
+If an app is built with Electron, it supports `--remote-debugging-port` and can be automated with playwright-cli.
+
+## Cleaning Up
+
+```bash
+# Close the playwright-cli session (does NOT kill the Electron app)
+playwright-cli close
+
+# Close a named session
+playwright-cli -s=slack close
+
+# Close all playwright-cli sessions
+playwright-cli close-all
+```
