@@ -459,6 +459,10 @@ export type GlobalSettings = {
   terminalActivePaneOpacity: number
   terminalPaneOpacityTransitionMs: number
   terminalDividerThicknessPx: number
+  /** Why: Windows terminals conventionally use right-click as a paste gesture.
+   *  The setting stays Windows-only so macOS/Linux keep their existing context
+   *  menu behavior and users can still reach the menu with Ctrl+right-click. */
+  terminalRightClickToPaste: boolean
   terminalFocusFollowsMouse: boolean
   terminalScrollbackBytes: number
   /** Why: opening arbitrary links inside Orca uses an isolated guest browser surface.

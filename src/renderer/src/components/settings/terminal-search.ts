@@ -89,11 +89,26 @@ export const TERMINAL_ADVANCED_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   }
 ]
 
-export const TERMINAL_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
-  ...TERMINAL_TYPOGRAPHY_SEARCH_ENTRIES,
-  ...TERMINAL_CURSOR_SEARCH_ENTRIES,
-  ...TERMINAL_PANE_STYLE_SEARCH_ENTRIES,
-  ...TERMINAL_DARK_THEME_SEARCH_ENTRIES,
-  ...TERMINAL_LIGHT_THEME_SEARCH_ENTRIES,
-  ...TERMINAL_ADVANCED_SEARCH_ENTRIES
+export const TERMINAL_WINDOWS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
+  {
+    title: 'Right-click to paste',
+    description:
+      'On Windows, right-click pastes the clipboard into the terminal. Ctrl+right-click still opens the context menu.',
+    keywords: ['terminal', 'windows', 'right click', 'paste', 'context menu']
+  }
 ]
+
+export function getTerminalPaneSearchEntries(isWindows: boolean): SettingsSearchEntry[] {
+  // Why: the settings search index must mirror the visible controls. Keeping
+  // the Windows-only paste toggle out of non-Windows search results prevents
+  // users from landing on an option the UI intentionally hides.
+  return [
+    ...TERMINAL_TYPOGRAPHY_SEARCH_ENTRIES,
+    ...TERMINAL_CURSOR_SEARCH_ENTRIES,
+    ...TERMINAL_PANE_STYLE_SEARCH_ENTRIES,
+    ...(isWindows ? TERMINAL_WINDOWS_SEARCH_ENTRIES : []),
+    ...TERMINAL_DARK_THEME_SEARCH_ENTRIES,
+    ...TERMINAL_LIGHT_THEME_SEARCH_ENTRIES,
+    ...TERMINAL_ADVANCED_SEARCH_ENTRIES
+  ]
+}
