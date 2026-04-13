@@ -16,6 +16,7 @@ const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
 const MarkdownPreview = lazy(() => import('./MarkdownPreview'))
 const ImageViewer = lazy(() => import('./ImageViewer'))
 const ImageDiffViewer = lazy(() => import('./ImageDiffViewer'))
+const MermaidViewer = lazy(() => import('./MermaidViewer'))
 
 const richMarkdownSizeEncoder = new TextEncoder()
 // Why: encodeInto() with a pre-allocated buffer avoids creating a new
@@ -40,6 +41,7 @@ export function EditorContent({
   worktreeEntries,
   resolvedLanguage,
   isMarkdown,
+  isMermaid,
   mdViewMode,
   sideBySide,
   pendingEditorReveal,
@@ -55,6 +57,7 @@ export function EditorContent({
   worktreeEntries: GitStatusEntry[]
   resolvedLanguage: string
   isMarkdown: boolean
+  isMermaid: boolean
   mdViewMode: MarkdownViewMode
   sideBySide: boolean
   pendingEditorReveal: {
@@ -282,7 +285,17 @@ export function EditorContent({
       <div className="flex flex-1 min-h-0 flex-col">
         {activeFile.conflict && <ConflictBanner file={activeFile} entry={activeConflictEntry} />}
         <div className="min-h-0 flex-1 relative">
-          {isMarkdown ? renderMarkdownContent(fc) : renderMonacoEditor(fc)}
+          {isMarkdown ? (
+            renderMarkdownContent(fc)
+          ) : isMermaid && mdViewMode === 'rich' ? (
+            <MermaidViewer
+              key={activeFile.id}
+              content={editBuffers[activeFile.id] ?? fc.content}
+              filePath={activeFile.filePath}
+            />
+          ) : (
+            renderMonacoEditor(fc)
+          )}
         </div>
       </div>
     )

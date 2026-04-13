@@ -18,6 +18,8 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   '.jsonc': 'json',
   '.md': 'markdown',
   '.mdx': 'markdown',
+  '.mmd': 'mermaid',
+  '.mermaid': 'mermaid',
   '.css': 'css',
   '.scss': 'scss',
   '.less': 'less',

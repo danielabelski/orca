@@ -240,6 +240,26 @@
   font-size: 0.85em;
   margin-bottom: 0.5em;
 }
+/* Full-file mermaid diagram viewer — used when opening .mmd/.mermaid files
+   in diagram mode. Centers the rendered SVG and adds padding so diagrams
+   don't press against viewport edges. */
+.mermaid-viewer {
+  background: var(--color-background, transparent);
+}
+.mermaid-viewer-canvas {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100%;
+  padding: 32px 24px;
+}
+.mermaid-viewer-canvas .mermaid-block {
+  max-width: 100%;
+}
+.mermaid-viewer-canvas .mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
 
 .markdown-body ul,
 .markdown-body ol {

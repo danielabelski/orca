@@ -151,6 +151,10 @@ function EditorPanelInner({
             // last active.
             scrollTopCache.delete(`${prevFile.filePath}:rich`)
             scrollTopCache.delete(`${prevFile.filePath}:preview`)
+            // Why: mermaid files use a mode-scoped cache key just like markdown.
+            // Without this, a reopened .mmd file would restore a stale scroll
+            // position from the previous session even if the content changed.
+            scrollTopCache.delete(`${prevFile.filePath}:mermaid-diagram`)
             cursorPositionCache.delete(prevFile.filePath)
             deleteCacheEntriesByPrefix(cursorPositionCache, `${prevFile.filePath}::`)
             break
@@ -599,10 +603,13 @@ function EditorPanelInner({
   )
 
   const isMarkdown = resolvedLanguage === 'markdown'
-  const mdViewMode: MarkdownViewMode =
-    isMarkdown && activeFile.mode === 'edit'
-      ? (markdownViewMode[activeFile.id] ?? 'rich')
-      : 'source'
+  const isMermaid = resolvedLanguage === 'mermaid'
+  // Why: mermaid files reuse the same per-file view mode store as markdown.
+  // Both default to 'rich' (rendered view) and fall back to 'source' (Monaco).
+  const hasViewModeToggle = (isMarkdown || isMermaid) && activeFile.mode === 'edit'
+  const mdViewMode: MarkdownViewMode = hasViewModeToggle
+    ? (markdownViewMode[activeFile.id] ?? 'rich')
+    : 'source'
 
   const handleOpenDiffTargetFile = (): void => {
     if (!openFileState.canOpen) {
@@ -731,7 +738,7 @@ function EditorPanelInner({
               </Tooltip>
             </TooltipProvider>
           )}
-          {isMarkdown && activeFile.mode === 'edit' && (
+          {hasViewModeToggle && (
             <MarkdownViewToggle
               mode={mdViewMode}
               onChange={(mode) => setMarkdownViewMode(activeFile.id, mode)}
@@ -749,6 +756,7 @@ function EditorPanelInner({
           worktreeEntries={worktreeEntries}
           resolvedLanguage={resolvedLanguage}
           isMarkdown={isMarkdown}
+          isMermaid={isMermaid}
           mdViewMode={mdViewMode}
           sideBySide={sideBySide}
           pendingEditorReveal={pendingEditorReveal}
