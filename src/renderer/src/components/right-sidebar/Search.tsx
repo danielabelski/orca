@@ -1,21 +1,11 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import {
-  Search as SearchIcon,
-  CaseSensitive,
-  WholeWord,
-  Regex,
-  X,
-  Loader2,
-  Ellipsis
-} from 'lucide-react'
 import { useAppStore } from '@/store'
-import { Button } from '@/components/ui/button'
 import type { SearchFileResult, SearchMatch } from '../../../../shared/types'
 import { buildSearchRows } from './search-rows'
 import { cancelRevealFrame, openMatchResult } from './search-match-open'
-import { SearchFilters } from './SearchFilters'
-import { ToggleButton, FileResultRow, MatchResultRow } from './SearchResultItems'
+import { SearchHeader } from './SearchHeader'
+import { FileResultRow, MatchResultRow } from './SearchResultItems'
 
 const SEARCH_DEBOUNCE_MS = 300
 const SEARCH_MAX_RESULTS = 2000
@@ -313,101 +303,51 @@ export default function Search(): React.JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex flex-col gap-1.5 p-2 border-b border-border">
-        <div className="flex items-center gap-1 bg-input/50 border border-border rounded-sm px-1.5 focus-within:border-ring">
-          <SearchIcon size={14} className="text-muted-foreground flex-shrink-0" />
-          <input
-            ref={inputRef}
-            type="text"
-            className="flex-1 bg-transparent text-xs py-1.5 outline-none text-foreground placeholder:text-muted-foreground/50 min-w-0"
-            placeholder="Search"
-            value={fileSearchQuery}
-            onChange={handleQueryChange}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-          />
-          {fileSearchLoading && (
-            <Loader2 size={12} className="text-muted-foreground animate-spin flex-shrink-0" />
-          )}
-          {fileSearchQuery && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="h-auto w-auto rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-              onClick={handleClearSearch}
-            >
-              <X size={12} />
-            </Button>
-          )}
-          <ToggleButton
-            active={searchDetailsVisible}
-            onClick={handleToggleSearchDetails}
-            title="Toggle Search Details"
-            ariaExpanded={searchDetailsVisible}
-          >
-            <Ellipsis size={14} />
-          </ToggleButton>
-          <ToggleButton
-            active={fileSearchCaseSensitive}
-            onClick={() => {
-              updateActiveSearchState({ caseSensitive: !fileSearchCaseSensitive })
-              rerunSearch()
-            }}
-            title="Match Case"
-          >
-            <CaseSensitive size={14} />
-          </ToggleButton>
-          <ToggleButton
-            active={fileSearchWholeWord}
-            onClick={() => {
-              updateActiveSearchState({ wholeWord: !fileSearchWholeWord })
-              rerunSearch()
-            }}
-            title="Match Whole Word"
-          >
-            <WholeWord size={14} />
-          </ToggleButton>
-          <ToggleButton
-            active={fileSearchUseRegex}
-            onClick={() => {
-              updateActiveSearchState({ useRegex: !fileSearchUseRegex })
-              rerunSearch()
-            }}
-            title="Use Regular Expression"
-          >
-            <Regex size={14} />
-          </ToggleButton>
-        </div>
-
-        {searchDetailsVisible && (
-          // Why: VS Code keeps include/exclude scope controls tucked behind a
-          // dedicated details toggle so the default search UI stays compact
-          // until the user asks for extra filtering options.
-          <SearchFilters
-            includePattern={fileSearchIncludePattern}
-            excludePattern={fileSearchExcludePattern}
-            includeInputRef={includeInputRef}
-            excludeInputRef={excludeInputRef}
-            onIncludeChange={(value) => {
-              updateActiveSearchState({
-                includePattern: value,
-                queryDetailsExpanded:
-                  value.trim().length > 0 || fileSearchExcludePattern.trim().length > 0
-              })
-              rerunSearch()
-            }}
-            onExcludeChange={(value) => {
-              updateActiveSearchState({
-                excludePattern: value,
-                queryDetailsExpanded:
-                  fileSearchIncludePattern.trim().length > 0 || value.trim().length > 0
-              })
-              rerunSearch()
-            }}
-          />
-        )}
-      </div>
+      <SearchHeader
+        inputRef={inputRef}
+        includeInputRef={includeInputRef}
+        excludeInputRef={excludeInputRef}
+        query={fileSearchQuery}
+        loading={fileSearchLoading}
+        detailsVisible={searchDetailsVisible}
+        caseSensitive={fileSearchCaseSensitive}
+        wholeWord={fileSearchWholeWord}
+        useRegex={fileSearchUseRegex}
+        includePattern={fileSearchIncludePattern}
+        excludePattern={fileSearchExcludePattern}
+        onQueryChange={handleQueryChange}
+        onKeyDown={handleKeyDown}
+        onClearSearch={handleClearSearch}
+        onToggleSearchDetails={handleToggleSearchDetails}
+        onToggleCaseSensitive={() => {
+          updateActiveSearchState({ caseSensitive: !fileSearchCaseSensitive })
+          rerunSearch()
+        }}
+        onToggleWholeWord={() => {
+          updateActiveSearchState({ wholeWord: !fileSearchWholeWord })
+          rerunSearch()
+        }}
+        onToggleRegex={() => {
+          updateActiveSearchState({ useRegex: !fileSearchUseRegex })
+          rerunSearch()
+        }}
+        onIncludeChange={(value) => {
+          updateActiveSearchState({
+            includePattern: value,
+            queryDetailsExpanded:
+              value.trim().length > 0 || fileSearchExcludePattern.trim().length > 0
+          })
+          rerunSearch()
+        }}
+        onExcludeChange={(value) => {
+          updateActiveSearchState({
+            excludePattern: value,
+            queryDetailsExpanded:
+              fileSearchIncludePattern.trim().length > 0 || value.trim().length > 0
+          })
+          rerunSearch()
+        }}
+      />
 
       {/* Why: the summary is rendered outside the virtualizer so it stays
          pinned at the top while the user scrolls through results. */}
