@@ -2,19 +2,13 @@ import type { WorktreeSetupLaunch } from '../../../shared/types'
 import { buildSetupRunnerCommand } from './setup-runner'
 import { useAppStore } from '@/store'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
+import type { PendingTerminalSplitStartup } from '@/store/slices/terminals'
 
 type WorktreeActivationStore = {
   tabsByWorktree: Record<string, { id: string }[]>
   createTab: (worktreeId: string) => { id: string }
   setActiveTab: (tabId: string) => void
-  queueTabSetupSplit: (
-    tabId: string,
-    startup: { command: string; env?: Record<string, string> }
-  ) => void
-  queueTabIssueCommandSplit: (
-    tabId: string,
-    startup: { command: string; env?: Record<string, string> }
-  ) => void
+  queueTabSplitStartup: (tabId: string, startup: PendingTerminalSplitStartup) => void
 }
 
 /**
@@ -31,7 +25,7 @@ export function activateAndRevealWorktree(
   worktreeId: string,
   opts?: {
     setup?: WorktreeSetupLaunch
-    issueCommand?: { command: string; env?: Record<string, string> }
+    issueCommand?: WorktreeSetupLaunch
   }
 ): boolean {
   const state = useAppStore.getState()
@@ -83,7 +77,7 @@ export function ensureWorktreeHasInitialTerminal(
   store: WorktreeActivationStore,
   worktreeId: string,
   setup?: WorktreeSetupLaunch,
-  issueCommand?: { command: string; env?: Record<string, string> }
+  issueCommand?: WorktreeSetupLaunch
 ): void {
   const existingTabs = store.tabsByWorktree[worktreeId] ?? []
   if (existingTabs.length > 0) {
@@ -93,15 +87,24 @@ export function ensureWorktreeHasInitialTerminal(
   const terminalTab = store.createTab(worktreeId)
   store.setActiveTab(terminalTab.id)
 
+  const queueRunnerSplit = (
+    kind: PendingTerminalSplitStartup['kind'],
+    launch: WorktreeSetupLaunch
+  ): void => {
+    const command = buildSetupRunnerCommand(launch.runnerScriptPath)
+    store.queueTabSplitStartup(terminalTab.id, {
+      kind,
+      command,
+      env: launch.envVars
+    })
+  }
+
   // Why: run the setup script in a split pane to the right so the main
   // terminal stays immediately interactive. The TerminalPane reads this
   // signal on mount, creates the initial pane clean, then splits right
   // and injects the setup command into the new pane's PTY.
   if (setup) {
-    store.queueTabSetupSplit(terminalTab.id, {
-      command: buildSetupRunnerCommand(setup.runnerScriptPath),
-      env: setup.envVars
-    })
+    queueRunnerSplit('setup', setup)
   }
 
   // Why: when the user links a GitHub issue and opts into that repo's
@@ -110,6 +113,6 @@ export function ensureWorktreeHasInitialTerminal(
   // parallel; repo bootstrap and personal issue workflows are separate
   // concerns, so Orca should not invent a dependency between them.
   if (issueCommand) {
-    store.queueTabIssueCommandSplit(terminalTab.id, issueCommand)
+    queueRunnerSplit('issue-command', issueCommand)
   }
 }

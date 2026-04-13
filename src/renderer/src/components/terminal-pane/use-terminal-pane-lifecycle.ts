@@ -23,18 +23,17 @@ import { connectPanePty } from './pty-connection'
 import type { PtyTransport } from './pty-transport'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
 import { registerRuntimeTerminalTab, scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
+import type { PendingTerminalSplitStartup } from '@/store/slices/terminals'
 
 type UseTerminalPaneLifecycleDeps = {
   tabId: string
   worktreeId: string
   cwd?: string
   startup?: { command: string; env?: Record<string, string> } | null
-  /** When present, the initial pane boots clean and a right-side split pane is
-   *  created to run the setup command — keeping the main terminal interactive. */
-  setupSplit?: { command: string; env?: Record<string, string> } | null
-  /** When present, a split pane is created to run the repo's configured
-   *  issue-automation command with the linked issue number interpolated. */
-  issueCommandSplit?: { command: string; env?: Record<string, string> } | null
+  /** Ordered split-startup tasks captured on initial mount. Setup and issue
+   *  automation both use the same split-pane launch path; the `kind` field
+   *  preserves the focus/layout nuances between them. */
+  splitStartups?: PendingTerminalSplitStartup[]
   isActive: boolean
   systemPrefersDark: boolean
   settings: GlobalSettings | null | undefined
@@ -79,8 +78,7 @@ export function useTerminalPaneLifecycle({
   worktreeId,
   cwd,
   startup,
-  setupSplit,
-  issueCommandSplit,
+  splitStartups,
   isActive,
   systemPrefersDark,
   settings,
@@ -380,11 +378,10 @@ export function useTerminalPaneLifecycle({
     } else {
       setExpandedPane(null)
     }
-    // Why: setup split creates a right-side pane for the setup script so the
-    // main (left) terminal stays immediately usable. We inject the setup command
-    // into ptyDeps.startup right before splitting — connectPanePty (called from
-    // onPaneCreated) reads it synchronously and clears it, so only the new pane
-    // gets the command. The initial pane already consumed startup=null above.
+    // Why: setup and issue automation now share one ordered split-startup queue,
+    // but the layout rules still differ by task kind. Setup claims the right
+    // column first, and issue automation nests into that area when present so
+    // the main shell remains the dominant pane.
     let issueAutomationAnchorPaneId: number | null = null
     // Why: capture the main shell pane *before* any splits mutate the pane list.
     // Both the setup and issue-command paths need to restore focus back to this
@@ -392,40 +389,38 @@ export function useTerminalPaneLifecycle({
     // than relying on getPanes()[0] which returns insertion order, not visual order.
     const initialPane = manager.getActivePane() ?? manager.getPanes()[0]
 
-    if (setupSplit) {
-      if (initialPane) {
-        ptyDeps.startup = { command: setupSplit.command, env: setupSplit.env }
+    for (const splitStartup of splitStartups ?? []) {
+      if (splitStartup.kind === 'setup') {
+        if (!initialPane) {
+          continue
+        }
+        ptyDeps.startup = { command: splitStartup.command, env: splitStartup.env }
         const setupPane = manager.splitPane(initialPane.id, 'vertical')
         issueAutomationAnchorPaneId = setupPane?.id ?? null
         // Restore focus to the main (left) pane so the user's terminal
         // receives keyboard input — the setup pane runs unattended.
         manager.setActivePane(initialPane.id, { focus: isActive })
+        continue
       }
-    }
 
-    // Why: when the user links a GitHub issue during worktree creation and has
-    // enabled that repo's issue automation, spawn a separate split pane to run
-    // the agent command. This runs independently from setup: the issue command
-    // is a per-user prompt/template rather than repo bootstrap, so Orca should
-    // not guess at ordering requirements that vary by user workflow.
-    if (issueCommandSplit) {
       const targetPane =
         (issueAutomationAnchorPaneId !== null
           ? (manager.getPanes().find((pane) => pane.id === issueAutomationAnchorPaneId) ?? null)
           : null) ??
         manager.getActivePane() ??
         manager.getPanes()[0]
-      if (targetPane) {
-        ptyDeps.startup = { command: issueCommandSplit.command, env: issueCommandSplit.env }
-        manager.splitPane(targetPane.id, 'vertical')
-        // Why: if setup already claimed the right half, nest issue automation
-        // inside that automation area instead of splitting the main shell again.
-        // This preserves the primary terminal as the dominant pane while setup
-        // and issue panes share the secondary column.
-        const focusPaneId =
-          issueAutomationAnchorPaneId !== null ? (initialPane?.id ?? targetPane.id) : targetPane.id
-        manager.setActivePane(focusPaneId, { focus: isActive })
+      if (!targetPane) {
+        continue
       }
+      ptyDeps.startup = { command: splitStartup.command, env: splitStartup.env }
+      manager.splitPane(targetPane.id, 'vertical')
+      // Why: if setup already claimed the right half, nest issue automation
+      // inside that automation area instead of splitting the main shell again.
+      // This preserves the primary terminal as the dominant pane while setup
+      // and issue panes share the secondary column.
+      const focusPaneId =
+        issueAutomationAnchorPaneId !== null ? (initialPane?.id ?? targetPane.id) : targetPane.id
+      manager.setActivePane(focusPaneId, { focus: isActive })
     }
 
     shouldPersistLayout = true

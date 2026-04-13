@@ -11,6 +11,10 @@ const {
   existsSyncMock,
   statSyncMock,
   accessSyncMock,
+  mkdirSyncMock,
+  writeFileSyncMock,
+  chmodSyncMock,
+  getPathMock,
   spawnMock,
   openCodeBuildPtyEnvMock,
   openCodeClearPtyMock,
@@ -24,6 +28,10 @@ const {
   existsSyncMock: vi.fn(),
   statSyncMock: vi.fn(),
   accessSyncMock: vi.fn(),
+  mkdirSyncMock: vi.fn(),
+  writeFileSyncMock: vi.fn(),
+  chmodSyncMock: vi.fn(),
+  getPathMock: vi.fn(),
   spawnMock: vi.fn(),
   openCodeBuildPtyEnvMock: vi.fn(),
   openCodeClearPtyMock: vi.fn(),
@@ -32,6 +40,9 @@ const {
 }))
 
 vi.mock('electron', () => ({
+  app: {
+    getPath: getPathMock
+  },
   ipcMain: {
     handle: handleMock,
     on: onMock,
@@ -44,6 +55,9 @@ vi.mock('fs', () => ({
   existsSync: existsSyncMock,
   statSync: statSyncMock,
   accessSync: accessSyncMock,
+  mkdirSync: mkdirSyncMock,
+  writeFileSync: writeFileSyncMock,
+  chmodSync: chmodSyncMock,
   constants: {
     X_OK: 1
   }
@@ -82,6 +96,33 @@ describe('registerPtyHandlers', () => {
     }
   }
 
+  function createMockProc() {
+    let dataHandler: ((data: string) => void) | null = null
+    let exitHandler: ((event: { exitCode: number }) => void) | null = null
+
+    return {
+      proc: {
+        onData: vi.fn((handler: (data: string) => void) => {
+          dataHandler = handler
+          return makeDisposable()
+        }),
+        onExit: vi.fn((handler: (event: { exitCode: number }) => void) => {
+          exitHandler = handler
+          return makeDisposable()
+        }),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn()
+      },
+      emitData(data: string) {
+        dataHandler?.(data)
+      },
+      emitExit(exitCode = 0) {
+        exitHandler?.({ exitCode })
+      }
+    }
+  }
+
   beforeEach(() => {
     delete process.env.OPENCODE_CONFIG_DIR
     handlers.clear()
@@ -92,6 +133,10 @@ describe('registerPtyHandlers', () => {
     existsSyncMock.mockReset()
     statSyncMock.mockReset()
     accessSyncMock.mockReset()
+    mkdirSyncMock.mockReset()
+    writeFileSyncMock.mockReset()
+    chmodSyncMock.mockReset()
+    getPathMock.mockReset()
     spawnMock.mockReset()
     openCodeBuildPtyEnvMock.mockReset()
     openCodeClearPtyMock.mockReset()
@@ -103,6 +148,7 @@ describe('registerPtyHandlers', () => {
     handleMock.mockImplementation((channel, handler) => {
       handlers.set(channel, handler)
     })
+    getPathMock.mockReturnValue('/tmp/orca-user-data')
     existsSyncMock.mockReturnValue(true)
     statSyncMock.mockReturnValue({ isDirectory: () => true })
     openCodeBuildPtyEnvMock.mockReturnValue({
@@ -116,13 +162,7 @@ describe('registerPtyHandlers', () => {
         ? '/tmp/orca-pi-agent-overlay'
         : '/tmp/orca-pi-agent-overlay'
     }))
-    spawnMock.mockReturnValue({
-      onData: vi.fn(() => makeDisposable()),
-      onExit: vi.fn(() => makeDisposable()),
-      write: vi.fn(),
-      resize: vi.fn(),
-      kill: vi.fn()
-    })
+    spawnMock.mockImplementation(() => createMockProc().proc)
   })
 
   /** Helper: trigger pty:spawn and return the env passed to node-pty. */
@@ -166,6 +206,26 @@ describe('registerPtyHandlers', () => {
     }
   }
 
+  /** Helper: trigger pty:spawn and return the full node-pty spawn call. */
+  function spawnAndGetCall(args?: {
+    cwd?: string
+    env?: Record<string, string>
+    command?: string
+  }): [string, string[], { cwd: string; env: Record<string, string> }] {
+    handlers.clear()
+    registerPtyHandlers(mainWindow as never)
+    handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      ...args
+    })
+    return spawnMock.mock.calls.at(-1) as [
+      string,
+      string[],
+      { cwd: string; env: Record<string, string> }
+    ]
+  }
+
   describe('spawn environment', () => {
     it('defaults LANG to en_US.UTF-8 when not inherited from process.env', () => {
       const env = spawnAndGetEnv(undefined, { LANG: undefined })
@@ -195,13 +255,24 @@ describe('registerPtyHandlers', () => {
     })
 
     it('injects the OpenCode hook env into Orca terminal PTYs', () => {
-      const env = spawnAndGetEnv()
-      expect(openCodeBuildPtyEnvMock).toHaveBeenCalledTimes(1)
-      expect(openCodeBuildPtyEnvMock.mock.calls[0]?.[0]).toEqual(expect.any(String))
-      expect(env.ORCA_OPENCODE_HOOK_PORT).toBe('4567')
-      expect(env.ORCA_OPENCODE_HOOK_TOKEN).toBe('opencode-token')
-      expect(env.ORCA_OPENCODE_PTY_ID).toBe('test-pty')
-      expect(env.OPENCODE_CONFIG_DIR).toBe('/tmp/orca-opencode-config')
+      const originalConfigDir = process.env.OPENCODE_CONFIG_DIR
+      delete process.env.OPENCODE_CONFIG_DIR
+
+      try {
+        const env = spawnAndGetEnv()
+        expect(openCodeBuildPtyEnvMock).toHaveBeenCalledTimes(1)
+        expect(openCodeBuildPtyEnvMock.mock.calls[0]?.[0]).toEqual(expect.any(String))
+        expect(env.ORCA_OPENCODE_HOOK_PORT).toBe('4567')
+        expect(env.ORCA_OPENCODE_HOOK_TOKEN).toBe('opencode-token')
+        expect(env.ORCA_OPENCODE_PTY_ID).toBe('test-pty')
+        expect(env.OPENCODE_CONFIG_DIR).toBe('/tmp/orca-opencode-config')
+      } finally {
+        if (originalConfigDir === undefined) {
+          delete process.env.OPENCODE_CONFIG_DIR
+        } else {
+          process.env.OPENCODE_CONFIG_DIR = originalConfigDir
+        }
+      }
     })
 
     it('injects the Pi agent overlay env into Orca terminal PTYs', () => {
@@ -213,6 +284,162 @@ describe('registerPtyHandlers', () => {
       const env = spawnAndGetEnv(undefined, { CODEX_HOME: '/tmp/system-codex-home' }, () => null)
       expect(env.CODEX_HOME).toBe('/tmp/system-codex-home')
     })
+  })
+
+  it('spawns a plain POSIX login shell and queues startup commands for the live session', () => {
+    const originalPlatform = process.platform
+    const originalShell = process.env.SHELL
+
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'darwin'
+    })
+    process.env.SHELL = '/bin/zsh'
+
+    try {
+      const [shell, args, options] = spawnAndGetCall({ cwd: '/tmp', command: 'printf "hello"' })
+      expect(shell).toBe('/bin/zsh')
+      expect(args).toEqual(['-l'])
+      expect(options.env.ZDOTDIR).toBe('/tmp/orca-user-data/shell-ready/zsh')
+      expect(options.env.ORCA_ORIG_ZDOTDIR).toBe(process.env.HOME)
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
+      }
+    }
+  })
+
+  it('preserves startup commands when falling back to a system shell', () => {
+    const originalShell = process.env.SHELL
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    existsSyncMock.mockImplementation(
+      (targetPath: string) => targetPath !== '/opt/homebrew/bin/bash'
+    )
+
+    try {
+      process.env.SHELL = '/opt/homebrew/bin/bash'
+
+      const [shell, args, options] = spawnAndGetCall({ cwd: '/tmp', command: 'echo hello' })
+
+      expect(shell).toBe('/bin/zsh')
+      expect(args).toEqual(['-l'])
+      expect(options.env.ZDOTDIR).toBe('/tmp/orca-user-data/shell-ready/zsh')
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Primary shell "/opt/homebrew/bin/bash" failed')
+      )
+    } finally {
+      warnSpy.mockRestore()
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
+      }
+    }
+  })
+
+  it('spawns a plain cmd session on Windows and queues startup commands separately', () => {
+    const originalPlatform = process.platform
+    const originalComSpec = process.env.COMSPEC
+
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
+    process.env.COMSPEC = 'C:\\Windows\\System32\\cmd.exe'
+
+    try {
+      const [shell, args] = spawnAndGetCall({
+        cwd: 'C:\\repo',
+        command: 'echo hello'
+      })
+      expect(shell).toBe('C:\\Windows\\System32\\cmd.exe')
+      expect(args).toEqual([])
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+      if (originalComSpec === undefined) {
+        delete process.env.COMSPEC
+      } else {
+        process.env.COMSPEC = originalComSpec
+      }
+    }
+  })
+
+  it('spawns plain PowerShell when COMSPEC is unavailable', () => {
+    const originalPlatform = process.platform
+    const originalComSpec = process.env.COMSPEC
+
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
+    delete process.env.COMSPEC
+
+    try {
+      const [shell, args] = spawnAndGetCall({
+        cwd: 'C:\\repo',
+        command: 'Write-Host hello'
+      })
+      expect(shell).toBe('powershell.exe')
+      expect(args).toEqual([])
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+      if (originalComSpec === undefined) {
+        delete process.env.COMSPEC
+      } else {
+        process.env.COMSPEC = originalComSpec
+      }
+    }
+  })
+
+  it('spawns a plain WSL login shell and changes to the requested worktree before attach', () => {
+    const originalPlatform = process.platform
+    const originalUserProfile = process.env.USERPROFILE
+
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
+    process.env.USERPROFILE = 'C:\\Users\\jin'
+
+    try {
+      const [shell, args, options] = spawnAndGetCall({
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
+        command: 'echo hello'
+      })
+      expect(shell).toBe('wsl.exe')
+      expect(args).toEqual([
+        '-d',
+        'Ubuntu',
+        '--',
+        'bash',
+        '-c',
+        "cd '/home/jin/repo' && exec bash -l"
+      ])
+      expect(options.cwd).toBe('C:\\Users\\jin')
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+      if (originalUserProfile === undefined) {
+        delete process.env.USERPROFILE
+      } else {
+        process.env.USERPROFILE = originalUserProfile
+      }
+    }
   })
 
   it('rejects missing WSL worktree cwd instead of validating only the fallback Windows cwd', () => {
@@ -371,6 +598,175 @@ describe('registerPtyHandlers', () => {
       } else {
         process.env.SHELL = originalShell
       }
+    }
+  })
+
+  it('preserves startup commands when args.env.SHELL falls back to a system shell', () => {
+    const originalShell = process.env.SHELL
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    existsSyncMock.mockImplementation(
+      (targetPath: string) => targetPath !== '/opt/homebrew/bin/bash'
+    )
+
+    try {
+      process.env.SHELL = '/bin/bash'
+
+      const [shell, args, options] = spawnAndGetCall({
+        cwd: '/tmp',
+        command: 'echo hello',
+        env: { SHELL: '/opt/homebrew/bin/bash' }
+      })
+
+      expect(shell).toBe('/bin/zsh')
+      expect(args).toEqual(['-l'])
+      expect(options).toEqual(
+        expect.objectContaining({
+          cwd: '/tmp',
+          env: expect.objectContaining({ SHELL: '/bin/zsh' })
+        })
+      )
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Primary shell "/opt/homebrew/bin/bash" failed')
+      )
+    } finally {
+      warnSpy.mockRestore()
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
+      }
+    }
+  })
+
+  it('does not write the startup command before the shell-ready marker arrives', async () => {
+    vi.useFakeTimers()
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      registerPtyHandlers(mainWindow as never)
+      handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        cwd: '/tmp',
+        command: 'claude'
+      })
+
+      expect(mockProc.proc.write).not.toHaveBeenCalled()
+
+      mockProc.emitData('last login: today\r\n')
+      vi.runOnlyPendingTimers()
+      expect(mockProc.proc.write).not.toHaveBeenCalled()
+
+      mockProc.emitData('\x1b]133;A\x07% ')
+      await Promise.resolve()
+      vi.runAllTimers()
+      expect(mockProc.proc.write).toHaveBeenCalledWith('claude\n')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses a bash rcfile wrapper with an OSC 133 prompt marker for startup commands', () => {
+    const originalPlatform = process.platform
+    const originalShell = process.env.SHELL
+
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'darwin'
+    })
+    process.env.SHELL = '/bin/bash'
+
+    try {
+      const [shell, args] = spawnAndGetCall({ cwd: '/tmp', command: 'echo hello' })
+      expect(shell).toBe('/bin/bash')
+      expect(args).toEqual(['--rcfile', '/tmp/orca-user-data/shell-ready/bash/rcfile'])
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
+      }
+    }
+  })
+
+  it('falls back to a max wait when the shell emits no readiness output', async () => {
+    vi.useFakeTimers()
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      registerPtyHandlers(mainWindow as never)
+      handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        cwd: '/tmp',
+        command: 'codex'
+      })
+
+      vi.advanceTimersByTime(1500)
+      await Promise.resolve()
+      vi.runAllTimers()
+      expect(mockProc.proc.write).toHaveBeenCalledWith('codex\n')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes long startup commands in one shot after shell-ready, matching Superset', async () => {
+    vi.useFakeTimers()
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+    const longCommand = 'a'.repeat(700)
+
+    try {
+      registerPtyHandlers(mainWindow as never)
+      handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        cwd: '/tmp',
+        command: longCommand
+      })
+
+      mockProc.emitData('% ')
+      mockProc.emitData('\x1b]133;A\x07% ')
+      await Promise.resolve()
+      vi.runAllTimers()
+
+      const writes = mockProc.proc.write.mock.calls.map(([value]) => value)
+      expect(writes).toEqual([`${longCommand}\n`])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes long renderer input to the PTY in one shot, matching Superset', () => {
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+    const longInput = 'a'.repeat(700)
+
+    try {
+      registerPtyHandlers(mainWindow as never)
+      const result = handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        cwd: '/tmp'
+      }) as { id: string }
+
+      const writeListener = onMock.mock.calls.find(([channel]) => channel === 'pty:write')?.[1]
+      expect(writeListener).toBeTypeOf('function')
+
+      writeListener?.(null, { id: result.id, data: longInput })
+
+      const writes = mockProc.proc.write.mock.calls.map(([value]) => value)
+      expect(writes).toEqual([longInput])
+    } finally {
+      /* no timers */
     }
   })
 

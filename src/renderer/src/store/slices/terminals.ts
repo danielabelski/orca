@@ -14,6 +14,12 @@ import {
   ensurePtyDispatcher
 } from '@/components/terminal-pane/pty-transport'
 
+export type PendingTerminalSplitStartup = {
+  kind: 'setup' | 'issue-command'
+  command: string
+  env?: Record<string, string>
+}
+
 export type TerminalSlice = {
   tabsByWorktree: Record<string, TerminalTab[]>
   activeTabId: string | null
@@ -34,14 +40,10 @@ export type TerminalSlice = {
   canExpandPaneByTabId: Record<string, boolean>
   terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot>
   pendingStartupByTabId: Record<string, { command: string; env?: Record<string, string> }>
-  /** Queued setup-split requests — when present, TerminalPane creates the
-   *  initial pane clean, then splits right and runs the command in the new pane
-   *  so the main terminal stays immediately interactive. */
-  pendingSetupSplitByTabId: Record<string, { command: string; env?: Record<string, string> }>
-  /** Queued issue-command-split requests — similar to setup splits but triggered
-   *  when an issue is linked during worktree creation and the repo's issue
-   *  automation command is enabled. */
-  pendingIssueCommandSplitByTabId: Record<string, { command: string; env?: Record<string, string> }>
+  /** Queued split-startup requests — setup and issue automation both use the
+   *  same split-pane launch machinery, so preserve one ordered queue per tab
+   *  instead of duplicating store state for each startup source. */
+  pendingSplitStartupsByTabId: Record<string, PendingTerminalSplitStartup[]>
   tabBarOrderByWorktree: Record<string, string[]>
   workspaceSessionReady: boolean
   pendingReconnectWorktreeIds: string[]
@@ -77,18 +79,8 @@ export type TerminalSlice = {
   consumeTabStartupCommand: (
     tabId: string
   ) => { command: string; env?: Record<string, string> } | null
-  queueTabSetupSplit: (
-    tabId: string,
-    startup: { command: string; env?: Record<string, string> }
-  ) => void
-  consumeTabSetupSplit: (tabId: string) => { command: string; env?: Record<string, string> } | null
-  queueTabIssueCommandSplit: (
-    tabId: string,
-    issueCommand: { command: string; env?: Record<string, string> }
-  ) => void
-  consumeTabIssueCommandSplit: (
-    tabId: string
-  ) => { command: string; env?: Record<string, string> } | null
+  queueTabSplitStartup: (tabId: string, startup: PendingTerminalSplitStartup) => void
+  consumeTabSplitStartups: (tabId: string) => PendingTerminalSplitStartup[]
   /** Per-pane timestamp (ms) when the prompt-cache countdown started (agent became idle).
    *  Keys are `${tabId}:${paneId}` composites so split-pane tabs can track each pane
    *  independently. null means no active timer for that pane. */
@@ -114,8 +106,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   canExpandPaneByTabId: {},
   terminalLayoutsByTabId: {},
   pendingStartupByTabId: {},
-  pendingSetupSplitByTabId: {},
-  pendingIssueCommandSplitByTabId: {},
+  pendingSplitStartupsByTabId: {},
   tabBarOrderByWorktree: {},
   workspaceSessionReady: false,
   pendingReconnectWorktreeIds: [],
@@ -226,10 +217,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextRuntimePaneTitlesByTabId[tabId]
       const nextPendingStartupByTabId = { ...s.pendingStartupByTabId }
       delete nextPendingStartupByTabId[tabId]
-      const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
-      delete nextPendingSetupSplitByTabId[tabId]
-      const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
-      delete nextPendingIssueCommandSplitByTabId[tabId]
+      const nextPendingSplitStartupsByTabId = { ...s.pendingSplitStartupsByTabId }
+      delete nextPendingSplitStartupsByTabId[tabId]
       const nextCacheTimer = { ...s.cacheTimerByKey }
       // Why: cache timer keys are `${tabId}:${paneId}` composites. Remove all
       // entries for the closing tab, regardless of how many panes it had.
@@ -258,8 +247,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         canExpandPaneByTabId: nextCanExpand,
         terminalLayoutsByTabId: nextLayouts,
         pendingStartupByTabId: nextPendingStartupByTabId,
-        pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
-        pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
+        pendingSplitStartupsByTabId: nextPendingSplitStartupsByTabId,
         cacheTimerByKey: nextCacheTimer
       }
     })
@@ -522,15 +510,13 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         delete nextPendingCodexPaneRestartIds[ptyId]
         delete nextCodexRestartNoticeByPtyId[ptyId]
       }
-      // Why: clear any queued setup and issue-command splits for the affected
-      // tabs so stale commands do not fire unintended splits when the worktree
-      // is later remounted.
-      const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
-      const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
+      // Why: clear any queued split-startup requests for the affected tabs so
+      // stale setup or issue commands do not fire unintended splits when the
+      // worktree is later remounted.
+      const nextPendingSplitStartupsByTabId = { ...s.pendingSplitStartupsByTabId }
       for (const tab of tabs) {
         delete nextRuntimePaneTitlesByTabId[tab.id]
-        delete nextPendingSetupSplitByTabId[tab.id]
-        delete nextPendingIssueCommandSplitByTabId[tab.id]
+        delete nextPendingSplitStartupsByTabId[tab.id]
       }
 
       // Why: browser tabs are factored into getWorktreeStatus — leaving them
@@ -558,8 +544,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         suppressedPtyExitIds: nextSuppressedPtyExitIds,
         pendingCodexPaneRestartIds: nextPendingCodexPaneRestartIds,
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
-        pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
-        pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
+        pendingSplitStartupsByTabId: nextPendingSplitStartupsByTabId,
         browserTabsByWorktree: nextBrowserTabsByWorktree,
         activeBrowserTabIdByWorktree: nextActiveBrowserTabIdByWorktree,
         ...(shouldResetGlobalBrowser
@@ -719,49 +704,21 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     return pending
   },
 
-  queueTabSetupSplit: (tabId, startup) => {
+  queueTabSplitStartup: (tabId, startup) => {
     set((s) => ({
-      pendingSetupSplitByTabId: {
-        ...s.pendingSetupSplitByTabId,
-        [tabId]: startup
+      pendingSplitStartupsByTabId: {
+        ...s.pendingSplitStartupsByTabId,
+        [tabId]: [...(s.pendingSplitStartupsByTabId[tabId] ?? []), startup]
       }
     }))
   },
 
-  consumeTabSetupSplit: (tabId) => {
-    const pending = get().pendingSetupSplitByTabId[tabId]
-    if (!pending) {
-      return null
-    }
-
+  consumeTabSplitStartups: (tabId) => {
+    const pending = get().pendingSplitStartupsByTabId[tabId] ?? []
     set((s) => {
-      const next = { ...s.pendingSetupSplitByTabId }
+      const next = { ...s.pendingSplitStartupsByTabId }
       delete next[tabId]
-      return { pendingSetupSplitByTabId: next }
-    })
-
-    return pending
-  },
-
-  queueTabIssueCommandSplit: (tabId, issueCommand) => {
-    set((s) => ({
-      pendingIssueCommandSplitByTabId: {
-        ...s.pendingIssueCommandSplitByTabId,
-        [tabId]: issueCommand
-      }
-    }))
-  },
-
-  consumeTabIssueCommandSplit: (tabId) => {
-    const pending = get().pendingIssueCommandSplitByTabId[tabId]
-    if (!pending) {
-      return null
-    }
-
-    set((s) => {
-      const next = { ...s.pendingIssueCommandSplitByTabId }
-      delete next[tabId]
-      return { pendingIssueCommandSplitByTabId: next }
+      return { pendingSplitStartupsByTabId: next }
     })
 
     return pending

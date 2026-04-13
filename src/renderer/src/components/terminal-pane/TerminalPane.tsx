@@ -109,12 +109,10 @@ export default function TerminalPane({
   const settings = useAppStore((store) => store.settings)
   const [startup] = useState(() => useAppStore.getState().pendingStartupByTabId[tabId])
   const consumeTabStartupCommand = useAppStore((store) => store.consumeTabStartupCommand)
-  const [setupSplit] = useState(() => useAppStore.getState().pendingSetupSplitByTabId[tabId])
-  const consumeTabSetupSplit = useAppStore((store) => store.consumeTabSetupSplit)
-  const [issueCommandSplit] = useState(
-    () => useAppStore.getState().pendingIssueCommandSplitByTabId[tabId]
+  const [splitStartups] = useState(
+    () => useAppStore.getState().pendingSplitStartupsByTabId[tabId] ?? []
   )
-  const consumeTabIssueCommandSplit = useAppStore((store) => store.consumeTabIssueCommandSplit)
+  const consumeTabSplitStartups = useAppStore((store) => store.consumeTabSplitStartups)
 
   useEffect(() => {
     if (startup) {
@@ -123,17 +121,10 @@ export default function TerminalPane({
   }, [startup, tabId, consumeTabStartupCommand])
 
   useEffect(() => {
-    if (setupSplit) {
-      consumeTabSetupSplit(tabId)
+    if (splitStartups.length > 0) {
+      consumeTabSplitStartups(tabId)
     }
-  }, [setupSplit, tabId, consumeTabSetupSplit])
-
-  // Clear the queued issue-command split once this tab has captured it for initial mount.
-  useEffect(() => {
-    if (issueCommandSplit) {
-      consumeTabIssueCommandSplit(tabId)
-    }
-  }, [issueCommandSplit, tabId, consumeTabIssueCommandSplit])
+  }, [splitStartups, tabId, consumeTabSplitStartups])
 
   const settingsRef = useRef(settings)
   settingsRef.current = settings
@@ -253,8 +244,7 @@ export default function TerminalPane({
     worktreeId,
     cwd,
     startup,
-    setupSplit,
-    issueCommandSplit,
+    splitStartups,
     isActive,
     systemPrefersDark,
     settings,
@@ -422,20 +412,36 @@ export default function TerminalPane({
     if (!isActive) {
       return
     }
-    const container = containerRef.current
-    if (!container) {
-      return
+
+    const pasteIntoPane = (
+      pane: { id: number; terminal: { paste: (data: string) => void } },
+      data: string
+    ): void => {
+      const transport = paneTransportsRef.current.get(pane.id)
+      if (transport?.isConnected()) {
+        // Why: our clipboard-intercept path already has the full paste payload
+        // in memory. Sending it straight to the PTY avoids routing long pastes
+        // back through xterm's textarea/paste machinery, which is the only
+        // remaining layer between Orca and the shell for Cmd/Ctrl+V. Fall back
+        // to xterm.paste() only if the pane is not connected yet.
+        transport.sendInput(data)
+        return
+      }
+      pane.terminal.paste(data)
     }
 
     // Shared helper: try text first (fast path, single IPC call for the
     // common case), then check for a clipboard image only when text is empty
     // — which is the image-only clipboard scenario this fix targets.
-    const pasteFromClipboard = (pane: { terminal: { paste: (data: string) => void } }): void => {
+    const pasteFromClipboard = (pane: {
+      id: number
+      terminal: { paste: (data: string) => void }
+    }): void => {
       void window.api.ui
         .readClipboardText()
         .then((text) => {
           if (text) {
-            pane.terminal.paste(text)
+            pasteIntoPane(pane, text)
             return
           }
           // Why: clipboard has no text — check for an image. This is the
@@ -444,7 +450,7 @@ export default function TerminalPane({
           // file and paste the path so the terminal process can access it.
           return window.api.ui.saveClipboardImageAsTempFile().then((filePath) => {
             if (filePath) {
-              pane.terminal.paste(filePath)
+              pasteIntoPane(pane, filePath)
             }
           })
         })
@@ -459,6 +465,29 @@ export default function TerminalPane({
     // target is a <textarea> (xterm.js's hidden input), so this handler
     // ensures image paste works regardless.
     const isMac = navigator.userAgent.includes('Mac')
+    const eventTargetsActivePane = (target: EventTarget | null): boolean => {
+      const manager = managerRef.current
+      if (!manager) {
+        return false
+      }
+      const pane = manager.getActivePane() ?? manager.getPanes()[0]
+      if (!pane) {
+        return false
+      }
+      if (!(target instanceof Element)) {
+        return false
+      }
+      if (target.closest('[data-terminal-search-root]')) {
+        return false
+      }
+      const paneRoot = pane.container
+      return (
+        paneRoot.contains(target) ||
+        target.classList.contains('xterm-helper-textarea') ||
+        target.closest('.xterm') !== null
+      )
+    }
+
     const onKeyPaste = (e: KeyboardEvent): void => {
       if (e.key.toLowerCase() !== 'v') {
         return
@@ -467,8 +496,7 @@ export default function TerminalPane({
       if (!mod || e.altKey || e.shiftKey) {
         return
       }
-      const target = e.target
-      if (target instanceof Element && target.closest('[data-terminal-search-root]')) {
+      if (!eventTargetsActivePane(e.target)) {
         return
       }
       e.preventDefault()
@@ -487,8 +515,7 @@ export default function TerminalPane({
     // Fallback: handle paste events triggered by non-keyboard sources
     // (Edit > Paste menu, programmatic paste, etc.).
     const onPaste = (e: ClipboardEvent): void => {
-      const target = e.target
-      if (target instanceof Element && target.closest('[data-terminal-search-root]')) {
+      if (!eventTargetsActivePane(e.target)) {
         return
       }
       e.preventDefault()
@@ -504,11 +531,11 @@ export default function TerminalPane({
       pasteFromClipboard(pane)
     }
 
-    container.addEventListener('keydown', onKeyPaste, { capture: true })
-    container.addEventListener('paste', onPaste, { capture: true })
+    document.addEventListener('keydown', onKeyPaste, { capture: true })
+    document.addEventListener('paste', onPaste, { capture: true })
     return () => {
-      container.removeEventListener('keydown', onKeyPaste, { capture: true })
-      container.removeEventListener('paste', onPaste, { capture: true })
+      document.removeEventListener('keydown', onKeyPaste, { capture: true })
+      document.removeEventListener('paste', onPaste, { capture: true })
     }
   }, [isActive])
 
