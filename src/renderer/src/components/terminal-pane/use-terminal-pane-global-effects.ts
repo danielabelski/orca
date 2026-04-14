@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   FOCUS_TERMINAL_PANE_EVENT,
   TOGGLE_TERMINAL_PANE_EXPAND_EVENT,
@@ -52,37 +52,19 @@ export function useTerminalPaneGlobalEffects({
   const fitEpochRef = useRef(0)
   const fitRanForEpochRef = useRef(-1)
 
-  // Why: when a worktree becomes active, useEffect flushes pending PTY data
-  // and resumes WebGL rendering asynchronously.  Between the React DOM commit
-  // (display: flex) and the useEffect callback, the browser paints one frame
-  // showing stale xterm buffer content from the last visit.  useLayoutEffect
-  // fires synchronously after the DOM commit but before paint, so setting
-  // visibility: hidden here prevents the stale frame from ever appearing.
-  // The visibility is restored in guardedResumeAndFit after the drain and
-  // WebGL resume are complete.
-  useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container) {
-      return
-    }
-    if (isActive && !wasActiveRef.current) {
-      container.style.visibility = 'hidden'
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive])
-
   useEffect(() => {
     const manager = managerRef.current
     if (!manager) {
       return
     }
     if (isActive) {
-      // Why: resumeRendering() creates WebGL contexts for each pane, which
-      // blocks the renderer for 100–500 ms per pane on Windows (ANGLE →
-      // D3D11).  Deferring it into the rAF that runs after the pending-write
-      // drain lets the browser paint one frame with the DOM renderer so the
-      // terminal content appears immediately.  WebGL takes over seamlessly
-      // in the next frame without a visible flash.
+      // Why: resume WebGL immediately so the terminal shows its last-known
+      // state on the first painted frame.  On macOS, WebGL context creation
+      // is ~5 ms — fast enough to feel instant.  On Windows (ANGLE → D3D11)
+      // it can take 100–500 ms, but the alternative (deferring to a rAF
+      // after the pending-write drain) leaves the terminal blank for multiple
+      // frames, which is a worse UX tradeoff.
+      manager.resumeRendering()
 
       fitEpochRef.current++
       const epoch = fitEpochRef.current
@@ -108,25 +90,11 @@ export function useTerminalPaneGlobalEffects({
         pendingWritesRef.current.set(paneId, '')
       }
 
-      const guardedResumeAndFit = (): void => {
+      const guardedFit = (): void => {
         pendingRafRef.current = null
-        // Why: read managerRef.current at rAF time instead of capturing
-        // it at effect entry — the PaneManager instance can change if the
-        // component unmounts and remounts during rapid tab switches.
         const mgr = managerRef.current
         if (!mgr) {
           return
-        }
-        mgr.resumeRendering()
-        // Why: the useLayoutEffect above hid the container to prevent a
-        // stale-buffer flash.  Now that pending data has been drained and
-        // WebGL is active, reveal the terminal with its up-to-date content.
-        // This must run before the fit dedup guards below — if the
-        // ResizeObserver already ran fitPanes for this epoch, the early
-        // return would leave the container permanently hidden.
-        const container = containerRef.current
-        if (container) {
-          container.style.visibility = ''
         }
         // Why: three-layer guard prevents redundant and stale fits.
         // 1. Staleness — reject callbacks from a superseded activation
@@ -146,7 +114,7 @@ export function useTerminalPaneGlobalEffects({
       }
 
       if (entries.length === 0) {
-        pendingRafRef.current = requestAnimationFrame(guardedResumeAndFit)
+        pendingRafRef.current = requestAnimationFrame(guardedFit)
       } else {
         let entryIdx = 0
         let offset = 0
@@ -154,7 +122,7 @@ export function useTerminalPaneGlobalEffects({
         const drainNextChunk = (): void => {
           if (entryIdx >= entries.length) {
             pendingFlushRef.current = null
-            pendingRafRef.current = requestAnimationFrame(guardedResumeAndFit)
+            pendingRafRef.current = requestAnimationFrame(guardedFit)
             return
           }
 
@@ -188,21 +156,13 @@ export function useTerminalPaneGlobalEffects({
         clearTimeout(pendingFlushRef.current)
         pendingFlushRef.current = null
       }
-      // Cancel any pending rAF so guardedResumeAndFit doesn't call
-      // resumeRendering() on an already-suspended manager.
+      // Cancel any pending rAF so guardedFit doesn't run on a
+      // suspended manager.
       if (pendingRafRef.current !== null) {
         cancelAnimationFrame(pendingRafRef.current)
         pendingRafRef.current = null
       }
       manager.suspendRendering()
-      // Why: if the pane deactivates before guardedResumeAndFit ran (e.g.
-      // rapid A→B→C worktree switching), the useLayoutEffect left the
-      // container visibility: hidden.  Reset it so the next activation
-      // starts from a clean state.
-      const container = containerRef.current
-      if (container) {
-        container.style.visibility = ''
-      }
     }
     wasActiveRef.current = isActive
     isActiveRef.current = isActive
