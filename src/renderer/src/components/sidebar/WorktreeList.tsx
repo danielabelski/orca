@@ -394,9 +394,17 @@ const WorktreeList = React.memo(function WorktreeList() {
 
   useLayoutEffect(() => {
     virtualizer.elementsCache.forEach((element) => {
+      // Why: elementsCache can hold stale DOM nodes whose data-index
+      // exceeds the current rows length (e.g. after a group collapse).
+      // Measuring a stale element feeds a detached node's size into the
+      // virtualizer, corrupting layout and causing overlapping cards.
+      const idx = parseInt(element.getAttribute('data-index') ?? '', 10)
+      if (Number.isNaN(idx) || idx >= rows.length) {
+        return
+      }
       virtualizer.measureElement(element)
     })
-  }, [prCacheLen, issueCacheLen, virtualizer])
+  }, [prCacheLen, issueCacheLen, virtualizer, rows.length])
 
   const navigateWorktree = useCallback(
     (direction: 'up' | 'down') => {
