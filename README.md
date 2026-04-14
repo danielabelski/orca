@@ -1,4 +1,4 @@
-[English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md)
+[English](README.md) | [中文](docs/README.zh-CN.md) | [日本語](docs/README.ja.md)
 
 <p align="center">
   <a href="https://onOrca.dev"><img src="resources/build/icon.png" alt="Orca" width="128" /></a>
