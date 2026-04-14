@@ -293,6 +293,108 @@ describe('TabsSlice', () => {
     })
   })
 
+  describe('setTabGroupSplitRatio', () => {
+    it('updates the persisted ratio for the targeted split node', () => {
+      store.setState({
+        layoutByWorktree: {
+          [WT]: {
+            type: 'split',
+            direction: 'horizontal',
+            ratio: 0.5,
+            first: { type: 'leaf', groupId: 'g-1' },
+            second: {
+              type: 'split',
+              direction: 'vertical',
+              ratio: 0.5,
+              first: { type: 'leaf', groupId: 'g-2' },
+              second: { type: 'leaf', groupId: 'g-3' }
+            }
+          }
+        }
+      })
+
+      store.getState().setTabGroupSplitRatio(WT, 'second', 0.7)
+
+      const layout = store.getState().layoutByWorktree[WT]
+      expect(layout.type).toBe('split')
+      if (layout.type !== 'split' || layout.second.type !== 'split') {
+        throw new Error('expected nested split layout')
+      }
+      expect(layout.ratio).toBe(0.5)
+      expect(layout.second.ratio).toBe(0.7)
+    })
+  })
+
+  describe('move/copy/merge group operations', () => {
+    it('moves a unified tab into another group', () => {
+      const tab = store.getState().createUnifiedTab(WT, 'editor', {
+        id: 'file-a.ts',
+        label: 'file-a.ts'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+      expect(targetGroupId).toBeTruthy()
+
+      store.getState().moveUnifiedTabToGroup(tab.id, targetGroupId!)
+
+      const state = store.getState()
+      const moved = state.unifiedTabsByWorktree[WT].find((item) => item.id === tab.id)
+      expect(moved?.groupId).toBe(targetGroupId)
+      expect(
+        state.groupsByWorktree[WT].find((group) => group.id === sourceGroupId)?.tabOrder
+      ).toEqual([])
+      expect(
+        state.groupsByWorktree[WT].find((group) => group.id === targetGroupId)?.tabOrder
+      ).toEqual([tab.id])
+    })
+
+    it('copies a unified tab into another group', () => {
+      const tab = store.getState().createUnifiedTab(WT, 'editor', {
+        id: 'file-a.ts',
+        label: 'file-a.ts'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+      expect(targetGroupId).toBeTruthy()
+
+      const copied = store.getState().copyUnifiedTabToGroup(tab.id, targetGroupId!)
+
+      expect(copied).not.toBeNull()
+      const state = store.getState()
+      expect(state.unifiedTabsByWorktree[WT]).toHaveLength(2)
+      expect(
+        state.groupsByWorktree[WT].find((group) => group.id === sourceGroupId)?.tabOrder
+      ).toEqual([tab.id])
+      expect(
+        state.groupsByWorktree[WT].find((group) => group.id === targetGroupId)?.tabOrder
+      ).toEqual([copied!.id])
+      expect(copied?.entityId).toBe(tab.entityId)
+    })
+
+    it('merges a group into its sibling', () => {
+      const t1 = store.getState().createUnifiedTab(WT, 'editor', {
+        id: 'file-a.ts',
+        label: 'file-a.ts'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+      expect(targetGroupId).toBeTruthy()
+      store.getState().createUnifiedTab(WT, 'editor', {
+        id: 'file-b.ts',
+        label: 'file-b.ts',
+        targetGroupId: targetGroupId!
+      })
+
+      const mergedInto = store.getState().mergeGroupIntoSibling(WT, targetGroupId!)
+
+      expect(mergedInto).toBe(sourceGroupId)
+      const state = store.getState()
+      expect(state.groupsByWorktree[WT]).toHaveLength(1)
+      expect(state.groupsByWorktree[WT][0].tabOrder).toEqual([t1.id, 'file-b.ts'])
+      expect(state.layoutByWorktree[WT]).toEqual({ type: 'leaf', groupId: sourceGroupId })
+    })
+  })
+
   // ─── setTabLabel / setTabCustomLabel / setUnifiedTabColor ─────────
 
   describe('tab property setters', () => {
@@ -659,6 +761,50 @@ describe('TabsSlice', () => {
       store.getState().closeUnifiedTab(editor.id)
 
       expect(store.getState().groupsByWorktree[WT][0].activeTabId).toBe(term.id)
+    })
+  })
+
+  describe('reconcileWorktreeTabModel', () => {
+    it('drops unified tabs whose backing content no longer exists', () => {
+      const groupId = 'g-1'
+      store.setState({
+        unifiedTabsByWorktree: {
+          [WT]: [
+            {
+              id: 'stale-terminal',
+              entityId: 'stale-terminal',
+              groupId,
+              worktreeId: WT,
+              contentType: 'terminal',
+              label: 'Terminal 1',
+              customLabel: null,
+              color: null,
+              sortOrder: 0,
+              createdAt: 1
+            }
+          ]
+        },
+        groupsByWorktree: {
+          [WT]: [
+            {
+              id: groupId,
+              worktreeId: WT,
+              activeTabId: 'stale-terminal',
+              tabOrder: ['stale-terminal']
+            }
+          ]
+        },
+        activeGroupIdByWorktree: { [WT]: groupId },
+        tabsByWorktree: { [WT]: [] }
+      })
+
+      const result = store.getState().reconcileWorktreeTabModel(WT)
+
+      expect(result.renderableTabCount).toBe(0)
+      expect(result.activeRenderableTabId).toBeNull()
+      expect(store.getState().unifiedTabsByWorktree[WT]).toEqual([])
+      expect(store.getState().groupsByWorktree[WT][0].tabOrder).toEqual([])
+      expect(store.getState().groupsByWorktree[WT][0].activeTabId).toBeNull()
     })
   })
 })

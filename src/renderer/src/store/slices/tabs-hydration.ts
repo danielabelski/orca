@@ -1,9 +1,20 @@
-import type { Tab, TabGroup, WorkspaceSessionState } from '../../../../shared/types'
+import type {
+  Tab,
+  TabGroup,
+  TabGroupLayoutNode,
+  WorkspaceSessionState
+} from '../../../../shared/types'
+import {
+  getPersistedEditFileIdsByWorktree,
+  isTransientEditorContentType,
+  selectHydratedActiveGroupId
+} from './tabs-helpers'
 
 type HydratedTabState = {
   unifiedTabsByWorktree: Record<string, Tab[]>
   groupsByWorktree: Record<string, TabGroup[]>
   activeGroupIdByWorktree: Record<string, string>
+  layoutByWorktree: Record<string, TabGroupLayoutNode>
 }
 
 function hydrateUnifiedFormat(
@@ -13,6 +24,8 @@ function hydrateUnifiedFormat(
   const tabsByWorktree: Record<string, Tab[]> = {}
   const groupsByWorktree: Record<string, TabGroup[]> = {}
   const activeGroupIdByWorktree: Record<string, string> = {}
+  const layoutByWorktree: Record<string, TabGroupLayoutNode> = {}
+  const persistedEditFileIdsByWorktree = getPersistedEditFileIdsByWorktree(session)
 
   for (const [worktreeId, tabs] of Object.entries(session.unifiedTabs!)) {
     if (!validWorktreeIds.has(worktreeId)) {
@@ -21,9 +34,22 @@ function hydrateUnifiedFormat(
     if (tabs.length === 0) {
       continue
     }
-    tabsByWorktree[worktreeId] = [...tabs].sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt
-    )
+    const persistedEditFileIds = persistedEditFileIdsByWorktree[worktreeId] ?? new Set<string>()
+    tabsByWorktree[worktreeId] = [...tabs]
+      .map((tab) => ({
+        ...tab,
+        entityId: tab.entityId ?? tab.id
+      }))
+      .filter((tab) => {
+        if (!isTransientEditorContentType(tab.contentType)) {
+          return true
+        }
+        // Why: restore skips backing editor state for transient diff/conflict
+        // items. Hydration must drop their tab chrome too or the split group
+        // comes back pointing at a document that no longer exists.
+        return persistedEditFileIds.has(tab.entityId)
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
   }
 
   for (const [worktreeId, groups] of Object.entries(session.tabGroups!)) {
@@ -35,17 +61,35 @@ function hydrateUnifiedFormat(
     }
 
     const validTabIds = new Set((tabsByWorktree[worktreeId] ?? []).map((t) => t.id))
-    const validatedGroups = groups.map((g) => ({
-      ...g,
-      tabOrder: g.tabOrder.filter((tid) => validTabIds.has(tid)),
-      activeTabId: g.activeTabId && validTabIds.has(g.activeTabId) ? g.activeTabId : null
-    }))
+    const validatedGroups = groups.map((g) => {
+      const tabOrder = g.tabOrder.filter((tid) => validTabIds.has(tid))
+      return {
+        ...g,
+        tabOrder,
+        activeTabId: g.activeTabId && validTabIds.has(g.activeTabId) ? g.activeTabId : null
+      }
+    })
 
     groupsByWorktree[worktreeId] = validatedGroups
-    activeGroupIdByWorktree[worktreeId] = validatedGroups[0].id
+    const activeGroupId = selectHydratedActiveGroupId(
+      validatedGroups,
+      session.activeGroupIdByWorktree?.[worktreeId]
+    )
+    if (activeGroupId) {
+      activeGroupIdByWorktree[worktreeId] = activeGroupId
+    }
+    layoutByWorktree[worktreeId] = session.tabGroupLayouts?.[worktreeId] ?? {
+      type: 'leaf',
+      groupId: validatedGroups[0].id
+    }
   }
 
-  return { unifiedTabsByWorktree: tabsByWorktree, groupsByWorktree, activeGroupIdByWorktree }
+  return {
+    unifiedTabsByWorktree: tabsByWorktree,
+    groupsByWorktree,
+    activeGroupIdByWorktree,
+    layoutByWorktree
+  }
 }
 
 function hydrateLegacyFormat(
@@ -55,6 +99,7 @@ function hydrateLegacyFormat(
   const tabsByWorktree: Record<string, Tab[]> = {}
   const groupsByWorktree: Record<string, TabGroup[]> = {}
   const activeGroupIdByWorktree: Record<string, string> = {}
+  const layoutByWorktree: Record<string, TabGroupLayoutNode> = {}
 
   for (const worktreeId of validWorktreeIds) {
     const terminalTabs = session.tabsByWorktree[worktreeId] ?? []
@@ -118,9 +163,15 @@ function hydrateLegacyFormat(
     tabsByWorktree[worktreeId] = tabs
     groupsByWorktree[worktreeId] = [{ id: groupId, worktreeId, activeTabId, tabOrder }]
     activeGroupIdByWorktree[worktreeId] = groupId
+    layoutByWorktree[worktreeId] = { type: 'leaf', groupId }
   }
 
-  return { unifiedTabsByWorktree: tabsByWorktree, groupsByWorktree, activeGroupIdByWorktree }
+  return {
+    unifiedTabsByWorktree: tabsByWorktree,
+    groupsByWorktree,
+    activeGroupIdByWorktree,
+    layoutByWorktree
+  }
 }
 
 export function buildHydratedTabState(

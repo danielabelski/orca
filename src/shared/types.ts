@@ -58,6 +58,20 @@ export type WorktreeMeta = {
   lastActivityAt: number
 }
 
+// ─── Tab Group Layout ───────────────────────────────────────────────
+export type TabGroupSplitDirection = 'horizontal' | 'vertical'
+
+export type TabGroupLayoutNode =
+  | { type: 'leaf'; groupId: string }
+  | {
+      type: 'split'
+      direction: TabGroupSplitDirection
+      first: TabGroupLayoutNode
+      second: TabGroupLayoutNode
+      /** Flex ratio of the first child (0–1). Defaults to 0.5 if absent. */
+      ratio?: number
+    }
+
 // ─── Unified Tab ────────────────────────────────────────────────────
 export type TabContentType = 'terminal' | 'editor' | 'diff' | 'conflict-review' | 'browser'
 
@@ -197,6 +211,9 @@ export type TerminalLayoutSnapshot = {
   root: TerminalPaneLayoutNode | null
   activeLeafId: string | null
   expandedLeafId: string | null
+  /** Live PTY IDs per leaf for in-session remounts such as tab-group moves.
+   *  Not used for app restart because PTYs are transient processes. */
+  ptyIdsByLeafId?: Record<string, string>
   /** Serialized terminal buffers per leaf for scrollback restoration on restart. */
   buffersByLeafId?: Record<string, string>
   /** User-assigned pane titles, keyed by leafId (e.g. "pane:3").
@@ -246,6 +263,10 @@ export type WorkspaceSessionState = {
   unifiedTabs?: Record<string, Tab[]>
   /** Tab group model — present alongside unifiedTabs. */
   tabGroups?: Record<string, TabGroup[]>
+  /** Persisted split layout tree per worktree. */
+  tabGroupLayouts?: Record<string, TabGroupLayoutNode>
+  /** Per-worktree focused group at shutdown. */
+  activeGroupIdByWorktree?: Record<string, string>
 }
 
 // ─── GitHub ──────────────────────────────────────────────────────────

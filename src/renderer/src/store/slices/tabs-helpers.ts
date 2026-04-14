@@ -1,4 +1,4 @@
-import type { Tab, TabGroup } from '../../../../shared/types'
+import type { Tab, TabContentType, TabGroup, WorkspaceSessionState } from '../../../../shared/types'
 
 export function findTabAndWorktree(
   tabsByWorktree: Record<string, Tab[]>,
@@ -22,16 +22,50 @@ export function findGroupForTab(
   return groups.find((g) => g.id === groupId) ?? null
 }
 
+export function findGroupAndWorktree(
+  groupsByWorktree: Record<string, TabGroup[]>,
+  groupId: string
+): { group: TabGroup; worktreeId: string } | null {
+  for (const [worktreeId, groups] of Object.entries(groupsByWorktree)) {
+    const group = groups.find((candidate) => candidate.id === groupId)
+    if (group) {
+      return { group, worktreeId }
+    }
+  }
+  return null
+}
+
+export function findTabByEntityInGroup(
+  tabsByWorktree: Record<string, Tab[]>,
+  worktreeId: string,
+  groupId: string,
+  entityId: string,
+  contentType?: Tab['contentType']
+): Tab | null {
+  const tabs = tabsByWorktree[worktreeId] ?? []
+  return (
+    tabs.find(
+      (tab) =>
+        tab.groupId === groupId &&
+        tab.entityId === entityId &&
+        (contentType ? tab.contentType === contentType : true)
+    ) ?? null
+  )
+}
+
 export function ensureGroup(
   groupsByWorktree: Record<string, TabGroup[]>,
   activeGroupIdByWorktree: Record<string, string>,
-  worktreeId: string
+  worktreeId: string,
+  preferredGroupId?: string
 ): {
   group: TabGroup
   groupsByWorktree: Record<string, TabGroup[]>
   activeGroupIdByWorktree: Record<string, string>
 } {
-  const existing = groupsByWorktree[worktreeId]?.[0]
+  const existing =
+    groupsByWorktree[worktreeId]?.find((group) => group.id === preferredGroupId) ??
+    groupsByWorktree[worktreeId]?.[0]
   if (existing) {
     return { group: existing, groupsByWorktree, activeGroupIdByWorktree }
   }
@@ -61,6 +95,33 @@ export function pickNeighbor(tabOrder: string[], closingTabId: string): string |
 
 export function updateGroup(groups: TabGroup[], updated: TabGroup): TabGroup[] {
   return groups.map((g) => (g.id === updated.id ? updated : g))
+}
+
+export function isTransientEditorContentType(contentType: TabContentType): boolean {
+  return contentType === 'diff' || contentType === 'conflict-review'
+}
+
+export function getPersistedEditFileIdsByWorktree(
+  session: WorkspaceSessionState
+): Record<string, Set<string>> {
+  return Object.fromEntries(
+    Object.entries(session.openFilesByWorktree ?? {}).map(([worktreeId, files]) => [
+      worktreeId,
+      new Set(files.map((file) => file.filePath))
+    ])
+  )
+}
+
+export function selectHydratedActiveGroupId(
+  groups: TabGroup[],
+  persistedActiveGroupId?: string
+): string | undefined {
+  const preferredGroups = groups.filter((group) => group.tabOrder.length > 0)
+  const candidates = preferredGroups.length > 0 ? preferredGroups : groups
+  if (persistedActiveGroupId && candidates.some((group) => group.id === persistedActiveGroupId)) {
+    return persistedActiveGroupId
+  }
+  return candidates[0]?.id
 }
 
 /**
