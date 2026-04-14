@@ -23,11 +23,15 @@ function createEditorStore(overrides?: Partial<AppState>): StoreApi<AppState> {
 function makeBrowserTab(id: string): BrowserTab {
   return {
     id,
+    worktreeId: 'wt-1',
     url: 'about:blank',
     title: 'Browser',
+    loading: false,
+    faviconUrl: null,
     canGoBack: false,
     canGoForward: false,
-    isLoading: false
+    loadError: null,
+    createdAt: 0
   }
 }
 
@@ -129,6 +133,7 @@ describe('New Markdown — tab bar ordering with openFile', () => {
           {
             id: 't1',
             ptyId: null,
+            worktreeId: 'wt-1',
             title: 'Term 1',
             customTitle: null,
             color: null,
@@ -160,6 +165,7 @@ describe('New Markdown — tab bar ordering with openFile', () => {
           {
             id: 't1',
             ptyId: null,
+            worktreeId: 'wt-1',
             title: 'Term 1',
             customTitle: null,
             color: null,
@@ -194,6 +200,7 @@ describe('New Markdown — tab bar ordering with openFile', () => {
           {
             id: 't1',
             ptyId: null,
+            worktreeId: 'wt-1',
             title: 'Term 1',
             customTitle: null,
             color: null,
@@ -264,6 +271,7 @@ describe('New Markdown — tab bar ordering with openFile', () => {
           {
             id: 't1',
             ptyId: null,
+            worktreeId: 'wt-1',
             title: 'Term 1',
             customTitle: null,
             color: null,
@@ -273,6 +281,7 @@ describe('New Markdown — tab bar ordering with openFile', () => {
           {
             id: 't2',
             ptyId: null,
+            worktreeId: 'wt-1',
             title: 'Term 2',
             customTitle: null,
             color: null,
@@ -457,5 +466,245 @@ describe('New Markdown — preview behavior', () => {
       { preview: false }
     )
     expect(store.getState().openFiles[0].isPreview).toBeUndefined()
+  })
+})
+
+describe('Tab close — tabBarOrderByWorktree cleanup', () => {
+  it('closeFile removes the file from tabBarOrderByWorktree', () => {
+    const store = createEditorStore({
+      tabsByWorktree: {
+        'wt-1': [
+          {
+            id: 't1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 1',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      },
+      tabBarOrderByWorktree: { 'wt-1': ['t1'] }
+    })
+
+    store.getState().openFile({
+      filePath: '/repo/file.md',
+      relativePath: 'file.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).toContain('/repo/file.md')
+
+    store.getState().closeFile('/repo/file.md')
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).not.toContain('/repo/file.md')
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).toContain('t1')
+  })
+
+  it('closeFile does not disturb other tab positions', () => {
+    const store = createEditorStore({
+      tabsByWorktree: {
+        'wt-1': [
+          {
+            id: 't1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 1',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          },
+          {
+            id: 't2',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 2',
+            customTitle: null,
+            color: null,
+            sortOrder: 1,
+            createdAt: 1
+          }
+        ]
+      },
+      browserTabsByWorktree: {
+        'wt-1': [makeBrowserTab('b1')]
+      },
+      tabBarOrderByWorktree: { 'wt-1': ['t1', 'b1', 't2'] }
+    })
+
+    store.getState().openFile({
+      filePath: '/repo/file.md',
+      relativePath: 'file.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    // Order: t1, b1, t2, /repo/file.md
+    store.getState().openFile({
+      filePath: '/repo/file2.md',
+      relativePath: 'file2.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    // Order: t1, b1, t2, /repo/file.md, /repo/file2.md
+
+    store.getState().closeFile('/repo/file.md')
+    const order = store.getState().tabBarOrderByWorktree['wt-1']
+    expect(order).toEqual(['t1', 'b1', 't2', '/repo/file2.md'])
+  })
+
+  it('closing multiple files preserves remaining tab order', () => {
+    const store = createEditorStore({
+      tabsByWorktree: {
+        'wt-1': [
+          {
+            id: 't1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 1',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      },
+      browserTabsByWorktree: {
+        'wt-1': [makeBrowserTab('b1')]
+      },
+      tabBarOrderByWorktree: { 'wt-1': ['t1', 'b1'] }
+    })
+
+    store.getState().openFile({
+      filePath: '/repo/a.md',
+      relativePath: 'a.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    store.getState().openFile({
+      filePath: '/repo/b.md',
+      relativePath: 'b.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    store.getState().openFile({
+      filePath: '/repo/c.md',
+      relativePath: 'c.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+
+    // Close middle file
+    store.getState().closeFile('/repo/b.md')
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).toEqual([
+      't1',
+      'b1',
+      '/repo/a.md',
+      '/repo/c.md'
+    ])
+
+    // Close first file
+    store.getState().closeFile('/repo/a.md')
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).toEqual(['t1', 'b1', '/repo/c.md'])
+  })
+
+  it('closeAllFiles removes all editor file IDs from tabBarOrderByWorktree', () => {
+    const store = createEditorStore({
+      tabsByWorktree: {
+        'wt-1': [
+          {
+            id: 't1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 1',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      },
+      browserTabsByWorktree: {
+        'wt-1': [makeBrowserTab('b1')]
+      },
+      tabBarOrderByWorktree: { 'wt-1': ['t1', 'b1'] }
+    })
+
+    store.getState().openFile({
+      filePath: '/repo/a.md',
+      relativePath: 'a.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    store.getState().openFile({
+      filePath: '/repo/b.md',
+      relativePath: 'b.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+
+    store.getState().closeAllFiles()
+    const order = store.getState().tabBarOrderByWorktree['wt-1']
+    expect(order).toEqual(['t1', 'b1'])
+  })
+
+  it('reopening a file after close places it at the end', () => {
+    const store = createEditorStore({
+      tabsByWorktree: {
+        'wt-1': [
+          {
+            id: 't1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            title: 'Term 1',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      },
+      browserTabsByWorktree: {
+        'wt-1': [makeBrowserTab('b1')]
+      },
+      tabBarOrderByWorktree: { 'wt-1': ['t1', 'b1'] }
+    })
+
+    store.getState().openFile({
+      filePath: '/repo/a.md',
+      relativePath: 'a.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+    store.getState().openFile({
+      filePath: '/repo/b.md',
+      relativePath: 'b.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+
+    // Close a.md, then reopen it — should go to the end
+    store.getState().closeFile('/repo/a.md')
+    store.getState().openFile({
+      filePath: '/repo/a.md',
+      relativePath: 'a.md',
+      worktreeId: 'wt-1',
+      language: 'markdown',
+      mode: 'edit'
+    })
+
+    const order = store.getState().tabBarOrderByWorktree['wt-1']
+    expect(order).toEqual(['t1', 'b1', '/repo/b.md', '/repo/a.md'])
   })
 })

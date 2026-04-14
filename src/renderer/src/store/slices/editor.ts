@@ -555,6 +555,19 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           browserTabsForWorktree.length > 0 ? 'browser' : 'terminal'
       }
 
+      // Why: keep tabBarOrderByWorktree in sync so stale editor IDs don't
+      // linger and cause position shifts the next time the order is reconciled.
+      const worktreeId = closedFile?.worktreeId ?? activeWorktreeId
+      const nextTabBarOrderByWorktree =
+        worktreeId && s.tabBarOrderByWorktree
+          ? {
+              ...s.tabBarOrderByWorktree,
+              [worktreeId]: (s.tabBarOrderByWorktree[worktreeId] ?? []).filter(
+                (entryId) => entryId !== fileId
+              )
+            }
+          : s.tabBarOrderByWorktree
+
       return {
         openFiles: newFiles,
         editorDrafts: newEditorDrafts,
@@ -567,6 +580,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         activeFileIdByWorktree: newActiveFileIdByWorktree,
         activeTabTypeByWorktree: newActiveTabTypeByWorktree,
         markdownViewMode: newMarkdownViewMode,
+        tabBarOrderByWorktree: nextTabBarOrderByWorktree,
         pendingEditorReveal: null
       }
     }),
@@ -599,6 +613,21 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       const browserTabsForWorktree = s.browserTabsByWorktree[activeWorktreeId] ?? []
       newActiveTabTypeByWorktree[activeWorktreeId] =
         browserTabsForWorktree.length > 0 ? 'browser' : 'terminal'
+
+      // Why: remove all closed editor file IDs from tab bar order so stale
+      // entries don't cause position shifts on subsequent tab operations.
+      const closedFileIds = new Set(
+        s.openFiles.filter((f) => f.worktreeId === activeWorktreeId).map((f) => f.id)
+      )
+      const nextTabBarOrderByWorktree = s.tabBarOrderByWorktree
+        ? {
+            ...s.tabBarOrderByWorktree,
+            [activeWorktreeId]: (s.tabBarOrderByWorktree[activeWorktreeId] ?? []).filter(
+              (entryId) => !closedFileIds.has(entryId)
+            )
+          }
+        : s.tabBarOrderByWorktree
+
       return {
         openFiles: newFiles,
         editorDrafts: newEditorDrafts,
@@ -613,6 +642,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         markdownViewMode: newMarkdownViewMode,
         activeFileIdByWorktree: newActiveFileIdByWorktree,
         activeTabTypeByWorktree: newActiveTabTypeByWorktree,
+        tabBarOrderByWorktree: nextTabBarOrderByWorktree,
         // Why: search-result navigation queues a one-shot reveal for the next
         // editor mount. If the worktree closes all editor tabs before that
         // reveal is consumed, keeping it around would make a later reopen jump

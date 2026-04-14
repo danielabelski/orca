@@ -248,6 +248,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         }
       }
 
+      // Why: keep tabBarOrderByWorktree in sync so stale terminal IDs don't
+      // linger and cause position shifts on subsequent tab operations.
+      const nextTabBarOrderByWorktree: Record<string, string[]> = {
+        ...s.tabBarOrderByWorktree
+      }
+      for (const wId of Object.keys(nextTabBarOrderByWorktree)) {
+        const order = nextTabBarOrderByWorktree[wId]
+        if (order?.includes(tabId)) {
+          nextTabBarOrderByWorktree[wId] = order.filter((entryId) => entryId !== tabId)
+        }
+      }
+
       return {
         tabsByWorktree: next,
         activeTabId: s.activeTabId === tabId ? null : s.activeTabId,
@@ -260,7 +272,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         pendingStartupByTabId: nextPendingStartupByTabId,
         pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
         pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
-        cacheTimerByKey: nextCacheTimer
+        cacheTimerByKey: nextCacheTimer,
+        tabBarOrderByWorktree: nextTabBarOrderByWorktree
       }
     })
   },
