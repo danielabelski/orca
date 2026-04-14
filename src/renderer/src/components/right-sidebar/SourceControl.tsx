@@ -16,7 +16,9 @@ import {
   GitMerge,
   GitPullRequestArrow,
   TriangleAlert,
-  CircleCheck
+  CircleCheck,
+  Search,
+  X
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { detectLanguage } from '@/lib/language-detect'
@@ -121,6 +123,8 @@ export default function SourceControl(): React.JSX.Element {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [baseRefDialogOpen, setBaseRefDialogOpen] = useState(false)
   const [defaultBaseRef, setDefaultBaseRef] = useState('origin/main')
+  const [filterQuery, setFilterQuery] = useState('')
+  const filterInputRef = useRef<HTMLInputElement>(null)
 
   const activeWorktree = useMemo(() => {
     if (!activeWorktreeId) {
@@ -183,8 +187,7 @@ export default function SourceControl(): React.JSX.Element {
 
   const effectiveBaseRef = activeRepo?.worktreeBaseRef ?? defaultBaseRef
   const hasUncommittedEntries = entries.length > 0
-  const branchCompareAvailable = branchSummary?.status === 'ready'
-  const hasBranchEntries = branchCompareAvailable && branchEntries.length > 0
+
   const branchName = activeWorktree?.branch.replace(/^refs\/heads\//, '') ?? 'HEAD'
   const prCacheKey = activeRepo && branchName ? `${activeRepo.path}::${branchName}` : null
   const prInfo: PRInfo | null = prCacheKey ? (prCache[prCacheKey]?.data ?? null) : null
@@ -216,17 +219,37 @@ export default function SourceControl(): React.JSX.Element {
     return groups
   }, [entries])
 
+  const normalizedFilter = filterQuery.toLowerCase()
+
+  const filteredGrouped = useMemo(() => {
+    if (!normalizedFilter) {
+      return grouped
+    }
+    return {
+      staged: grouped.staged.filter((e) => e.path.toLowerCase().includes(normalizedFilter)),
+      unstaged: grouped.unstaged.filter((e) => e.path.toLowerCase().includes(normalizedFilter)),
+      untracked: grouped.untracked.filter((e) => e.path.toLowerCase().includes(normalizedFilter))
+    }
+  }, [grouped, normalizedFilter])
+
+  const filteredBranchEntries = useMemo(() => {
+    if (!normalizedFilter) {
+      return branchEntries
+    }
+    return branchEntries.filter((e) => e.path.toLowerCase().includes(normalizedFilter))
+  }, [branchEntries, normalizedFilter])
+
   const flatEntries = useMemo(() => {
     const arr: FlatEntry[] = []
     for (const area of SECTION_ORDER) {
       if (!collapsedSections.has(area)) {
-        for (const entry of grouped[area]) {
+        for (const entry of filteredGrouped[area]) {
           arr.push({ key: `${area}::${entry.path}`, entry, area })
         }
       }
     }
     return arr
-  }, [grouped, collapsedSections])
+  }, [filteredGrouped, collapsedSections])
 
   const [isExecutingBulk, setIsExecutingBulk] = useState(false)
 
@@ -513,6 +536,11 @@ export default function SourceControl(): React.JSX.Element {
     )
   }
 
+  const hasFilteredUncommittedEntries =
+    filteredGrouped.staged.length > 0 ||
+    filteredGrouped.unstaged.length > 0 ||
+    filteredGrouped.untracked.length > 0
+  const hasFilteredBranchEntries = filteredBranchEntries.length > 0
   const showGenericEmptyState =
     !hasUncommittedEntries && branchSummary?.status === 'ready' && branchEntries.length === 0
   const currentWorktreeId = activeWorktree.id
@@ -570,6 +598,31 @@ export default function SourceControl(): React.JSX.Element {
           </div>
         )}
 
+        {/* Filter input for searching changed files across all sections */}
+        <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={filterInputRef}
+            type="text"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Filter files…"
+            className="flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 outline-none"
+          />
+          {filterQuery && (
+            <button
+              type="button"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setFilterQuery('')
+                filterInputRef.current?.focus()
+              }}
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
         <div
           className="relative flex-1 overflow-auto scrollbar-sleek py-1"
           style={{ paddingBottom: selectedKeys.size > 0 ? 50 : undefined }}
@@ -603,24 +656,33 @@ export default function SourceControl(): React.JSX.Element {
             </div>
           )}
 
-          {scope === 'all' && showGenericEmptyState ? (
+          {scope === 'all' && showGenericEmptyState && !normalizedFilter ? (
             <EmptyState
               heading="No changes on this branch"
               supportingText={`This worktree is clean and this branch has no changes ahead of ${branchSummary.baseRef}`}
             />
           ) : null}
 
-          {scope === 'uncommitted' && !hasUncommittedEntries && (
+          {scope === 'uncommitted' && !hasUncommittedEntries && !normalizedFilter && (
             <EmptyState
               heading="No uncommitted changes"
               supportingText="All changes have been committed"
             />
           )}
 
-          {(scope === 'all' || scope === 'uncommitted') && hasUncommittedEntries && (
+          {normalizedFilter &&
+            !hasFilteredUncommittedEntries &&
+            (scope === 'uncommitted' || !hasFilteredBranchEntries) && (
+              <EmptyState
+                heading="No matching files"
+                supportingText={`No changed files match "${filterQuery}"`}
+              />
+            )}
+
+          {(scope === 'all' || scope === 'uncommitted') && hasFilteredUncommittedEntries && (
             <>
               {SECTION_ORDER.map((area) => {
-                const items = grouped[area]
+                const items = filteredGrouped[area]
                 if (items.length === 0) {
                   return null
                 }
@@ -707,11 +769,11 @@ export default function SourceControl(): React.JSX.Element {
             />
           ) : null}
 
-          {scope === 'all' && branchSummary?.status === 'ready' && hasBranchEntries && (
+          {scope === 'all' && branchSummary?.status === 'ready' && hasFilteredBranchEntries && (
             <div>
               <SectionHeader
                 label="Committed on Branch"
-                count={branchEntries.length}
+                count={filteredBranchEntries.length}
                 isCollapsed={collapsedSections.has('branch')}
                 onToggle={() => toggleSection('branch')}
                 actions={
@@ -732,7 +794,7 @@ export default function SourceControl(): React.JSX.Element {
                 }
               />
               {!collapsedSections.has('branch') &&
-                branchEntries.map((entry) => (
+                filteredBranchEntries.map((entry) => (
                   <BranchEntryRow
                     key={`branch:${entry.path}`}
                     entry={entry}
