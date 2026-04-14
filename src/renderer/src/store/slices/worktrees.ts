@@ -37,6 +37,10 @@ function areWorktreesEqual(current: Worktree[] | undefined, next: Worktree[]): b
   })
 }
 
+function toVisibleTabType(contentType: string): WorkspaceVisibleTabType {
+  return contentType === 'browser' ? 'browser' : contentType === 'terminal' ? 'terminal' : 'editor'
+}
+
 export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> = (set, get) => ({
   worktreesByRepo: {},
   activeWorktreeId: null,
@@ -162,6 +166,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         delete nextUnifiedTabsByWorktree[worktreeId]
         const nextGroupsByWorktree = { ...s.groupsByWorktree }
         delete nextGroupsByWorktree[worktreeId]
+        const nextLayoutByWorktree = { ...s.layoutByWorktree }
+        delete nextLayoutByWorktree[worktreeId]
         const nextActiveGroupIdByWorktree = { ...s.activeGroupIdByWorktree }
         delete nextActiveGroupIdByWorktree[worktreeId]
         const nextLayoutByWorktree = { ...s.layoutByWorktree }
@@ -232,6 +238,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           pendingReconnectTabByWorktree: nextPendingReconnectTabByWorktree,
           unifiedTabsByWorktree: nextUnifiedTabsByWorktree,
           groupsByWorktree: nextGroupsByWorktree,
+          layoutByWorktree: nextLayoutByWorktree,
           activeGroupIdByWorktree: nextActiveGroupIdByWorktree,
           layoutByWorktree: nextLayoutByWorktree,
           editorDrafts: nextEditorDrafts,
@@ -370,6 +377,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   },
 
   setActiveWorktree: (worktreeId) => {
+    const reconciledActiveTabId = worktreeId
+      ? get().reconcileWorktreeTabModel(worktreeId).activeRenderableTabId
+      : null
     let shouldClearUnread = false
     set((s) => {
       if (!worktreeId) {
@@ -385,6 +395,20 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       const restoredFileId = s.activeFileIdByWorktree[worktreeId] ?? null
       const restoredBrowserTabId = s.activeBrowserTabIdByWorktree[worktreeId] ?? null
       const restoredTabType = s.activeTabTypeByWorktree[worktreeId] ?? 'terminal'
+      const activeGroupId =
+        s.activeGroupIdByWorktree[worktreeId] ?? s.groupsByWorktree[worktreeId]?.[0]?.id ?? null
+      const activeGroup = activeGroupId
+        ? ((s.groupsByWorktree[worktreeId] ?? []).find((group) => group.id === activeGroupId) ??
+          null)
+        : null
+      const activeUnifiedTabId = reconciledActiveTabId ?? activeGroup?.activeTabId ?? null
+      const activeUnifiedTab =
+        activeUnifiedTabId != null
+          ? ((s.unifiedTabsByWorktree[worktreeId] ?? []).find(
+              (tab) =>
+                tab.id === activeUnifiedTabId && (!activeGroup || tab.groupId === activeGroup.id)
+            ) ?? null)
+          : null
       // Verify the restored file still exists in openFiles
       const fileStillOpen = restoredFileId
         ? s.openFiles.some((f) => f.id === restoredFileId && f.worktreeId === worktreeId)
@@ -393,16 +417,40 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       const browserTabStillOpen = restoredBrowserTabId
         ? browserTabs.some((tab) => tab.id === restoredBrowserTabId)
         : false
+      const hasGroupOwnedSurface =
+        (s.groupsByWorktree[worktreeId]?.length ?? 0) > 0 || Boolean(s.layoutByWorktree[worktreeId])
 
-      // Why: restore the visible tab surface the user last had active in this
-      // worktree.  The 'terminal' case must be handled explicitly — without it,
-      // the fallback branches below see that a file is still open and promote
-      // the surface to 'editor', so the user always lands on a file tab instead
-      // of the terminal they were working in.
+      // Why: worktree activation must restore from the reconciled tab-group
+      // model first. Split groups are now the ownership model for visible
+      // content; if we prefer the legacy activeTabType/browser/file fallbacks
+      // when the two models disagree, the renderer can reopen a surface that
+      // has no backing unified tab and show a blank worktree.
       let activeFileId: string | null
       let activeBrowserTabId: string | null
       let activeTabType: WorkspaceVisibleTabType
-      if (restoredTabType === 'terminal') {
+      if (activeUnifiedTab) {
+        activeFileId =
+          activeUnifiedTab.contentType === 'editor' ||
+          activeUnifiedTab.contentType === 'diff' ||
+          activeUnifiedTab.contentType === 'conflict-review'
+            ? activeUnifiedTab.entityId
+            : fileStillOpen
+              ? restoredFileId
+              : null
+        activeBrowserTabId =
+          activeUnifiedTab.contentType === 'browser'
+            ? activeUnifiedTab.entityId
+            : browserTabStillOpen
+              ? restoredBrowserTabId
+              : (browserTabs[0]?.id ?? null)
+        activeTabType = toVisibleTabType(activeUnifiedTab.contentType)
+      } else if (hasGroupOwnedSurface) {
+        activeFileId = fileStillOpen ? restoredFileId : null
+        activeBrowserTabId = browserTabStillOpen
+          ? restoredBrowserTabId
+          : (browserTabs[0]?.id ?? null)
+        activeTabType = 'terminal'
+      } else if (restoredTabType === 'terminal') {
         activeFileId = fileStillOpen ? restoredFileId : null
         activeBrowserTabId = browserTabStillOpen
           ? restoredBrowserTabId
@@ -443,7 +491,12 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       const tabStillExists = restoredTabId
         ? worktreeTabs.some((t) => t.id === restoredTabId)
         : false
-      const activeTabId = tabStillExists ? restoredTabId : (worktreeTabs[0]?.id ?? null)
+      const activeTabId =
+        activeUnifiedTab?.contentType === 'terminal'
+          ? activeUnifiedTab.entityId
+          : tabStillExists
+            ? restoredTabId
+            : (worktreeTabs[0]?.id ?? null)
 
       return {
         activeWorktreeId: worktreeId,

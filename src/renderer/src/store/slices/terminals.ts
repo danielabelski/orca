@@ -14,6 +14,23 @@ import {
   ensurePtyDispatcher
 } from '@/components/terminal-pane/pty-transport'
 
+function getNextTerminalOrdinal(tabs: TerminalTab[]): number {
+  const usedOrdinals = new Set<number>()
+  for (const tab of tabs) {
+    const match = /^Terminal (\d+)$/.exec(tab.customTitle ?? tab.title)
+    if (!match) {
+      continue
+    }
+    usedOrdinals.add(Number(match[1]))
+  }
+
+  let nextOrdinal = 1
+  while (usedOrdinals.has(nextOrdinal)) {
+    nextOrdinal += 1
+  }
+  return nextOrdinal
+}
+
 export type TerminalSlice = {
   tabsByWorktree: Record<string, TerminalTab[]>
   activeTabId: string | null
@@ -46,7 +63,7 @@ export type TerminalSlice = {
   workspaceSessionReady: boolean
   pendingReconnectWorktreeIds: string[]
   pendingReconnectTabByWorktree: Record<string, string[]>
-  createTab: (worktreeId: string) => TerminalTab
+  createTab: (worktreeId: string, targetGroupId?: string) => TerminalTab
   closeTab: (tabId: string) => void
   reorderTabs: (worktreeId: string, tabIds: string[]) => void
   setTabBarOrder: (worktreeId: string, order: string[]) => void
@@ -175,16 +192,20 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     }
   },
 
-  createTab: (worktreeId) => {
+  createTab: (worktreeId, targetGroupId) => {
     const id = globalThis.crypto.randomUUID()
     let tab!: TerminalTab
     set((s) => {
       const existing = s.tabsByWorktree[worktreeId] ?? []
+      const nextOrdinal = getNextTerminalOrdinal(existing)
       tab = {
         id,
         ptyId: null,
         worktreeId,
-        title: `Terminal ${existing.length + 1}`,
+        // Why: users expect terminal labels to reflect the currently open set,
+        // not a monotonic creation counter. Reusing the lowest free ordinal
+        // keeps a lone fresh terminal at "Terminal 1" after older tabs close.
+        title: `Terminal ${nextOrdinal}`,
         customTitle: null,
         color: null,
         sortOrder: existing.length,
@@ -195,12 +216,40 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           ...s.tabsByWorktree,
           [worktreeId]: [...existing, tab]
         },
+        activeGroupIdByWorktree:
+          targetGroupId &&
+          s.groupsByWorktree[worktreeId]?.some((group) => group.id === targetGroupId)
+            ? { ...s.activeGroupIdByWorktree, [worktreeId]: targetGroupId }
+            : s.activeGroupIdByWorktree,
         activeTabId: tab.id,
         activeTabIdByWorktree: { ...s.activeTabIdByWorktree, [worktreeId]: tab.id },
         ptyIdsByTabId: { ...s.ptyIdsByTabId, [tab.id]: [] },
         terminalLayoutsByTabId: { ...s.terminalLayoutsByTabId, [tab.id]: emptyLayoutSnapshot() }
       }
     })
+    const state = get()
+    const resolvedTargetGroupId =
+      targetGroupId ??
+      state.activeGroupIdByWorktree[worktreeId] ??
+      state.groupsByWorktree[worktreeId]?.[0]?.id ??
+      state.ensureWorktreeRootGroup?.(worktreeId)
+    if (
+      resolvedTargetGroupId &&
+      !state.findTabForEntityInGroup(worktreeId, resolvedTargetGroupId, id, 'terminal')
+    ) {
+      // Why: a brand-new worktree can auto-create its first terminal before
+      // Terminal.tsx has mounted and seeded a root tab group. Force a root
+      // group here so the first terminal always gets a visible unified tab
+      // instead of existing only in the legacy terminal slice.
+      state.createUnifiedTab(worktreeId, 'terminal', {
+        id,
+        entityId: id,
+        label: tab.title,
+        customLabel: tab.customTitle,
+        color: tab.color,
+        targetGroupId: resolvedTargetGroupId
+      })
+    }
     return tab
   },
 
@@ -276,6 +325,14 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         tabBarOrderByWorktree: nextTabBarOrderByWorktree
       }
     })
+    for (const tabs of Object.values(get().unifiedTabsByWorktree)) {
+      const workspaceItem = tabs.find(
+        (entry) => entry.contentType === 'terminal' && entry.entityId === tabId
+      )
+      if (workspaceItem) {
+        get().closeUnifiedTab(workspaceItem.id)
+      }
+    }
   },
 
   reorderTabs: (worktreeId, tabIds) => {
@@ -324,7 +381,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
   },
 
-  setActiveTab: (tabId) =>
+  setActiveTab: (tabId) => {
     set((s) => {
       const worktreeId = s.activeWorktreeId
       return {
@@ -333,7 +390,14 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           ? { ...s.activeTabIdByWorktree, [worktreeId]: tabId }
           : s.activeTabIdByWorktree
       }
-    }),
+    })
+    const item = Object.values(get().unifiedTabsByWorktree)
+      .flat()
+      .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+    if (item) {
+      get().activateTab(item.id)
+    }
+  },
 
   updateTabTitle: (tabId, title) => {
     set((s) => {
@@ -366,6 +430,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ? { tabsByWorktree: next }
         : { tabsByWorktree: next, sortEpoch: s.sortEpoch + 1 }
     })
+    const item = Object.values(get().unifiedTabsByWorktree)
+      .flat()
+      .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+    if (item) {
+      get().setTabLabel(item.id, title)
+    }
   },
 
   setRuntimePaneTitle: (tabId, paneId, title) => {
@@ -412,6 +482,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       scheduleRuntimeGraphSync()
       return { tabsByWorktree: next }
     })
+    const item = Object.values(get().unifiedTabsByWorktree)
+      .flat()
+      .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+    if (item) {
+      get().setTabCustomLabel(item.id, title)
+    }
   },
 
   setTabColor: (tabId, color) => {
@@ -422,6 +498,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
       return { tabsByWorktree: next }
     })
+    const item = Object.values(get().unifiedTabsByWorktree)
+      .flat()
+      .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+    if (item) {
+      get().setUnifiedTabColor(item.id, color)
+    }
   },
 
   updateTabPtyId: (tabId, ptyId) => {

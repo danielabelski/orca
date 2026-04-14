@@ -27,6 +27,7 @@ import { isUpdaterQuitAndInstallInProgress } from '@/lib/updater-beforeunload'
 import EditorAutosaveController from './editor/EditorAutosaveController'
 import BrowserPane, { destroyPersistentWebview } from './browser-pane/BrowserPane'
 import { reconcileTabOrder } from './tab-bar/reconcile-order'
+import { shouldAutoCreateInitialTerminal } from './terminal/initial-terminal'
 
 const EditorPanel = lazy(() => import('./editor/EditorPanel'))
 
@@ -49,6 +50,8 @@ function Terminal(): React.JSX.Element | null {
   const clearCodexRestartNotice = useAppStore((s) => s.clearCodexRestartNotice)
   const expandedPaneByTabId = useAppStore((s) => s.expandedPaneByTabId)
   const workspaceSessionReady = useAppStore((s) => s.workspaceSessionReady)
+  const ensureWorktreeRootGroup = useAppStore((s) => s.ensureWorktreeRootGroup)
+  const reconcileWorktreeTabModel = useAppStore((s) => s.reconcileWorktreeTabModel)
   const openFiles = useAppStore((s) => s.openFiles)
   const activeFileId = useAppStore((s) => s.activeFileId)
   const activeBrowserTabId = useAppStore((s) => s.activeBrowserTabId)
@@ -79,6 +82,16 @@ function Terminal(): React.JSX.Element | null {
   useEffect(() => {
     setTitlebarTabsTarget(document.getElementById('titlebar-tabs'))
   }, [])
+
+  useEffect(() => {
+    if (!activeWorktreeId) {
+      return
+    }
+    // Why: worktree restore now depends on the tab-group model even before the
+    // split-group UI is exposed. Ensure every active worktree has a root group
+    // so terminal-first fallback logic can attach new terminals to a real owner.
+    ensureWorktreeRootGroup(activeWorktreeId)
+  }, [activeWorktreeId, ensureWorktreeRootGroup])
 
   // Filter editor files to only show those belonging to the active worktree
   const worktreeFiles = activeWorktreeId
@@ -170,12 +183,6 @@ function Terminal(): React.JSX.Element | null {
       mountedWorktreeIdsRef.current.delete(id)
     }
   }
-  // Why: tracks worktrees that have already been initialized (either by
-  // auto-creating a first tab or by having tabs on first activation). Once a
-  // worktree is in this set, closing all its tabs will NOT auto-spawn a
-  // replacement — the user explicitly chose to close them.
-  const initializedWorktreesRef = useRef(new Set<string>())
-
   // Auto-create first tab when worktree activates
   useEffect(() => {
     if (!workspaceSessionReady) {
@@ -185,27 +192,17 @@ function Terminal(): React.JSX.Element | null {
       return
     }
 
-    if (tabs.length > 0 || worktreeFiles.length > 0 || worktreeBrowserTabs.length > 0) {
-      initializedWorktreesRef.current.add(activeWorktreeId)
+    const { renderableTabCount } = reconcileWorktreeTabModel(activeWorktreeId)
+    if (!shouldAutoCreateInitialTerminal(renderableTabCount)) {
       return
     }
-
-    // Why: once a worktree has been initialized (had tabs or auto-created one),
-    // don't auto-create again. This prevents a new terminal from spawning
-    // immediately after the user closes the last tab. Also guards against
-    // React StrictMode double-invocation.
-    if (initializedWorktreesRef.current.has(activeWorktreeId)) {
-      return
-    }
-    initializedWorktreesRef.current.add(activeWorktreeId)
     createTab(activeWorktreeId)
   }, [
     workspaceSessionReady,
     activeWorktreeId,
     tabs.length,
-    worktreeFiles.length,
-    worktreeBrowserTabs.length,
-    createTab
+    createTab,
+    reconcileWorktreeTabModel
   ])
 
   const handleNewTab = useCallback(() => {
