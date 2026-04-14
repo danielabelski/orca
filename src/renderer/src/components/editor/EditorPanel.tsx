@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState, Suspense } from 'react
 import * as monaco from 'monaco-editor'
 import { Columns2, FileText, Rows2 } from 'lucide-react'
 import { useAppStore } from '@/store'
+import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { detectLanguage } from '@/lib/language-detect'
 import { getEditorHeaderCopyState, getEditorHeaderOpenFileState } from './editor-header'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -20,9 +21,12 @@ import {
   ORCA_EDITOR_FILE_SAVED_EVENT,
   ORCA_EDITOR_EXTERNAL_FILE_CHANGE_EVENT,
   requestEditorFileSave,
+  requestEditorSaveQuiesce,
+  ORCA_EDITOR_REQUEST_CMD_SAVE_EVENT,
   type EditorFileSavedDetail,
   type EditorPathMutationTarget
 } from './editor-autosave'
+import { UntitledFileRenameDialog } from './UntitledFileRenameDialog'
 
 type FileContent = {
   content: string
@@ -48,6 +52,8 @@ export default function EditorPanel({
   const markdownViewMode = useAppStore((s) => s.markdownViewMode)
   const setMarkdownViewMode = useAppStore((s) => s.setMarkdownViewMode)
   const openFile = useAppStore((s) => s.openFile)
+  const closeFile = useAppStore((s) => s.closeFile)
+  const clearUntitled = useAppStore((s) => s.clearUntitled)
   const editorDrafts = useAppStore((s) => s.editorDrafts)
   const setEditorDraft = useAppStore((s) => s.setEditorDraft)
   const settings = useAppStore((s) => s.settings)
@@ -59,6 +65,10 @@ export default function EditorPanel({
   const [copiedPathToast, setCopiedPathToast] = useState<{ fileId: string; token: number } | null>(
     null
   )
+  const [renameDialogFileId, setRenameDialogFileId] = useState<string | null>(null)
+  const renameDialogFile = renameDialogFileId
+    ? openFiles.find((f) => f.id === renameDialogFileId)
+    : null
   const [sideBySide, setSideBySide] = useState(settings?.diffDefaultView === 'side-by-side')
   const [prevDiffView, setPrevDiffView] = useState(settings?.diffDefaultView)
 
@@ -255,12 +265,42 @@ export default function EditorPanel({
       if (!activeFile) {
         return
       }
+      // Why: for untitled files, Cmd+S should prompt for a name before
+      // writing anything. Saving first would make Cancel misleading since
+      // the write already happened. Show the dialog and let the confirm
+      // handler do the save + rename atomically.
+      if (activeFile.isUntitled) {
+        setRenameDialogFileId(activeFile.id)
+        return
+      }
       try {
         await requestEditorFileSave({ fileId: activeFile.id, fallbackContent: content })
       } catch {}
     },
     [activeFile]
   )
+
+  // Why: global Cmd+S (from Terminal.tsx) dispatches this event when
+  // focus is outside the editor content area. Delegate to handleSave
+  // so untitled files still show the rename dialog.
+  useEffect(() => {
+    const handler = (): void => {
+      if (!activeFile) {
+        return
+      }
+      // Why: untitled files need the dialog even when there's no draft yet.
+      // For regular files, skip the save if there's no draft — the file on
+      // disk is already up-to-date, and passing an empty fallback would
+      // overwrite it with nothing.
+      const draft = useAppStore.getState().editorDrafts[activeFile.id]
+      if (!draft && !activeFile.isUntitled) {
+        return
+      }
+      void handleSave(draft ?? '')
+    }
+    window.addEventListener(ORCA_EDITOR_REQUEST_CMD_SAVE_EVENT, handler)
+    return () => window.removeEventListener(ORCA_EDITOR_REQUEST_CMD_SAVE_EVENT, handler)
+  }, [activeFile, handleSave])
 
   useEffect(() => {
     const handler = (event: Event): void => {
@@ -367,6 +407,92 @@ export default function EditorPanel({
     window.addEventListener(ORCA_EDITOR_FILE_SAVED_EVENT, handler as EventListener)
     return () => window.removeEventListener(ORCA_EDITOR_FILE_SAVED_EVENT, handler as EventListener)
   }, [])
+
+  const [renameError, setRenameError] = useState<string | null>(null)
+
+  const handleRenameConfirm = useCallback(
+    async (newRelPath: string) => {
+      if (!renameDialogFile) {
+        return
+      }
+      const oldPath = renameDialogFile.filePath
+      // Why: worktree path is derived by stripping the old relativePath
+      // suffix, so subdirectory-relative names (e.g. "notes/ideas.md")
+      // resolve correctly against the worktree root.
+      const worktreeRoot = oldPath.slice(
+        0,
+        oldPath.length - renameDialogFile.relativePath.length - 1
+      )
+      const newPath = `${worktreeRoot}/${newRelPath}`
+
+      // Prevent silently overwriting an existing file (but allow keeping
+      // the current name — the file's own path is not a conflict).
+      if (newPath !== oldPath && (await window.api.shell.pathExists(newPath))) {
+        setRenameError('A file with that name already exists')
+        return
+      }
+
+      // Why: Cmd+S no longer pre-saves for untitled files — it just opens
+      // this dialog. Flush any pending autosave, then save the current
+      // content so the file on disk is up-to-date before we rename it.
+      await requestEditorSaveQuiesce({ fileId: renameDialogFile.id })
+      // Why: only trigger a save if there's actually unsaved content.
+      // Passing an empty fallbackContent when the draft is absent would
+      // overwrite the file with nothing, wiping user content.
+      const draft = useAppStore.getState().editorDrafts[renameDialogFile.id]
+      if (draft !== undefined) {
+        try {
+          await requestEditorFileSave({ fileId: renameDialogFile.id, fallbackContent: draft })
+        } catch {
+          // Why: if the save fails (disk full, permissions, etc.), abort the
+          // rename to avoid moving a stale/empty file and losing content.
+          setRenameError('Failed to save file')
+          return
+        }
+      }
+
+      // User kept the same name — just save in place, no rename needed.
+      if (newPath === oldPath) {
+        clearUntitled(renameDialogFile.id)
+        setRenameDialogFileId(null)
+        setRenameError(null)
+        return
+      }
+
+      // Why: if the target path includes subdirectories (e.g. "notes/ideas.md"),
+      // ensure the parent directory exists before renaming. createDir throws
+      // if the directory already exists (assertNotExists guard), so only call
+      // it when the directory is not yet on disk.
+      const newDir = newPath.slice(0, newPath.lastIndexOf('/'))
+      if (newDir !== worktreeRoot && !(await window.api.shell.pathExists(newDir))) {
+        await window.api.fs.createDir({ dirPath: newDir })
+      }
+
+      try {
+        await window.api.fs.rename({ oldPath, newPath })
+      } catch (err) {
+        setRenameError(err instanceof Error ? err.message : 'Failed to rename file')
+        return
+      }
+
+      closeFile(oldPath)
+      openFile({
+        filePath: newPath,
+        relativePath: newRelPath,
+        worktreeId: renameDialogFile.worktreeId,
+        language: detectLanguage(newRelPath),
+        mode: 'edit'
+      })
+
+      // Why: Cmd+S already saved the content before the rename dialog opened,
+      // and quiesce flushed any remaining writes. The renamed file on disk
+      // matches the editor content, so the new tab should start clean.
+
+      setRenameDialogFileId(null)
+      setRenameError(null)
+    },
+    [renameDialogFile, closeFile, openFile, clearUntitled]
+  )
 
   const handleCopyPath = useCallback(async (): Promise<void> => {
     if (!activeFile) {
@@ -537,6 +663,22 @@ export default function EditorPanel({
           handleSave={handleSave}
         />
       </Suspense>
+      <UntitledFileRenameDialog
+        open={renameDialogFile !== undefined && renameDialogFile !== null}
+        currentName={renameDialogFile?.relativePath ?? ''}
+        worktreePath={
+          renameDialogFile
+            ? (findWorktreeById(useAppStore.getState().worktreesByRepo, renameDialogFile.worktreeId)
+                ?.path ?? '')
+            : ''
+        }
+        externalError={renameError}
+        onClose={() => {
+          setRenameDialogFileId(null)
+          setRenameError(null)
+        }}
+        onConfirm={handleRenameConfirm}
+      />
     </div>
   )
 }

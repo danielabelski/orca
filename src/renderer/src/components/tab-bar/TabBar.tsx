@@ -8,7 +8,7 @@ import {
   type DragEndEvent
 } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
-import { Columns2, Globe, Plus, Rows2, TerminalSquare } from 'lucide-react'
+import { Columns2, FilePlus, Globe, Plus, Rows2, TerminalSquare } from 'lucide-react'
 import type {
   BrowserTab as BrowserTabState,
   TerminalTab,
@@ -32,6 +32,7 @@ import {
 const isMac = navigator.userAgent.includes('Mac')
 const NEW_TERMINAL_SHORTCUT = isMac ? '⌘T' : 'Ctrl+T'
 const NEW_BROWSER_SHORTCUT = isMac ? '⌘⇧B' : 'Ctrl+Shift+B'
+const NEW_FILE_SHORTCUT = isMac ? '⌘⇧N' : 'Ctrl+Shift+N'
 
 type TabBarProps = {
   tabs: TerminalTab[]
@@ -45,6 +46,7 @@ type TabBarProps = {
   onReorder: (worktreeId: string, order: string[]) => void
   onNewTerminalTab: () => void
   onNewBrowserTab: () => void
+  onNewFileTab?: () => void
   onSetCustomTitle: (tabId: string, title: string | null) => void
   onSetTabColor: (tabId: string, color: string | null) => void
   onTogglePaneExpand: (tabId: string) => void
@@ -80,6 +82,7 @@ export default function TabBar({
   onReorder,
   onNewTerminalTab,
   onNewBrowserTab,
+  onNewFileTab,
   onSetCustomTitle,
   onSetTabColor,
   onTogglePaneExpand,
@@ -320,6 +323,16 @@ export default function TabBar({
             New Browser Tab
             <DropdownMenuShortcut>{NEW_BROWSER_SHORTCUT}</DropdownMenuShortcut>
           </DropdownMenuItem>
+          {onNewFileTab && (
+            <DropdownMenuItem
+              onSelect={onNewFileTab}
+              className="gap-2 rounded-[7px] px-2 py-0.5 text-[12px] leading-5 font-medium"
+            >
+              <FilePlus className="size-4 text-muted-foreground" />
+              New Markdown
+              <DropdownMenuShortcut>{NEW_FILE_SHORTCUT}</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
           {onCreateSplitGroup && (
             <>
               <DropdownMenuItem

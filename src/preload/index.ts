@@ -330,6 +330,9 @@ const api = {
 
     pickImage: (): Promise<string | null> => ipcRenderer.invoke('shell:pickImage'),
 
+    pickDirectory: (args: { defaultPath?: string }): Promise<string | null> =>
+      ipcRenderer.invoke('shell:pickDirectory', args),
+
     copyFile: (args: { srcPath: string; destPath: string }): Promise<void> =>
       ipcRenderer.invoke('shell:copyFile', args)
   },

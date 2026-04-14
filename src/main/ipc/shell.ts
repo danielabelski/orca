@@ -82,6 +82,20 @@ export function registerShellHandlers(): void {
     return pathExists(filePath)
   })
 
+  ipcMain.handle(
+    'shell:pickDirectory',
+    async (_event, args: { defaultPath?: string }): Promise<string | null> => {
+      const result = await dialog.showOpenDialog({
+        defaultPath: args.defaultPath,
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return null
+      }
+      return result.filePaths[0]
+    }
+  )
+
   // Why: window.prompt() and <input type="file"> are unreliable in Electron,
   // so we use the native OS dialog to let the user pick an image file.
   ipcMain.handle('shell:pickImage', async (): Promise<string | null> => {

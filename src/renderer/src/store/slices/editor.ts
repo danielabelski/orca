@@ -93,6 +93,7 @@ export type OpenFile = {
   skippedConflicts?: CombinedDiffSkippedConflict[]
   conflictReview?: ConflictReviewState
   isPreview?: boolean // preview tabs are replaced when another file is single-clicked
+  isUntitled?: boolean // true for files created via "New Markdown" that haven't been renamed yet
   mode: 'edit' | 'diff' | 'conflict-review'
 }
 
@@ -152,6 +153,7 @@ export type EditorSlice = {
   setActiveFile: (fileId: string) => void
   reorderFiles: (fileIds: string[]) => void
   markFileDirty: (fileId: string, dirty: boolean) => void
+  clearUntitled: (fileId: string) => void
   openDiff: (
     worktreeId: string,
     filePath: string,
@@ -655,6 +657,11 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           ? { ...f, isDirty: dirty, ...(dirty && f.isPreview ? { isPreview: undefined } : {}) }
           : f
       )
+    })),
+
+  clearUntitled: (fileId) =>
+    set((s) => ({
+      openFiles: s.openFiles.map((f) => (f.id === fileId ? { ...f, isUntitled: undefined } : f))
     })),
 
   openDiff: (worktreeId, filePath, relativePath, language, staged) =>

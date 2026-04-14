@@ -4,6 +4,8 @@ import { useEffect, useCallback, useRef, useState, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { useAppStore } from '../store'
+import { findWorktreeById } from '../store/slices/worktree-helpers'
+import { detectLanguage } from '../lib/language-detect'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,7 @@ import TabBar from './tab-bar/TabBar'
 import TerminalPane from './terminal-pane/TerminalPane'
 import {
   ORCA_EDITOR_SAVE_AND_CLOSE_EVENT,
+  ORCA_EDITOR_REQUEST_CMD_SAVE_EVENT,
   requestEditorSaveQuiesce
 } from './editor/editor-autosave'
 import { isUpdaterQuitAndInstallInProgress } from '@/lib/updater-beforeunload'
@@ -52,6 +55,7 @@ export default function Terminal(): React.JSX.Element | null {
   const activeTabType = useAppStore((s) => s.activeTabType)
   const setActiveTabType = useAppStore((s) => s.setActiveTabType)
   const setActiveFile = useAppStore((s) => s.setActiveFile)
+  const openFile = useAppStore((s) => s.openFile)
   const closeFile = useAppStore((s) => s.closeFile)
   const closeAllFiles = useAppStore((s) => s.closeAllFiles)
   const pinFile = useAppStore((s) => s.pinFile)
@@ -244,6 +248,48 @@ export default function Terminal(): React.JSX.Element | null {
     const defaultUrl = useAppStore.getState().browserDefaultUrl ?? 'about:blank'
     createBrowserTab(activeWorktreeId, defaultUrl, { title: 'New Browser Tab' })
   }, [activeWorktreeId, createBrowserTab])
+
+  const handleNewFile = useCallback(async () => {
+    if (!activeWorktreeId) {
+      return
+    }
+    const worktree = findWorktreeById(useAppStore.getState().worktreesByRepo, activeWorktreeId)
+    if (!worktree) {
+      return
+    }
+    const baseName = 'untitled'
+    const ext = '.md'
+    let fileName = `${baseName}${ext}`
+    let filePath = `${worktree.path}/${fileName}`
+
+    // Why: createFile uses the 'wx' flag which fails if the file exists.
+    // Probe with pathExists to find the first unused name. Using pathExists
+    // instead of stat avoids noisy ENOENT errors in the main process log.
+    let counter = 2
+    const MAX_ATTEMPTS = 100
+    while (counter <= MAX_ATTEMPTS && (await window.api.shell.pathExists(filePath))) {
+      fileName = `${baseName}-${counter}${ext}`
+      filePath = `${worktree.path}/${fileName}`
+      counter++
+    }
+
+    try {
+      await window.api.fs.createFile({ filePath })
+    } catch {
+      return
+    }
+    openFile(
+      {
+        filePath,
+        relativePath: fileName,
+        worktreeId: activeWorktreeId,
+        language: detectLanguage(fileName),
+        isUntitled: true,
+        mode: 'edit'
+      },
+      { preview: false }
+    )
+  }, [activeWorktreeId, openFile])
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -487,6 +533,32 @@ export default function Terminal(): React.JSX.Element | null {
         return
       }
 
+      // Cmd/Ctrl+S - save active editor file (fallback for when focus is
+      // outside the editor content area, e.g. on the tab bar or sidebar).
+      // When the editor itself has focus, Monaco/rich-markdown handle Cmd+S
+      // internally, so we skip this when the target is editable.
+      if (mod && e.key === 's' && !e.shiftKey && !e.repeat) {
+        const target = e.target as HTMLElement | null
+        const inEditor =
+          target?.closest('.monaco-editor, [contenteditable]') !== null ||
+          target?.closest('textarea:not(.xterm-helper-textarea), input') !== null
+        if (!inEditor) {
+          const state = useAppStore.getState()
+          if (state.activeTabType === 'editor' && state.activeFileId) {
+            e.preventDefault()
+            window.dispatchEvent(new Event(ORCA_EDITOR_REQUEST_CMD_SAVE_EVENT))
+            return
+          }
+        }
+      }
+
+      // Cmd/Ctrl+Shift+N - new file
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'n' && !e.repeat) {
+        e.preventDefault()
+        void handleNewFile()
+        return
+      }
+
       // Cmd/Ctrl+W - close active editor tab, browser tab, or terminal pane.
       // Terminal pane/tab close is handled by the pane-level keyboard handler
       // in keyboard-handlers.ts so it can close individual split panes and
@@ -572,6 +644,7 @@ export default function Terminal(): React.JSX.Element | null {
   }, [
     activeWorktreeId,
     handleNewBrowserTab,
+    handleNewFile,
     handleNewTab,
     handleCloseTab,
     handleCloseBrowserTab,
@@ -713,6 +786,7 @@ export default function Terminal(): React.JSX.Element | null {
             onReorder={setTabBarOrder}
             onNewTerminalTab={handleNewTab}
             onNewBrowserTab={handleNewBrowserTab}
+            onNewFileTab={handleNewFile}
             onSetCustomTitle={setTabCustomTitle}
             onSetTabColor={setTabColor}
             expandedPaneByTabId={expandedPaneByTabId}
