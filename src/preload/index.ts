@@ -4,6 +4,7 @@ review and type drift checks easier than scattering these bindings across module
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { CliInstallStatus } from '../shared/cli-install-types'
+import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
 import type {
   FsChangedPayload,
   NotificationDispatchResult,
@@ -369,6 +370,20 @@ const api = {
     getInstallStatus: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:getInstallStatus'),
     install: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:install'),
     remove: (): Promise<CliInstallStatus> => ipcRenderer.invoke('cli:remove')
+  },
+
+  agentHooks: {
+    claudeStatus: (): Promise<AgentHookInstallStatus> =>
+      ipcRenderer.invoke('agentHooks:claudeStatus'),
+    claudeInstall: (): Promise<AgentHookInstallStatus> =>
+      ipcRenderer.invoke('agentHooks:claudeInstall'),
+    claudeRemove: (): Promise<AgentHookInstallStatus> =>
+      ipcRenderer.invoke('agentHooks:claudeRemove'),
+    codexStatus: (): Promise<AgentHookInstallStatus> =>
+      ipcRenderer.invoke('agentHooks:codexStatus'),
+    codexInstall: (): Promise<AgentHookInstallStatus> =>
+      ipcRenderer.invoke('agentHooks:codexInstall'),
+    codexRemove: (): Promise<AgentHookInstallStatus> => ipcRenderer.invoke('agentHooks:codexRemove')
   },
 
   preflight: {
@@ -1224,13 +1239,25 @@ const api = {
   },
 
   agentStatus: {
-    /** Listen for agent status updates forwarded from the CLI via the runtime. */
+    /** Listen for agent status updates forwarded from native hook receivers. */
     onSet: (
-      callback: (data: { paneKey: string; state: string; summary?: string; next?: string }) => void
+      callback: (data: {
+        paneKey: string
+        state: string
+        summary?: string
+        next?: string
+        agentType?: string
+      }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { paneKey: string; state: string; summary?: string; next?: string }
+        data: {
+          paneKey: string
+          state: string
+          summary?: string
+          next?: string
+          agentType?: string
+        }
       ) => callback(data)
       ipcRenderer.on('agentStatus:set', listener)
       return () => ipcRenderer.removeListener('agentStatus:set', listener)

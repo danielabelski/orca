@@ -1,5 +1,9 @@
 import type { TerminalTab } from '../../../shared/types'
-import type { AgentStatusEntry, AgentStatusState, AgentType } from '../../../shared/agent-status-types'
+import type {
+  AgentStatusEntry,
+  AgentStatusState,
+  AgentType
+} from '../../../shared/agent-status-types'
 import type { Status } from '../components/sidebar/StatusIndicator'
 
 // Re-export from shared module so existing renderer imports continue to work.
@@ -110,21 +114,20 @@ export function inferAgentTypeFromTitle(title: string | null | undefined): Agent
   return 'unknown'
 }
 
+const WELL_KNOWN_LABELS: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  opencode: 'OpenCode',
+  aider: 'Aider'
+}
+
 export function formatAgentTypeLabel(agentType: AgentType | null | undefined): string {
-  switch (agentType) {
-    case 'claude':
-      return 'Claude'
-    case 'codex':
-      return 'Codex'
-    case 'gemini':
-      return 'Gemini'
-    case 'opencode':
-      return 'OpenCode'
-    case 'aider':
-      return 'Aider'
-    default:
-      return 'Unknown agent'
+  if (!agentType || agentType === 'unknown') {
+    return 'Agent'
   }
+  // Capitalize well-known names nicely; pass through custom names as-is
+  return WELL_KNOWN_LABELS[agentType] ?? agentType
 }
 
 // Why: explicit agent status entries (from hook-based reports) can go stale if
