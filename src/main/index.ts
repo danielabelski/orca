@@ -27,6 +27,9 @@ import { attachMainWindowServices } from './window/attach-main-window-services'
 import { createMainWindow } from './window/createMainWindow'
 import { CodexAccountService } from './codex-accounts/service'
 import { openCodeHookService } from './opencode/hook-service'
+import { agentHookServer } from './agent-hooks/server'
+import { claudeHookService } from './claude/hook-service'
+import { codexHookService } from './codex/hook-service'
 
 let mainWindow: BrowserWindow | null = null
 /** Whether a manual app.quit() (Cmd+Q, etc.) is in progress. Shared with the
@@ -108,6 +111,12 @@ function openMainWindow(): BrowserWindow {
     }
   })
   mainWindow = window
+  agentHookServer.setListener(({ paneKey, payload }) => {
+    if (mainWindow?.isDestroyed()) {
+      return
+    }
+    mainWindow?.webContents.send('agentStatus:set', { paneKey, ...payload })
+  })
   return window
 }
 
@@ -129,6 +138,19 @@ app.whenReady().then(async () => {
   rateLimits.setCodexHomePathResolver(() => codexAccounts!.getSelectedManagedHomePath())
   runtime = new OrcaRuntimeService(store, stats)
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
+  // Why: managed hook installation mutates user-global agent config.
+  // Startup must fail open so a malformed local config never bricks Orca.
+  for (const installManagedHooks of [
+    () => claudeHookService.install(),
+    () => codexHookService.install()
+  ]) {
+    try {
+      installManagedHooks()
+    } catch (error) {
+      console.error('[agent-hooks] Failed to install managed hooks:', error)
+    }
+  }
+
   registerAppMenu({
     onCheckForUpdates: () => checkForUpdatesFromMenu(),
     onOpenSettings: () => {
@@ -162,12 +184,17 @@ app.whenReady().then(async () => {
     console.error('[daemon] Failed to start daemon PTY provider, falling back to local:', error)
   })
 
-  // Why: both server binds are independent and neither blocks window creation.
+  // Why: all server binds are independent and neither blocks window creation.
   // Parallelizing them with the window open shaves ~100-200ms off cold start.
   const [win] = await Promise.all([
     Promise.resolve(openMainWindow()),
     openCodeHookService.start().catch((error) => {
       console.error('[opencode] Failed to start local hook server:', error)
+    }),
+    agentHookServer.start().catch((error) => {
+      // Why: Claude/Codex hook callbacks are sidebar enrichment only. Orca must
+      // still boot even if the local loopback receiver cannot bind on this launch.
+      console.error('[agent-hooks] Failed to start local hook server:', error)
     }),
     runtimeRpc.start().catch((error) => {
       console.error('[runtime] Failed to start local RPC transport:', error)
@@ -209,6 +236,7 @@ app.on('will-quit', () => {
   // so without this ordering, running agents would produce orphaned
   // agent_start events with no matching stops.
   openCodeHookService.stop()
+  agentHookServer.stop()
   stats?.flush()
   killAllPty()
   // Why: in daemon mode, killAllPty is a no-op (daemon sessions survive app
