@@ -443,6 +443,17 @@ export default function RichMarkdownEditor({
       return
     }
 
+    // Why: the debounced onUpdate serializes the editor and feeds it back
+    // through onContentChange → editorDrafts → the content prop.  If the
+    // user typed between the debounce firing and this effect running, the
+    // editor already contains newer content than the prop.  Comparing
+    // against lastCommittedMarkdownRef (which is set in the same tick as
+    // onContentChange) lets us recognise our own serialization and skip the
+    // destructive setContent that would reset the cursor mid-typing.
+    if (content === lastCommittedMarkdownRef.current) {
+      return
+    }
+
     const currentMarkdown = editor.getMarkdown()
     if (currentMarkdown === content) {
       return
