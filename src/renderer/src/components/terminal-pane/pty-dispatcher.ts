@@ -119,7 +119,7 @@ export type PtyTransport = {
       onError?: (message: string, errors?: string[]) => void
       onExit?: (code: number) => void
     }
-  }) => void | Promise<void>
+  }) => void | Promise<void | string>
   /** Attach to an existing PTY that was eagerly spawned during startup.
    *  Skips pty:spawn — registers handlers and replays buffered data instead. */
   attach: (options: {
@@ -145,6 +145,9 @@ export type PtyTransport = {
   isConnected: () => boolean
   getPtyId: () => string | null
   preserve?: () => void
+  /** Unregister PTY handlers without killing the process, so a remounted
+   *  pane can reattach to the same running shell. */
+  detach?: () => void
   destroy?: () => void | Promise<void>
 }
 
