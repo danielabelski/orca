@@ -71,6 +71,11 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     openCodeStatusHandlers.delete(id)
   }
 
+  function unregisterPtyDataAndStatusHandlers(id: string): void {
+    ptyDataHandlers.delete(id)
+    openCodeStatusHandlers.delete(id)
+  }
+
   function getSyntheticOpenCodeTitle(status: OpenCodeStatusEvent['status']): string {
     const baseTitle =
       lastObservedTerminalTitle && lastObservedTerminalTitle !== 'OpenCode'
@@ -276,7 +281,12 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       }
       openCodeStatus = null
       if (ptyId) {
-        unregisterPtyHandlers(ptyId)
+        // Why: detach() is used for in-session remounts such as moving a tab
+        // between split groups. Stop delivering data/title events into the
+        // unmounted pane immediately, but keep the PTY exit observer alive so
+        // a shell that dies during the remount gap can still clear stale
+        // tab/leaf bindings before the next pane attempts to reattach.
+        unregisterPtyDataAndStatusHandlers(ptyId)
       }
       connected = false
       ptyId = null

@@ -34,6 +34,7 @@ type PtyConnectionDeps = {
     terminalTitle?: string
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
+  syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void
 }
 
 export function connectPanePty(
@@ -58,6 +59,7 @@ export function connectPanePty(
   const cacheKey = `${deps.tabId}:${pane.id}`
 
   const onExit = (ptyId: string): void => {
+    deps.syncPanePtyLayoutBinding(pane.id, null)
     deps.clearRuntimePaneTitle(deps.tabId, pane.id)
     deps.clearTabPtyId(deps.tabId, ptyId)
     // Why: if the PTY exits abruptly (Ctrl-D, crash, shell termination) without
@@ -115,6 +117,7 @@ export function connectPanePty(
   }
 
   const onPtySpawn = (ptyId: string): void => {
+    deps.syncPanePtyLayoutBinding(pane.id, ptyId)
     deps.updateTabPtyId(deps.tabId, ptyId)
     // Spawn completion is when a pane gains a concrete PTY ID. The initial
     // frame-level sync often runs before that async result arrives.
@@ -229,14 +232,6 @@ export function connectPanePty(
           cols,
           rows,
           callbacks: {
-            onConnect: () => {
-              if (paneStartup?.command) {
-                // Why: setup commands are injected only after the PTY reports a live
-                // shell connection. Writing earlier is racy with shell startup files
-                // and can drop characters on slower shells.
-                transport.sendInput(`${paneStartup.command}\r`)
-              }
-            },
             onData: dataCallback,
             onError: reportError
           }
@@ -245,6 +240,7 @@ export function connectPanePty(
         .then((spawnedPtyId) =>
           typeof spawnedPtyId === 'string' ? spawnedPtyId : transport.getPtyId()
         )
+        .catch(() => null)
         .finally(() => {
           if (pendingSpawnByTabId.get(deps.tabId) === spawnPromise) {
             pendingSpawnByTabId.delete(deps.tabId)
@@ -294,6 +290,7 @@ export function connectPanePty(
     // leaf→PTY mapping takes precedence over the tab-level PTY owner.
     if (restoredPtyId) {
       allowInitialIdleCacheSeed = true
+      deps.syncPanePtyLayoutBinding(pane.id, restoredPtyId)
       transport.attach({
         existingPtyId: restoredPtyId,
         cols,
@@ -311,6 +308,7 @@ export function connectPanePty(
       // Group moves/remounts still reattach correctly because they recreate the
       // whole TerminalPane with no surviving pane transports yet.
       allowInitialIdleCacheSeed = true
+      deps.syncPanePtyLayoutBinding(pane.id, existingPtyId)
       // Why: this tab already owns a PTY. Attach to it instead of spawning a
       // duplicate. Startup commands are intentionally skipped — the PTY was
       // already spawned with a fresh shell.
@@ -331,6 +329,9 @@ export function connectPanePty(
       if (pendingSpawn) {
         void pendingSpawn
           .then((spawnedPtyId) => {
+            if (disposed) {
+              return
+            }
             if (transport.getPtyId()) {
               return
             }

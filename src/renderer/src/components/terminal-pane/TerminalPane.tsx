@@ -175,6 +175,12 @@ export default function TerminalPane({
         Object.entries(existing.buffersByLeafId).filter(([id]) => currentLeafIds.has(id))
       )
     }
+    // Why: between pane creation and the deferred rAF where PTYs actually
+    // attach, all transports have getPtyId() === null. If persistLayoutSnapshot
+    // fires during that window the live-transport block below finds no entries,
+    // so this block preserves the *prior* snapshot's leaf→PTY mappings. Without
+    // it, a rapid successive remount (tab moved again before the first rAF)
+    // would lose the mappings and force fresh PTY spawns.
     if (existing?.ptyIdsByLeafId) {
       const currentLeafIds = new Set(manager.getPanes().map((p) => paneLeafId(p.id)))
       layout.ptyIdsByLeafId = Object.fromEntries(
@@ -202,6 +208,39 @@ export default function TerminalPane({
     }
     setTabLayout(tabId, layout)
   }, [tabId, setTabLayout])
+
+  const syncPanePtyLayoutBinding = useCallback(
+    (paneId: number, ptyId: string | null): void => {
+      const existingLayout = useAppStore.getState().terminalLayoutsByTabId[tabId] ?? EMPTY_LAYOUT
+      const { ptyIdsByLeafId: _existingPtyIdsByLeafId, ...layoutWithoutPtyBindings } =
+        existingLayout
+      const existingBindings = existingLayout.ptyIdsByLeafId ?? {}
+      const leafId = paneLeafId(paneId)
+
+      if (ptyId) {
+        setTabLayout(tabId, {
+          ...layoutWithoutPtyBindings,
+          // Why: PTY ownership changes happen after the synchronous layout
+          // snapshot on mount. Persist the live pane→PTY binding here so
+          // remounts attach each pane to its current shell instead of a stale
+          // or missing PTY id from an earlier snapshot.
+          ptyIdsByLeafId: {
+            ...existingBindings,
+            [leafId]: ptyId
+          }
+        })
+        return
+      }
+
+      const nextBindings = { ...existingBindings }
+      delete nextBindings[leafId]
+      setTabLayout(tabId, {
+        ...layoutWithoutPtyBindings,
+        ...(Object.keys(nextBindings).length > 0 ? { ptyIdsByLeafId: nextBindings } : {})
+      })
+    },
+    [setTabLayout, tabId]
+  )
 
   const {
     setExpandedPane,
@@ -234,10 +273,11 @@ export default function TerminalPane({
         // longer exists. The closeTab path handles bulk cleanup, but closing
         // a single split pane doesn't go through closeTab.
         useAppStore.getState().setCacheTimerStartedAt(`${tabId}:${paneId}`, null)
+        syncPanePtyLayoutBinding(paneId, null)
         manager.closePane(paneId)
       }
     },
-    [onCloseTab, tabId]
+    [onCloseTab, syncPanePtyLayoutBinding, tabId]
   )
 
   // Cmd+W handler — shows a Ghostty-style confirmation dialog when the
@@ -303,6 +343,7 @@ export default function TerminalPane({
     markWorktreeUnread,
     dispatchNotification,
     setCacheTimerStartedAt,
+    syncPanePtyLayoutBinding,
     setTabPaneExpanded,
     setTabCanExpandPane,
     setExpandedPane,
@@ -337,6 +378,7 @@ export default function TerminalPane({
 
       panePtyBinding?.dispose()
       panePtyBindingsRef.current.delete(paneId)
+      syncPanePtyLayoutBinding(paneId, null)
       transport?.destroy?.()
       paneTransportsRef.current.delete(paneId)
       setCacheTimerStartedAt(`${tabId}:${paneId}`, null)
@@ -376,6 +418,7 @@ export default function TerminalPane({
       setCacheTimerStartedAt,
       setRuntimePaneTitle,
       suppressPtyExit,
+      syncPanePtyLayoutBinding,
       tabId,
       updateTabPtyId,
       updateTabTitle,

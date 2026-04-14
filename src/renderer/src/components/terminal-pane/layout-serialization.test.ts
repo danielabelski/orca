@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest'
+import type { TerminalPaneLayoutNode } from '../../../../shared/types'
 
 // ---------------------------------------------------------------------------
 // Provide a minimal HTMLElement so `instanceof HTMLElement` passes in Node env
@@ -31,18 +32,14 @@ beforeAll(() => {
   ;(globalThis as unknown as Record<string, unknown>).HTMLElement = MockHTMLElement
 })
 
-// Now import the module *after* HTMLElement is defined on globalThis.
-// Vitest hoists imports, so we use dynamic import inside tests instead?
-// Actually vitest hoists `beforeAll` too, but the global assignment happens
-// before the imported module's runtime code runs since the module only uses
-// HTMLElement at call-time (not at import-time). Let's verify.
-
 import {
   paneLeafId,
   buildFontFamily,
   serializePaneTree,
   serializeTerminalLayout,
-  EMPTY_LAYOUT
+  EMPTY_LAYOUT,
+  collectLeafIdsInOrder,
+  collectLeafIdsInReplayCreationOrder
 } from './layout-serialization'
 
 // ---------------------------------------------------------------------------
@@ -256,5 +253,43 @@ describe('serializeTerminalLayout', () => {
       activeLeafId: 'pane:5',
       expandedLeafId: null
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// collectLeafIdsInReplayCreationOrder
+// ---------------------------------------------------------------------------
+describe('collectLeafIdsInReplayCreationOrder', () => {
+  it('matches replayTerminalLayout pane creation order for nested left splits', () => {
+    const layout: TerminalPaneLayoutNode = {
+      type: 'split',
+      direction: 'vertical',
+      first: {
+        type: 'split',
+        direction: 'horizontal',
+        first: { type: 'leaf', leafId: 'A' },
+        second: { type: 'leaf', leafId: 'B' }
+      },
+      second: { type: 'leaf', leafId: 'C' }
+    }
+
+    expect(collectLeafIdsInOrder(layout)).toEqual(['A', 'B', 'C'])
+    expect(collectLeafIdsInReplayCreationOrder(layout)).toEqual(['A', 'C', 'B'])
+  })
+
+  it('matches replayTerminalLayout pane creation order for nested right splits', () => {
+    const layout: TerminalPaneLayoutNode = {
+      type: 'split',
+      direction: 'vertical',
+      first: { type: 'leaf', leafId: 'A' },
+      second: {
+        type: 'split',
+        direction: 'horizontal',
+        first: { type: 'leaf', leafId: 'B' },
+        second: { type: 'leaf', leafId: 'C' }
+      }
+    }
+
+    expect(collectLeafIdsInReplayCreationOrder(layout)).toEqual(['A', 'B', 'C'])
   })
 })

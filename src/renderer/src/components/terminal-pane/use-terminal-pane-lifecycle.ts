@@ -14,7 +14,7 @@ import type { GlobalSettings, TerminalLayoutSnapshot } from '../../../../shared/
 import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
 import {
   buildFontFamily,
-  collectLeafIdsInOrder,
+  collectLeafIdsInReplayCreationOrder,
   replayTerminalLayout,
   restoreScrollbackBuffers
 } from './layout-serialization'
@@ -66,6 +66,7 @@ type UseTerminalPaneLifecycleDeps = {
     terminalTitle?: string
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
+  syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void
   setTabPaneExpanded: (tabId: string, expanded: boolean) => void
   setTabCanExpandPane: (tabId: string, canExpand: boolean) => void
   setExpandedPane: (paneId: number | null) => void
@@ -108,6 +109,7 @@ export function useTerminalPaneLifecycle({
   markWorktreeUnread,
   dispatchNotification,
   setCacheTimerStartedAt,
+  syncPanePtyLayoutBinding,
   setTabPaneExpanded,
   setTabCanExpandPane,
   setExpandedPane,
@@ -188,7 +190,9 @@ export function useTerminalPaneLifecycle({
     }
 
     let shouldPersistLayout = false
-    const restoredLeafIdsInOrder = collectLeafIdsInOrder(initialLayoutRef.current.root)
+    const restoredLeafIdsInCreationOrder = collectLeafIdsInReplayCreationOrder(
+      initialLayoutRef.current.root
+    )
     let restoredPaneCreateIndex = 0
     const ptyDeps = {
       tabId,
@@ -210,6 +214,7 @@ export function useTerminalPaneLifecycle({
       markWorktreeUnread,
       dispatchNotification,
       setCacheTimerStartedAt,
+      syncPanePtyLayoutBinding,
       restoredPtyIdByLeafId: initialLayoutRef.current.ptyIdsByLeafId ?? {}
     }
 
@@ -245,7 +250,7 @@ export function useTerminalPaneLifecycle({
           }
         }
         applyAppearance(manager)
-        const restoredLeafId = restoredLeafIdsInOrder[restoredPaneCreateIndex] ?? null
+        const restoredLeafId = restoredLeafIdsInCreationOrder[restoredPaneCreateIndex] ?? null
         restoredPaneCreateIndex += 1
         const panePtyBinding = connectPanePty(pane, manager, {
           ...ptyDeps,
@@ -270,6 +275,7 @@ export function useTerminalPaneLifecycle({
         if (transport) {
           const ptyId = transport.getPtyId()
           if (ptyId) {
+            syncPanePtyLayoutBinding(paneId, null)
             clearTabPtyId(tabId, ptyId)
           }
           transport.destroy?.()
@@ -463,11 +469,14 @@ export function useTerminalPaneLifecycle({
       }
       linkDisposables.clear()
       for (const transport of paneTransports.values()) {
-        if (tabStillExists) {
+        if (tabStillExists && transport.getPtyId()) {
           // Why: moving a terminal tab between groups currently rehomes the
           // React subtree, which unmounts this TerminalPane even though the tab
           // itself is still alive. Detaching preserves the running PTY so the
           // remounted pane can reattach without restarting the user's shell.
+          // Transports that have not attached yet still have no PTY ID; those
+          // must be destroyed so any in-flight spawn resolves into a killed PTY
+          // instead of reviving a stale binding after unmount.
           transport.detach?.()
         } else {
           transport.destroy?.()

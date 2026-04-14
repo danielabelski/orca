@@ -34,7 +34,6 @@ export function useTerminalPaneGlobalEffects({
   isVisibleRef,
   toggleExpandPane
 }: UseTerminalPaneGlobalEffectsArgs): void {
-  const wasActiveRef = useRef(false)
   const wasVisibleRef = useRef(false)
 
   // Why: tracks any in-progress chunked pending-write flush so the cleanup
@@ -114,6 +113,10 @@ export function useTerminalPaneGlobalEffects({
           return
         }
         fitRanForEpochRef.current = epoch
+        // Why: suspendRendering() disposes every WebGL addon while hidden. We
+        // defer recreation until this post-drain rAF so the browser can paint
+        // one responsive frame with the DOM renderer before WebGL setup runs.
+        mgr.resumeRendering()
         if (isActive) {
           fitAndFocusPanes(mgr)
           return
@@ -173,7 +176,6 @@ export function useTerminalPaneGlobalEffects({
       manager.suspendRendering()
     }
     wasVisibleRef.current = isVisible
-    wasActiveRef.current = isActive
     isActiveRef.current = isActive
     isVisibleRef.current = isVisible
     // eslint-disable-next-line react-hooks/exhaustive-deps

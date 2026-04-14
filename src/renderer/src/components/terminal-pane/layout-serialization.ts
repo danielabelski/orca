@@ -25,6 +25,40 @@ export function collectLeafIdsInOrder(node: TerminalPaneLayoutNode | null | unde
   return [...collectLeafIdsInOrder(node.first), ...collectLeafIdsInOrder(node.second)]
 }
 
+function getLeftmostLeafId(node: TerminalPaneLayoutNode): string {
+  return node.type === 'leaf' ? node.leafId : getLeftmostLeafId(node.first)
+}
+
+function collectReplayCreatedPaneLeafIds(
+  node: Extract<TerminalPaneLayoutNode, { type: 'split' }>,
+  leafIdsInReplayCreationOrder: string[]
+): void {
+  // Why: replayTerminalLayout() creates one new pane per split and assigns it
+  // to the split's second subtree before recursing, so the new pane maps to
+  // the leftmost leaf reachable within that second subtree.
+  leafIdsInReplayCreationOrder.push(getLeftmostLeafId(node.second))
+
+  if (node.first.type === 'split') {
+    collectReplayCreatedPaneLeafIds(node.first, leafIdsInReplayCreationOrder)
+  }
+  if (node.second.type === 'split') {
+    collectReplayCreatedPaneLeafIds(node.second, leafIdsInReplayCreationOrder)
+  }
+}
+
+export function collectLeafIdsInReplayCreationOrder(
+  node: TerminalPaneLayoutNode | null | undefined
+): string[] {
+  if (!node) {
+    return []
+  }
+  const leafIdsInReplayCreationOrder = [getLeftmostLeafId(node)]
+  if (node.type === 'split') {
+    collectReplayCreatedPaneLeafIds(node, leafIdsInReplayCreationOrder)
+  }
+  return leafIdsInReplayCreationOrder
+}
+
 // Cross-platform monospace fallback chain ensures the terminal always has a
 // usable font regardless of OS.  macOS-only fonts like SF Mono and Menlo are
 // harmless on other platforms (the browser skips them), while Cascadia Mono /

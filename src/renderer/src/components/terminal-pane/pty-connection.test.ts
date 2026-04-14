@@ -1,0 +1,233 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+type StoreState = {
+  tabsByWorktree: Record<string, { id: string; ptyId: string | null }[]>
+  worktreesByRepo: Record<string, { id: string; repoId: string; path: string }[]>
+  repos: { id: string; connectionId?: string | null }[]
+  cacheTimerByKey: Record<string, number | null>
+  settings: { promptCacheTimerEnabled?: boolean } | null
+}
+
+type MockTransport = {
+  attach: ReturnType<typeof vi.fn>
+  connect: ReturnType<typeof vi.fn>
+  sendInput: ReturnType<typeof vi.fn>
+  resize: ReturnType<typeof vi.fn>
+  getPtyId: ReturnType<typeof vi.fn>
+}
+
+const scheduleRuntimeGraphSync = vi.fn()
+const shouldSeedCacheTimerOnInitialTitle = vi.fn(() => false)
+
+let mockStoreState: StoreState
+let transportFactoryQueue: MockTransport[] = []
+let createdTransportOptions: Record<string, unknown>[] = []
+
+vi.mock('@/runtime/sync-runtime-graph', () => ({
+  scheduleRuntimeGraphSync
+}))
+
+vi.mock('@/store', () => ({
+  useAppStore: {
+    getState: () => mockStoreState
+  }
+}))
+
+vi.mock('@/lib/agent-status', () => ({
+  isGeminiTerminalTitle: vi.fn(() => false),
+  isClaudeAgent: vi.fn(() => false)
+}))
+
+vi.mock('./cache-timer-seeding', () => ({
+  shouldSeedCacheTimerOnInitialTitle
+}))
+
+vi.mock('./pty-transport', () => ({
+  createIpcPtyTransport: vi.fn((options: Record<string, unknown>) => {
+    createdTransportOptions.push(options)
+    const nextTransport = transportFactoryQueue.shift()
+    if (!nextTransport) {
+      throw new Error('No mock transport queued')
+    }
+    return nextTransport
+  })
+}))
+
+function createMockTransport(initialPtyId: string | null = null): MockTransport {
+  let ptyId = initialPtyId
+  return {
+    attach: vi.fn(({ existingPtyId }: { existingPtyId: string }) => {
+      ptyId = existingPtyId
+    }),
+    connect: vi.fn().mockImplementation(async () => {
+      return ptyId
+    }),
+    sendInput: vi.fn(() => true),
+    resize: vi.fn(() => true),
+    getPtyId: vi.fn(() => ptyId)
+  }
+}
+
+function createPane(paneId: number) {
+  return {
+    id: paneId,
+    terminal: {
+      cols: 120,
+      rows: 40,
+      write: vi.fn(),
+      onData: vi.fn(() => ({ dispose: vi.fn() })),
+      onResize: vi.fn(() => ({ dispose: vi.fn() }))
+    },
+    fitAddon: {
+      fit: vi.fn()
+    }
+  }
+}
+
+function createManager(paneCount = 1) {
+  return {
+    setPaneGpuRendering: vi.fn(),
+    getPanes: vi.fn(() => Array.from({ length: paneCount }, (_, index) => ({ id: index + 1 }))),
+    closePane: vi.fn()
+  }
+}
+
+function createDeps(overrides: Record<string, unknown> = {}) {
+  return {
+    tabId: 'tab-1',
+    worktreeId: 'wt-1',
+    cwd: '/tmp/wt-1',
+    startup: null,
+    restoredLeafId: null,
+    restoredPtyIdByLeafId: {},
+    paneTransportsRef: { current: new Map() },
+    pendingWritesRef: { current: new Map() },
+    isActiveRef: { current: true },
+    isVisibleRef: { current: true },
+    onPtyExitRef: { current: vi.fn() },
+    onPtyErrorRef: { current: vi.fn() },
+    clearTabPtyId: vi.fn(),
+    consumeSuppressedPtyExit: vi.fn(() => false),
+    updateTabTitle: vi.fn(),
+    setRuntimePaneTitle: vi.fn(),
+    clearRuntimePaneTitle: vi.fn(),
+    updateTabPtyId: vi.fn(),
+    markWorktreeUnread: vi.fn(),
+    dispatchNotification: vi.fn(),
+    setCacheTimerStartedAt: vi.fn(),
+    syncPanePtyLayoutBinding: vi.fn(),
+    ...overrides
+  }
+}
+
+describe('connectPanePty', () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    transportFactoryQueue = []
+    createdTransportOptions = []
+    mockStoreState = {
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'tab-pty' }]
+      },
+      worktreesByRepo: {
+        repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/tmp/wt-1' }]
+      },
+      repos: [{ id: 'repo1', connectionId: null }],
+      cacheTimerByKey: {},
+      settings: { promptCacheTimerEnabled: true }
+    }
+    globalThis.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    globalThis.cancelAnimationFrame = vi.fn()
+  })
+
+  afterEach(() => {
+    if (originalRequestAnimationFrame) {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    } else {
+      delete (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame })
+        .requestAnimationFrame
+    }
+    if (originalCancelAnimationFrame) {
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+    } else {
+      delete (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame })
+        .cancelAnimationFrame
+    }
+  })
+
+  it('reattaches a remounted split pane to its restored leaf PTY instead of the tab-level PTY', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    const pane = createPane(2)
+    const manager = createManager(2)
+    const deps = createDeps({
+      restoredLeafId: 'pane:2',
+      restoredPtyIdByLeafId: { 'pane:2': 'leaf-pty-2' }
+    })
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    expect(transport.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ existingPtyId: 'leaf-pty-2' })
+    )
+    expect(transport.connect).not.toHaveBeenCalled()
+    expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(2, 'leaf-pty-2')
+  })
+
+  it('persists a restarted pane PTY id and uses it on the next remount', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+
+    const restartedTransport = createMockTransport()
+    let spawnedPtyId: string | null = null
+    restartedTransport.connect.mockImplementation(async () => {
+      spawnedPtyId = 'pty-restarted'
+      const opts = createdTransportOptions[0]
+      ;(opts.onPtySpawn as (ptyId: string) => void)('pty-restarted')
+      return 'pty-restarted'
+    })
+    transportFactoryQueue.push(restartedTransport)
+
+    const restartPane = createPane(1)
+    const restartManager = createManager(1)
+    const restartDeps = createDeps({
+      paneTransportsRef: { current: new Map([[99, createMockTransport('another-pane-pty')]]) }
+    })
+
+    connectPanePty(restartPane as never, restartManager as never, restartDeps as never)
+    await Promise.resolve()
+
+    expect(spawnedPtyId).toBe('pty-restarted')
+    expect(restartDeps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, 'pty-restarted')
+
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'pty-restarted' }]
+      }
+    }
+
+    const remountTransport = createMockTransport()
+    transportFactoryQueue.push(remountTransport)
+    const remountPane = createPane(1)
+    const remountManager = createManager(1)
+    const remountDeps = createDeps({
+      restoredLeafId: 'pane:1',
+      restoredPtyIdByLeafId: { 'pane:1': 'pty-restarted' }
+    })
+
+    connectPanePty(remountPane as never, remountManager as never, remountDeps as never)
+
+    expect(remountTransport.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ existingPtyId: 'pty-restarted' })
+    )
+    expect(remountDeps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, 'pty-restarted')
+  })
+})

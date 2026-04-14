@@ -882,8 +882,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
             .flat()
             .map((tab) => [tab.id, []] as const)
         ),
+        // Why: leaf→PTY mappings only make sense within the current renderer
+        // process. App restart reconnects fresh PTYs and must not attempt to
+        // reattach dead process IDs from the last session snapshot.
         terminalLayoutsByTabId: Object.fromEntries(
-          Object.entries(session.terminalLayoutsByTabId).filter(([tabId]) => validTabIds.has(tabId))
+          Object.entries(session.terminalLayoutsByTabId)
+            .filter(([tabId]) => validTabIds.has(tabId))
+            .map(([tabId, layout]) => {
+              const { ptyIdsByLeafId: _ptyIdsByLeafId, ...restartSafeLayout } = layout
+              return [tabId, restartSafeLayout] as const
+            })
         )
       }
     })

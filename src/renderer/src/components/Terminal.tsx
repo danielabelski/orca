@@ -893,6 +893,12 @@ function Terminal(): React.JSX.Element | null {
                     worktreeId={worktree.id}
                     cwd={worktree.path}
                     isActive={isVisible && tab.id === activeTabId && activeTabType === 'terminal'}
+                    // Why: the legacy single-surface terminal host still expects
+                    // tab visibility to follow active-tab selection. Split-group
+                    // surfaces pass a broader visibility signal separately, but
+                    // this path must preserve the old one-pane-at-a-time stacking
+                    // behavior until it is migrated off the legacy host.
+                    isVisible={isVisible && tab.id === activeTabId && activeTabType === 'terminal'}
                     onPtyExit={(ptyId) => handlePtyExit(tab.id, ptyId)}
                     onCloseTab={() => handleCloseTab(tab.id)}
                   />

@@ -177,4 +177,94 @@ describe('createIpcPtyTransport', () => {
     })
     expect(writeMock).not.toHaveBeenCalled()
   })
+
+  it('kills a PTY that finishes spawning after the transport was destroyed', async () => {
+    const { createIpcPtyTransport } = await import('./pty-transport')
+    let resolveSpawn: ((value: { id: string }) => void) | null = null
+    const spawnPromise = new Promise<{ id: string }>((resolve) => {
+      resolveSpawn = resolve
+    })
+    const spawnMock = vi.fn().mockReturnValue(spawnPromise)
+    const killMock = vi.fn()
+    const onPtySpawn = vi.fn()
+
+    ;(globalThis as { window: typeof window }).window = {
+      ...originalWindow,
+      api: {
+        ...originalWindow?.api,
+        pty: {
+          ...originalWindow?.api?.pty,
+          spawn: spawnMock,
+          write: vi.fn(),
+          resize: vi.fn(),
+          kill: killMock,
+          onData: vi.fn((callback: (payload: { id: string; data: string }) => void) => {
+            onData = callback
+            return () => {}
+          }),
+          onExit: vi.fn((callback: (payload: { id: string; code: number }) => void) => {
+            onExit = callback
+            return () => {}
+          }),
+          onOpenCodeStatus: vi.fn(
+            (
+              callback: (payload: {
+                ptyId: string
+                status: 'working' | 'idle' | 'permission'
+              }) => void
+            ) => {
+              onOpenCodeStatus = callback
+              return () => {}
+            }
+          )
+        }
+      }
+    } as unknown as typeof window
+
+    const transport = createIpcPtyTransport({ onPtySpawn })
+    const connectPromise = transport.connect({
+      url: '',
+      callbacks: {}
+    })
+
+    transport.destroy?.()
+    resolveSpawn?.({ id: 'pty-late' })
+    await connectPromise
+
+    expect(killMock).toHaveBeenCalledWith('pty-late')
+    expect(onPtySpawn).not.toHaveBeenCalled()
+    expect(transport.getPtyId()).toBeNull()
+  })
+
+  it('keeps the exit observer alive after detach so remounts do not reuse dead PTYs', async () => {
+    const { createIpcPtyTransport } = await import('./pty-transport')
+    const onPtyExit = vi.fn()
+    const onBell = vi.fn()
+    const onTitleChange = vi.fn()
+
+    const transport = createIpcPtyTransport({
+      onPtyExit,
+      onBell,
+      onTitleChange
+    })
+
+    transport.attach({
+      existingPtyId: 'pty-detached',
+      callbacks: {
+        onData: vi.fn(),
+        onDisconnect: vi.fn()
+      }
+    })
+
+    transport.detach()
+
+    onData?.({ id: 'pty-detached', data: '\u001b]0;Detached title\u0007\u0007' })
+    expect(onTitleChange).not.toHaveBeenCalled()
+    expect(onBell).not.toHaveBeenCalled()
+
+    onExit?.({ id: 'pty-detached', code: 0 })
+
+    expect(onPtyExit).toHaveBeenCalledWith('pty-detached')
+    expect(transport.getPtyId()).toBeNull()
+  })
 })
