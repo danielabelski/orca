@@ -77,10 +77,23 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const browserTabsByWorktree = useAppStore((s) => s.browserTabsByWorktree)
 
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedWorktreeId, setSelectedWorktreeId] = useState('')
   const previousWorktreeIdRef = useRef<string | null>(null)
   const wasVisibleRef = useRef(false)
   const skipRestoreFocusRef = useRef(false)
+  const prevQueryRef = useRef('')
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // Why: debounce the search query so the result list doesn't reshuffle on
+  // every keystroke while the user is still typing. The input stays responsive
+  // (controlled by `query`), but the heavier search + re-render is gated by
+  // `debouncedQuery`. 150ms is fast enough to feel instant on a pause, slow
+  // enough to skip intermediate keystrokes.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query), 150)
+    return () => clearTimeout(id)
+  }, [query])
 
   const repoMap = useMemo(() => new Map(repos.map((r) => [r.id, r])), [repos])
   const canCreateWorktree = useMemo(() => repos.some((repo) => isGitRepoKind(repo)), [repos])
@@ -95,10 +108,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
   // Search results
   const matches = useMemo(
-    () => searchWorktrees(sortedWorktrees, query.trim(), repoMap, prCache, issueCache),
-    [sortedWorktrees, query, repoMap, prCache, issueCache]
+    () => searchWorktrees(sortedWorktrees, debouncedQuery.trim(), repoMap, prCache, issueCache),
+    [sortedWorktrees, debouncedQuery, repoMap, prCache, issueCache]
   )
-  const createWorktreeName = query.trim()
+  const createWorktreeName = debouncedQuery.trim()
   // Why: only surface the create-worktree action when the query yields no matches,
   // so it doesn't clutter the list when existing worktrees already satisfy the search.
   const showCreateAction =
@@ -124,6 +137,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       previousWorktreeIdRef.current = activeWorktreeId
       skipRestoreFocusRef.current = false
       setQuery('')
+      setDebouncedQuery('')
       setSelectedWorktreeId('')
     }
 
@@ -134,7 +148,25 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     if (!visible) {
       return
     }
+    const queryChanged = debouncedQuery !== prevQueryRef.current
+    prevQueryRef.current = debouncedQuery
+
     const firstSelectableId = showCreateAction ? '__create_worktree__' : null
+
+    // Why: when the search query changes, the results reorder to reflect new
+    // relevance ranking. Always snap the selection to the top result so the
+    // user sees the best match highlighted, and scroll the list to the top so
+    // the selected item is visible without the user having to scroll up.
+    if (queryChanged) {
+      if (matches.length > 0) {
+        setSelectedWorktreeId(matches[0].worktreeId)
+      } else {
+        setSelectedWorktreeId(firstSelectableId ?? '')
+      }
+      listRef.current?.scrollTo(0, 0)
+      return
+    }
+
     if (matches.length === 0) {
       setSelectedWorktreeId(firstSelectableId ?? '')
       return
@@ -151,7 +183,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       // logical worktree selected instead of drifting to a new visual index.
       setSelectedWorktreeId(firstSelectableId ?? matches[0].worktreeId)
     }
-  }, [visible, matches, selectedWorktreeId, showCreateAction])
+  }, [visible, matches, selectedWorktreeId, showCreateAction, debouncedQuery])
 
   const focusActiveSurface = useCallback(() => {
     // Why: double rAF — first waits for React to commit state (palette closes),
@@ -251,7 +283,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         iconClassName="mr-2.5 h-4 w-4 text-muted-foreground/60"
         className="h-12 text-[14px] placeholder:text-muted-foreground/75"
       />
-      <CommandList className="max-h-[min(460px,62vh)] px-2.5 pb-2.5 pt-1.5">
+      <CommandList ref={listRef} className="max-h-[min(460px,62vh)] px-2.5 pb-2.5 pt-1.5">
         {isLoading ? (
           <PaletteState
             title="Loading worktrees"
@@ -320,8 +352,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                   data-current={isCurrentWorktree ? 'true' : undefined}
                   className={cn(
                     'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                    'data-[selected=true]:border-border data-[selected=true]:bg-neutral-100 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-neutral-800',
-                    'data-[current=true]:border-emerald-500/25 data-[current=true]:bg-emerald-500/[0.08]'
+                    'data-[selected=true]:border-border data-[selected=true]:bg-neutral-100 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-neutral-800'
                   )}
                 >
                   <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5">

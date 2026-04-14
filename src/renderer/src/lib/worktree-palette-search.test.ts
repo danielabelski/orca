@@ -101,7 +101,7 @@ describe('worktree-palette-search', () => {
     })
   })
 
-  it('promotes the primary worktree to the top when query matches a repo name', () => {
+  it('preserves input order when query matches a repo name', () => {
     const worktrees = [
       makeWorktree({
         id: 'wt-feature',
@@ -125,11 +125,11 @@ describe('worktree-palette-search', () => {
 
     const results = searchWorktrees(worktrees, 'orca', repoMap, null, null)
 
-    // All three match on the repo name
+    // All three match on the repo name, order preserved from input
     expect(results).toHaveLength(3)
-    // The primary worktree should be first despite being last in input order
-    expect(results[0].worktreeId).toBe('wt-main')
-    expect(results[0].matchedField).toBe('repo')
+    expect(results[0].worktreeId).toBe('wt-feature')
+    expect(results[1].worktreeId).toBe('wt-bugfix')
+    expect(results[2].worktreeId).toBe('wt-main')
   })
 
   it('matches issue numbers with a leading hash and returns issue render context', () => {
