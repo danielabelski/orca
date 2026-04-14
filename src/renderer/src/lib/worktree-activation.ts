@@ -1,4 +1,5 @@
 import type { WorktreeSetupLaunch } from '../../../shared/types'
+import { shouldAutoCreateInitialTerminal } from '@/components/terminal/initial-terminal'
 import { buildSetupRunnerCommand } from './setup-runner'
 import { useAppStore } from '@/store'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
@@ -7,6 +8,7 @@ type WorktreeActivationStore = {
   tabsByWorktree: Record<string, { id: string }[]>
   createTab: (worktreeId: string) => { id: string }
   setActiveTab: (tabId: string) => void
+  reconcileWorktreeTabModel: (worktreeId: string) => { renderableTabCount: number }
   queueTabSetupSplit: (
     tabId: string,
     startup: { command: string; env?: Record<string, string> }
@@ -85,8 +87,11 @@ export function ensureWorktreeHasInitialTerminal(
   setup?: WorktreeSetupLaunch,
   issueCommand?: WorktreeSetupLaunch
 ): void {
-  const existingTabs = store.tabsByWorktree[worktreeId] ?? []
-  if (existingTabs.length > 0) {
+  const { renderableTabCount } = store.reconcileWorktreeTabModel(worktreeId)
+  // Why: activation can now restore editor- or browser-only worktrees from the
+  // reconciled tab-group model. Creating a terminal just because the legacy
+  // terminal slice is empty would reopen worktrees with an unexpected extra tab.
+  if (!shouldAutoCreateInitialTerminal(renderableTabCount)) {
     return
   }
 

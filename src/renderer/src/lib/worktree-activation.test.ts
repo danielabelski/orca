@@ -6,6 +6,7 @@ function createMockStore(overrides: Record<string, unknown> = {}) {
     tabsByWorktree: {} as Record<string, { id: string }[]>,
     createTab: vi.fn(() => ({ id: 'tab-1' })),
     setActiveTab: vi.fn(),
+    reconcileWorktreeTabModel: vi.fn(() => ({ renderableTabCount: 0 })),
     queueTabSetupSplit: vi.fn(),
     queueTabIssueCommandSplit: vi.fn(),
     ...overrides
@@ -45,9 +46,9 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     expect(store.queueTabSetupSplit).not.toHaveBeenCalled()
   })
 
-  it('does not create or queue anything when the worktree already has tabs', () => {
+  it('does not create or queue anything when the worktree already has renderable content', () => {
     const store = createMockStore({
-      tabsByWorktree: { 'wt-1': [{ id: 'tab-existing' }] }
+      reconcileWorktreeTabModel: vi.fn(() => ({ renderableTabCount: 1 }))
     })
 
     ensureWorktreeHasInitialTerminal(store, 'wt-1', {
@@ -59,6 +60,18 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     expect(store.setActiveTab).not.toHaveBeenCalled()
     expect(store.queueTabSetupSplit).not.toHaveBeenCalled()
     expect(store.queueTabIssueCommandSplit).not.toHaveBeenCalled()
+  })
+
+  it('does not create a terminal just because the legacy terminal slice is empty', () => {
+    const store = createMockStore({
+      tabsByWorktree: { 'wt-1': [] },
+      reconcileWorktreeTabModel: vi.fn(() => ({ renderableTabCount: 2 }))
+    })
+
+    ensureWorktreeHasInitialTerminal(store, 'wt-1')
+
+    expect(store.createTab).not.toHaveBeenCalled()
+    expect(store.setActiveTab).not.toHaveBeenCalled()
   })
 
   it('queues an issue command split when issueCommand is provided', () => {
