@@ -450,10 +450,11 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         const editorFileIds = s.openFiles
           .filter((f) => f.worktreeId === worktreeId)
           .map((f) => f.id)
-        const allExisting = new Set([...terminalIds, ...editorFileIds])
+        const browserIds = (s.browserTabsByWorktree?.[worktreeId] ?? []).map((t) => t.id)
+        const allExisting = new Set([...terminalIds, ...editorFileIds, ...browserIds])
         const base = currentOrder.filter((eid) => allExisting.has(eid))
         const inBase = new Set(base)
-        for (const eid of [...terminalIds, ...editorFileIds]) {
+        for (const eid of [...terminalIds, ...editorFileIds, ...browserIds]) {
           if (!inBase.has(eid)) {
             base.push(eid)
             inBase.add(eid)
