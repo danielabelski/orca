@@ -108,7 +108,7 @@ const ACTIVITY_ITEMS: ActivityBarItem[] = [
   }
 ]
 
-export default function RightSidebar(): React.JSX.Element {
+function RightSidebarInner(): React.JSX.Element {
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const rightSidebarWidth = useAppStore((s) => s.rightSidebarWidth)
   const setRightSidebarWidth = useAppStore((s) => s.setRightSidebarWidth)
@@ -245,6 +245,9 @@ export default function RightSidebar(): React.JSX.Element {
     </div>
   )
 }
+
+const RightSidebar = React.memo(RightSidebarInner)
+export default RightSidebar
 
 // ─── Status indicator dot color mapping ──────
 const STATUS_DOT_COLOR: Record<CheckStatus, string> = {

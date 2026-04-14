@@ -23,13 +23,17 @@ const MAX_GIT_SHOW_BYTES = 10 * 1024 * 1024
  */
 export async function getStatus(worktreePath: string): Promise<GitStatusResult> {
   const entries: GitStatusEntry[] = []
-  const conflictOperation = await detectConflictOperation(worktreePath)
+
+  // Why: detectConflictOperation (4 existsSync + readFile) and git status are
+  // independent. Running them concurrently saves one round-trip of I/O latency.
+  const conflictPromise = detectConflictOperation(worktreePath)
+  const statusPromise = gitExecFileAsync(['status', '--porcelain=v2', '--untracked-files=all'], {
+    cwd: worktreePath
+  })
+  const conflictOperation = await conflictPromise
 
   try {
-    const { stdout } = await gitExecFileAsync(
-      ['status', '--porcelain=v2', '--untracked-files=all'],
-      { cwd: worktreePath }
-    )
+    const { stdout } = await statusPromise
 
     // [Fix]: Split by /\r?\n/ instead of '\n' to correctly parse git output on Windows,
     // avoiding trailing \r characters in parsed paths.
@@ -371,8 +375,10 @@ export async function getBranchCompare(
   }
 
   try {
-    const entries = await loadBranchChanges(worktreePath, mergeBase, headOid)
-    const commitsAhead = await countAheadCommits(worktreePath, baseOid, headOid)
+    const [entries, commitsAhead] = await Promise.all([
+      loadBranchChanges(worktreePath, mergeBase, headOid),
+      countAheadCommits(worktreePath, baseOid, headOid)
+    ])
     summary.changedFiles = entries.length
     summary.commitsAhead = commitsAhead
     summary.status = 'ready'

@@ -310,7 +310,8 @@ describe('setActiveWorktree', () => {
       worktreesByRepo: {
         repo1: [makeWorktree({ id: worktreeId, repoId: 'repo1', sortOrder: 123, isUnread: false })]
       },
-      refreshGitHubForWorktree: vi.fn()
+      refreshGitHubForWorktree: vi.fn(),
+      refreshGitHubForWorktreeIfStale: vi.fn()
     })
 
     store.getState().setActiveWorktree(worktreeId)
@@ -569,7 +570,8 @@ describe('setActiveWorktree', () => {
       activeFileIdByWorktree: { [wt]: fileId },
       // User was on the terminal, not the editor
       activeTabTypeByWorktree: { [wt]: 'terminal' },
-      refreshGitHubForWorktree: vi.fn()
+      refreshGitHubForWorktree: vi.fn(),
+      refreshGitHubForWorktreeIfStale: vi.fn()
     })
 
     store.getState().setActiveWorktree(wt)

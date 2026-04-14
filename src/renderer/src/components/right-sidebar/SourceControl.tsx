@@ -96,7 +96,7 @@ const CONFLICT_KIND_LABELS: Record<GitConflictKind, string> = {
   both_deleted: 'Both deleted'
 }
 
-export default function SourceControl(): React.JSX.Element {
+function SourceControlInner(): React.JSX.Element {
   const sourceControlRef = useRef<HTMLDivElement>(null)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
   const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
@@ -856,6 +856,9 @@ export default function SourceControl(): React.JSX.Element {
     </>
   )
 }
+
+const SourceControl = React.memo(SourceControlInner)
+export default SourceControl
 
 function CompareSummary({
   summary,

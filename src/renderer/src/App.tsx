@@ -61,10 +61,36 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function App(): React.JSX.Element {
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  // Why: Zustand actions are referentially stable, but each individual
+  // useAppStore(s => s.someAction) still registers a subscription that React
+  // must check on every store mutation. Consolidating 19 action refs into one
+  // useShallow subscription means one equality check instead of 19.
+  const actions = useAppStore(
+    useShallow((s) => ({
+      toggleSidebar: s.toggleSidebar,
+      fetchRepos: s.fetchRepos,
+      fetchAllWorktrees: s.fetchAllWorktrees,
+      fetchSettings: s.fetchSettings,
+      initGitHubCache: s.initGitHubCache,
+      refreshAllGitHub: s.refreshAllGitHub,
+      hydrateWorkspaceSession: s.hydrateWorkspaceSession,
+      hydrateEditorSession: s.hydrateEditorSession,
+      hydrateBrowserSession: s.hydrateBrowserSession,
+      fetchBrowserSessionProfiles: s.fetchBrowserSessionProfiles,
+      fetchDetectedBrowsers: s.fetchDetectedBrowsers,
+      reconnectPersistedTerminals: s.reconnectPersistedTerminals,
+      hydratePersistedUI: s.hydratePersistedUI,
+      openModal: s.openModal,
+      closeModal: s.closeModal,
+      toggleRightSidebar: s.toggleRightSidebar,
+      setRightSidebarOpen: s.setRightSidebarOpen,
+      setRightSidebarTab: s.setRightSidebarTab,
+      updateSettings: s.updateSettings
+    }))
+  )
+
   const activeView = useAppStore((s) => s.activeView)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
-  const activeRepoId = useAppStore((s) => s.activeRepoId)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const activeTabId = useAppStore((s) => s.activeTabId)
   const activeAgentCount = useAppStore((s) =>
@@ -86,21 +112,7 @@ function App(): React.JSX.Element {
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const expandedPaneByTabId = useAppStore((s) => s.expandedPaneByTabId)
   const canExpandPaneByTabId = useAppStore((s) => s.canExpandPaneByTabId)
-  const terminalLayoutsByTabId = useAppStore((s) => s.terminalLayoutsByTabId)
   const workspaceSessionReady = useAppStore((s) => s.workspaceSessionReady)
-  const fetchRepos = useAppStore((s) => s.fetchRepos)
-  const fetchAllWorktrees = useAppStore((s) => s.fetchAllWorktrees)
-  const fetchSettings = useAppStore((s) => s.fetchSettings)
-  const initGitHubCache = useAppStore((s) => s.initGitHubCache)
-  const refreshAllGitHub = useAppStore((s) => s.refreshAllGitHub)
-  const hydrateWorkspaceSession = useAppStore((s) => s.hydrateWorkspaceSession)
-  const hydrateEditorSession = useAppStore((s) => s.hydrateEditorSession)
-  const hydrateBrowserSession = useAppStore((s) => s.hydrateBrowserSession)
-  const fetchBrowserSessionProfiles = useAppStore((s) => s.fetchBrowserSessionProfiles)
-  const fetchDetectedBrowsers = useAppStore((s) => s.fetchDetectedBrowsers)
-  const reconnectPersistedTerminals = useAppStore((s) => s.reconnectPersistedTerminals)
-  const hydratePersistedUI = useAppStore((s) => s.hydratePersistedUI)
-  const openModal = useAppStore((s) => s.openModal)
   const repos = useAppStore((s) => s.repos)
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
@@ -109,27 +121,10 @@ function App(): React.JSX.Element {
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
   const filterRepoIds = useAppStore((s) => s.filterRepoIds)
   const persistedUIReady = useAppStore((s) => s.persistedUIReady)
-
-  // Editor state for session persistence
-  const openFiles = useAppStore((s) => s.openFiles)
-  const activeFileIdByWorktree = useAppStore((s) => s.activeFileIdByWorktree)
-  const activeTabTypeByWorktree = useAppStore((s) => s.activeTabTypeByWorktree)
-  const activeTabIdByWorktree = useAppStore((s) => s.activeTabIdByWorktree)
-  const browserTabsByWorktree = useAppStore((s) => s.browserTabsByWorktree)
-  const browserPagesByWorkspace = useAppStore((s) => s.browserPagesByWorkspace)
-  const activeBrowserTabIdByWorktree = useAppStore((s) => s.activeBrowserTabIdByWorktree)
-  const unifiedTabsByWorktree = useAppStore((s) => s.unifiedTabsByWorktree)
-  const groupsByWorktree = useAppStore((s) => s.groupsByWorktree)
-  const activeGroupIdByWorktree = useAppStore((s) => s.activeGroupIdByWorktree)
-
-  // Right sidebar + editor state
-  const toggleRightSidebar = useAppStore((s) => s.toggleRightSidebar)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const rightSidebarWidth = useAppStore((s) => s.rightSidebarWidth)
-  const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
-  const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
-  const closeModal = useAppStore((s) => s.closeModal)
   const isFullScreen = useAppStore((s) => s.isFullScreen)
+  const settings = useAppStore((s) => s.settings)
 
   // Subscribe to IPC push events
   useIpcEvents()
@@ -139,9 +134,6 @@ function App(): React.JSX.Element {
   // until some unrelated view remount happens to refresh them.
   useGitStatusPolling()
   useGlobalFileDrop()
-
-  const settings = useAppStore((s) => s.settings)
-  const updateSettings = useAppStore((s) => s.updateSettings)
 
   // Fetch initial data + hydrate GitHub cache from disk
   useEffect(() => {
@@ -153,24 +145,24 @@ function App(): React.JSX.Element {
 
     void (async () => {
       try {
-        await fetchRepos()
-        await fetchAllWorktrees()
+        await actions.fetchRepos()
+        await actions.fetchAllWorktrees()
         const persistedUI = await window.api.ui.get()
         const session = await window.api.session.get()
         if (!cancelled) {
-          hydratePersistedUI(persistedUI)
-          hydrateWorkspaceSession(session)
-          hydrateEditorSession(session)
-          hydrateBrowserSession(session)
-          await fetchBrowserSessionProfiles()
-          await fetchDetectedBrowsers()
-          await reconnectPersistedTerminals(abortController.signal)
+          actions.hydratePersistedUI(persistedUI)
+          actions.hydrateWorkspaceSession(session)
+          actions.hydrateEditorSession(session)
+          actions.hydrateBrowserSession(session)
+          await actions.fetchBrowserSessionProfiles()
+          await actions.fetchDetectedBrowsers()
+          await actions.reconnectPersistedTerminals(abortController.signal)
           syncZoomCSSVar()
         }
       } catch (error) {
         console.error('Failed to hydrate workspace session:', error)
         if (!cancelled) {
-          hydratePersistedUI({
+          actions.hydratePersistedUI({
             lastActiveRepoId: null,
             lastActiveWorktreeId: null,
             sidebarWidth: 280,
@@ -187,7 +179,7 @@ function App(): React.JSX.Element {
             dismissedUpdateVersion: null,
             lastUpdateCheckAt: null
           })
-          hydrateWorkspaceSession({
+          actions.hydrateWorkspaceSession({
             activeRepoId: null,
             activeWorktreeId: null,
             activeTabId: null,
@@ -197,30 +189,18 @@ function App(): React.JSX.Element {
           // Why: hydrateWorkspaceSession no longer sets workspaceSessionReady.
           // The error path has no worktrees to reconnect, but must still flip
           // the flag so auto-tab-creation and session writes are unblocked.
-          await reconnectPersistedTerminals()
+          await actions.reconnectPersistedTerminals()
         }
       }
-      void fetchSettings()
-      void initGitHubCache()
+      void actions.fetchSettings()
+      void actions.initGitHubCache()
     })()
 
     return () => {
       cancelled = true
       abortController.abort()
     }
-  }, [
-    fetchRepos,
-    fetchAllWorktrees,
-    fetchSettings,
-    initGitHubCache,
-    hydratePersistedUI,
-    hydrateWorkspaceSession,
-    hydrateEditorSession,
-    hydrateBrowserSession,
-    fetchBrowserSessionProfiles,
-    fetchDetectedBrowsers,
-    reconnectPersistedTerminals
-  ])
+  }, [actions])
 
   useEffect(() => {
     setRuntimeGraphStoreStateGetter(useAppStore.getState)
@@ -238,51 +218,30 @@ function App(): React.JSX.Element {
     }
   }, [workspaceSessionReady])
 
+  // Why: session persistence never drives JSX — it only writes to disk.
+  // Using a Zustand subscribe() outside React removes ~15 subscriptions from
+  // App's render cycle, eliminating re-renders on every tab/file/browser change.
   useEffect(() => {
-    if (!workspaceSessionReady) {
-      return
+    let timer: number | null = null
+    const unsub = useAppStore.subscribe((state) => {
+      if (!state.workspaceSessionReady) {
+        return
+      }
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+      timer = window.setTimeout(() => {
+        timer = null
+        void window.api.session.set(buildWorkspaceSessionPayload(state))
+      }, 150)
+    })
+    return () => {
+      unsub()
+      if (timer) {
+        window.clearTimeout(timer)
+      }
     }
-    const timer = window.setTimeout(() => {
-      void window.api.session.set(
-        buildWorkspaceSessionPayload({
-          activeRepoId,
-          activeWorktreeId,
-          activeTabId,
-          tabsByWorktree,
-          terminalLayoutsByTabId,
-          activeTabIdByWorktree,
-          openFiles,
-          activeFileIdByWorktree,
-          activeTabTypeByWorktree,
-          browserTabsByWorktree,
-          browserPagesByWorkspace,
-          activeBrowserTabIdByWorktree,
-          unifiedTabsByWorktree,
-          groupsByWorktree,
-          activeGroupIdByWorktree
-        })
-      )
-    }, 150)
-
-    return () => window.clearTimeout(timer)
-  }, [
-    workspaceSessionReady,
-    activeRepoId,
-    activeWorktreeId,
-    activeTabId,
-    tabsByWorktree,
-    terminalLayoutsByTabId,
-    openFiles,
-    activeFileIdByWorktree,
-    activeTabTypeByWorktree,
-    activeTabIdByWorktree,
-    browserTabsByWorktree,
-    browserPagesByWorkspace,
-    activeBrowserTabIdByWorktree,
-    unifiedTabsByWorktree,
-    groupsByWorktree,
-    activeGroupIdByWorktree
-  ])
+  }, [])
 
   // On shutdown, capture terminal scrollback buffers and flush to disk.
   // Runs synchronously in beforeunload: capture → Zustand set → sendSync → flush.
@@ -397,12 +356,12 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const handler = (): void => {
       if (document.visibilityState === 'visible') {
-        refreshAllGitHub()
+        actions.refreshAllGitHub()
       }
     }
     document.addEventListener('visibilitychange', handler)
     return () => document.removeEventListener('visibilitychange', handler)
-  }, [refreshAllGitHub])
+  }, [actions])
 
   const tabs = activeWorktreeId ? (tabsByWorktree[activeWorktreeId] ?? []) : []
   const hasTabBar = tabs.length >= 2
@@ -462,14 +421,14 @@ function App(): React.JSX.Element {
       // Cmd/Ctrl+B — toggle left sidebar
       if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
-        toggleSidebar()
+        actions.toggleSidebar()
         return
       }
 
       // Cmd/Ctrl+L — toggle right sidebar
       if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault()
-        toggleRightSidebar()
+        actions.toggleRightSidebar()
         return
       }
 
@@ -479,23 +438,23 @@ function App(): React.JSX.Element {
           return
         }
         e.preventDefault()
-        openModal('create-worktree')
+        actions.openModal('create-worktree')
         return
       }
 
       // Cmd/Ctrl+Shift+E — toggle right sidebar / explorer tab
       if (e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
-        setRightSidebarTab('explorer')
-        setRightSidebarOpen(true)
+        actions.setRightSidebarTab('explorer')
+        actions.setRightSidebarOpen(true)
         return
       }
 
       // Cmd/Ctrl+Shift+F — toggle right sidebar / search tab
       if (e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
-        setRightSidebarTab('search')
-        setRightSidebarOpen(true)
+        actions.setRightSidebarTab('search')
+        actions.setRightSidebarOpen(true)
         return
       }
 
@@ -509,24 +468,14 @@ function App(): React.JSX.Element {
           return
         }
         e.preventDefault()
-        setRightSidebarTab('source-control')
-        setRightSidebarOpen(true)
+        actions.setRightSidebarTab('source-control')
+        actions.setRightSidebarOpen(true)
       }
     }
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [
-    activeView,
-    activeWorktreeId,
-    openModal,
-    closeModal,
-    repos,
-    toggleSidebar,
-    toggleRightSidebar,
-    setRightSidebarTab,
-    setRightSidebarOpen
-  ])
+  }, [activeView, activeWorktreeId, actions, repos])
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">
@@ -549,7 +498,7 @@ function App(): React.JSX.Element {
                 <TooltipTrigger asChild>
                   <button
                     className="sidebar-toggle"
-                    onClick={toggleSidebar}
+                    onClick={actions.toggleSidebar}
                     aria-label="Toggle sidebar"
                   >
                     <PanelLeft size={16} />
@@ -658,7 +607,7 @@ function App(): React.JSX.Element {
                   <button
                     className="titlebar-agent-hovercard-hide"
                     onClick={() => {
-                      void updateSettings({ showTitlebarAgentActivity: false })
+                      void actions.updateSettings({ showTitlebarAgentActivity: false })
                       toast('Agent activity badge hidden', {
                         description: 'You can turn it back on in Settings → Appearance.',
                         duration: Infinity,
@@ -703,7 +652,7 @@ function App(): React.JSX.Element {
               <TooltipTrigger asChild>
                 <button
                   className="sidebar-toggle mr-2"
-                  onClick={toggleRightSidebar}
+                  onClick={actions.toggleRightSidebar}
                   aria-label="Toggle right sidebar"
                 >
                   <PanelRight size={16} />

@@ -1,6 +1,6 @@
 /* eslint-disable max-lines */
 
-import { useEffect, useCallback, useRef, useState, lazy, Suspense } from 'react'
+import React, { useEffect, useCallback, useRef, useState, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { useAppStore } from '../store'
@@ -30,7 +30,7 @@ import { reconcileTabOrder } from './tab-bar/reconcile-order'
 
 const EditorPanel = lazy(() => import('./editor/EditorPanel'))
 
-export default function Terminal(): React.JSX.Element | null {
+function Terminal(): React.JSX.Element | null {
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
   const activeView = useAppStore((s) => s.activeView)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
@@ -716,7 +716,12 @@ export default function Terminal(): React.JSX.Element | null {
   // and destroys orphaned webview elements to prevent memory leaks.
   const prevBrowserTabIdsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
+    let prevBrowserTabs = useAppStore.getState().browserTabsByWorktree
     return useAppStore.subscribe((state) => {
+      if (state.browserTabsByWorktree === prevBrowserTabs) {
+        return
+      }
+      prevBrowserTabs = state.browserTabsByWorktree
       const currentIds = new Set(
         Object.values(state.browserTabsByWorktree)
           .flat()
@@ -1023,3 +1028,5 @@ export default function Terminal(): React.JSX.Element | null {
     </div>
   )
 }
+
+export default React.memo(Terminal)

@@ -193,7 +193,7 @@ export async function createLocalWorktree(
     // Fetch is best-effort — don't block worktree creation if offline
   }
 
-  addWorktree(
+  await addWorktree(
     repo.path,
     worktreePath,
     branchName,

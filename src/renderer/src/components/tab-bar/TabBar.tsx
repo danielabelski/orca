@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -70,7 +70,7 @@ type TabItem =
   | { type: 'editor'; id: string; data: OpenFile & { tabId?: string } }
   | { type: 'browser'; id: string; data: BrowserTabState }
 
-export default function TabBar({
+function TabBarInner({
   tabs,
   activeTabId,
   worktreeId,
@@ -356,3 +356,5 @@ export default function TabBar({
     </div>
   )
 }
+
+export default React.memo(TabBarInner)

@@ -73,6 +73,9 @@ function safeOrigin(rawUrl: string): string {
 
 class BrowserManager {
   private readonly webContentsIdByTabId = new Map<string, number>()
+  // Why: reverse map enables O(1) guest→tab lookups instead of O(N) linear
+  // scans on every mouse event, load failure, permission, and popup event.
+  private readonly tabIdByWebContentsId = new Map<number, string>()
   private readonly rendererWebContentsIdByTabId = new Map<string, number>()
   private readonly contextMenuCleanupByTabId = new Map<string, () => void>()
   private readonly grabShortcutCleanupByTabId = new Map<string, () => void>()
@@ -89,10 +92,7 @@ class BrowserManager {
   private readonly grabSessionController = new BrowserGrabSessionController()
 
   private resolveBrowserTabIdForGuestWebContentsId(guestWebContentsId: number): string | null {
-    return (
-      [...this.webContentsIdByTabId.entries()].find(([, id]) => id === guestWebContentsId)?.[0] ??
-      null
-    )
+    return this.tabIdByWebContentsId.get(guestWebContentsId) ?? null
   }
 
   private resolveRendererForBrowserTab(browserTabId: string): Electron.WebContents | null {
@@ -221,6 +221,7 @@ class BrowserManager {
     }
 
     this.webContentsIdByTabId.set(browserTabId, webContentsId)
+    this.tabIdByWebContentsId.set(webContentsId, browserTabId)
     this.rendererWebContentsIdByTabId.set(browserTabId, rendererWebContentsId)
 
     this.setupContextMenu(browserTabId, guest)
@@ -261,6 +262,10 @@ class BrowserManager {
         this.cancelDownloadInternal(downloadId, 'Tab closed before download was accepted.')
       }
     }
+    const wcId = this.webContentsIdByTabId.get(browserTabId)
+    if (wcId !== undefined) {
+      this.tabIdByWebContentsId.delete(wcId)
+    }
     this.webContentsIdByTabId.delete(browserTabId)
     this.rendererWebContentsIdByTabId.delete(browserTabId)
   }
@@ -275,6 +280,7 @@ class BrowserManager {
       this.unregisterGuest(browserTabId)
     }
     this.policyAttachedGuestIds.clear()
+    this.tabIdByWebContentsId.clear()
     this.pendingLoadFailuresByGuestId.clear()
     this.pendingPermissionEventsByGuestId.clear()
     this.pendingPopupEventsByGuestId.clear()
@@ -666,9 +672,7 @@ class BrowserManager {
     guestWebContentsId: number,
     loadError: { code: number; description: string; validatedUrl: string }
   ): void {
-    const browserTabId = [...this.webContentsIdByTabId.entries()].find(
-      ([, webContentsId]) => webContentsId === guestWebContentsId
-    )?.[0]
+    const browserTabId = this.tabIdByWebContentsId.get(guestWebContentsId)
     if (!browserTabId) {
       // Why: some localhost failures happen before the renderer finishes
       // registering which tab owns this guest. Queue the failure by guest ID so

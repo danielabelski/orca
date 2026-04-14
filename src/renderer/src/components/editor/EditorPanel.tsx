@@ -56,7 +56,7 @@ type FileContent = {
 
 type DiffContent = GitDiffResult
 
-export default function EditorPanel({
+function EditorPanelInner({
   activeFileId: activeFileIdProp
 }: {
   activeFileId?: string | null
@@ -761,3 +761,5 @@ export default function EditorPanel({
     </div>
   )
 }
+
+export default React.memo(EditorPanelInner)

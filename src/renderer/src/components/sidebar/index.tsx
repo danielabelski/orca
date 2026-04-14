@@ -18,7 +18,7 @@ import AddRepoDialog from './AddRepoDialog'
 const MIN_WIDTH = 220
 const MAX_WIDTH = 500
 
-export default function Sidebar(): React.JSX.Element {
+function Sidebar(): React.JSX.Element {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
@@ -82,3 +82,5 @@ export default function Sidebar(): React.JSX.Element {
     </TooltipProvider>
   )
 }
+
+export default React.memo(Sidebar)

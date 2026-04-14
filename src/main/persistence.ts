@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs'
+import { writeFile, rename, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import type { PersistedState, Repo, WorktreeMeta, GlobalSettings } from '../shared/types'
@@ -54,6 +55,7 @@ function normalizeSortBy(sortBy: unknown): 'name' | 'recent' | 'repo' {
 export class Store {
   private state: PersistedState
   private writeTimer: ReturnType<typeof setTimeout> | null = null
+  private pendingWrite: Promise<void> | null = null
   private gitUsernameCache = new Map<string, string>()
 
   constructor() {
@@ -100,25 +102,42 @@ export class Store {
     }
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null
-      try {
-        this.writeToDisk()
-      } catch (err) {
-        console.error('[persistence] Failed to write state:', err)
-      }
+      this.pendingWrite = this.writeToDiskAsync()
+        .catch((err) => {
+          console.error('[persistence] Failed to write state:', err)
+        })
+        .finally(() => {
+          this.pendingWrite = null
+        })
     }, 300)
   }
 
-  private writeToDisk(): void {
+  /** Wait for any in-flight async disk write to complete. Used in tests. */
+  async waitForPendingWrite(): Promise<void> {
+    if (this.pendingWrite) {
+      await this.pendingWrite
+    }
+  }
+
+  // Why: async writes avoid blocking the main Electron thread on every
+  // debounced save (every 300ms during active use).
+  private async writeToDiskAsync(): Promise<void> {
+    const dataFile = getDataFile()
+    const dir = dirname(dataFile)
+    await mkdir(dir, { recursive: true }).catch(() => {})
+    const tmpFile = `${dataFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+    await writeFile(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
+    await rename(tmpFile, dataFile)
+  }
+
+  // Why: synchronous variant kept only for flush() at shutdown, where the
+  // process may exit before an async write completes.
+  private writeToDiskSync(): void {
     const dataFile = getDataFile()
     const dir = dirname(dataFile)
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
-    // Why: synchronous flushes can race the debounced writer during shutdown or
-    // beforeunload persistence. A shared `.tmp` path lets one rename steal the
-    // temp file from the other, which surfaces as ENOENT even though the final
-    // state may already be on disk. Use a unique temp file per write so atomic
-    // replaces remain race-safe across platforms.
     const tmpFile = `${dataFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
     writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
     renameSync(tmpFile, dataFile)
@@ -324,7 +343,7 @@ export class Store {
       this.writeTimer = null
     }
     try {
-      this.writeToDisk()
+      this.writeToDiskSync()
     } catch (err) {
       console.error('[persistence] Failed to flush state:', err)
     }

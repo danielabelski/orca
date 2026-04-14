@@ -627,7 +627,7 @@ export class OrcaRuntimeService {
       // Why: matching the editor behavior keeps CLI creation usable offline.
     }
 
-    addWorktree(
+    await addWorktree(
       repo.path,
       worktreePath,
       branchName,

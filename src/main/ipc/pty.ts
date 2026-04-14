@@ -121,7 +121,6 @@ export function registerPtyHandlers(
   // Remove any previously registered handlers so we can re-register them
   // (e.g. when macOS re-activates the app and creates a new window).
   ipcMain.removeHandler('pty:spawn')
-  ipcMain.removeHandler('pty:resize')
   ipcMain.removeHandler('pty:kill')
   ipcMain.removeHandler('pty:hasChildProcesses')
   ipcMain.removeHandler('pty:getForegroundProcess')
@@ -172,9 +171,34 @@ export function registerPtyHandlers(
   // Wire up provider events → renderer IPC
   localDataUnsub?.()
   localExitUnsub?.()
+
+  // Why: batching PTY data into short flush windows (8ms ≈ half a frame)
+  // reduces IPC round-trips from hundreds/sec to ~120/sec under high
+  // throughput, with no perceptible latency increase for interactive use.
+  const pendingData = new Map<string, string>()
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  const PTY_BATCH_INTERVAL_MS = 8
+
+  const flushPendingData = (): void => {
+    flushTimer = null
+    if (mainWindow.isDestroyed()) {
+      pendingData.clear()
+      return
+    }
+    for (const [id, data] of pendingData) {
+      mainWindow.webContents.send('pty:data', { id, data })
+    }
+    pendingData.clear()
+  }
+
   localDataUnsub = localProvider.onData((payload) => {
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('pty:data', payload)
+    if (mainWindow.isDestroyed()) {
+      return
+    }
+    const existing = pendingData.get(payload.id)
+    pendingData.set(payload.id, existing ? existing + payload.data : payload.data)
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushPendingData, PTY_BATCH_INTERVAL_MS)
     }
   })
   localExitUnsub = localProvider.onExit((payload) => {
@@ -258,7 +282,11 @@ export function registerPtyHandlers(
     getProviderForPty(args.id).write(args.id, args.data)
   })
 
-  ipcMain.handle('pty:resize', (_event, args: { id: string; cols: number; rows: number }) => {
+  // Why: resize is fire-and-forget — the renderer doesn't need a reply.
+  // Using ipcMain.on (not .handle) halves IPC traffic by avoiding the
+  // empty acknowledgement message back to the renderer.
+  ipcMain.removeAllListeners('pty:resize')
+  ipcMain.on('pty:resize', (_event, args: { id: string; cols: number; rows: number }) => {
     getProviderForPty(args.id).resize(args.id, args.cols, args.rows)
   })
 

@@ -23,7 +23,7 @@ import { useFileExplorerImport } from './useFileExplorerImport'
 import { useFileExplorerTree } from './useFileExplorerTree'
 import { useFileExplorerWatch } from './useFileExplorerWatch'
 
-export default function FileExplorer(): React.JSX.Element {
+function FileExplorerInner(): React.JSX.Element {
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const expandedDirs = useAppStore((s) => s.expandedDirs)
@@ -433,3 +433,5 @@ export default function FileExplorer(): React.JSX.Element {
     </>
   )
 }
+
+export default React.memo(FileExplorerInner)

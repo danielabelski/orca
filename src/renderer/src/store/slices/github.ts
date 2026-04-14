@@ -85,6 +85,7 @@ export type GitHubSlice = {
   initGitHubCache: () => Promise<void>
   refreshAllGitHub: () => void
   refreshGitHubForWorktree: (worktreeId: string) => void
+  refreshGitHubForWorktreeIfStale: (worktreeId: string) => void
 }
 
 export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (set, get) => ({
@@ -391,6 +392,46 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
     }
     if (worktree.linkedIssue) {
       void get().fetchIssue(repo.path, worktree.linkedIssue)
+    }
+  },
+
+  // Why: worktree switches previously force-refreshed GitHub data on every
+  // click, bypassing the 5-min TTL. This variant only fetches when stale,
+  // avoiding unnecessary API calls and latency during rapid switching.
+  refreshGitHubForWorktreeIfStale: (worktreeId) => {
+    const state = get()
+    let worktree: Worktree | undefined
+    for (const worktrees of Object.values(state.worktreesByRepo)) {
+      worktree = worktrees.find((w) => w.id === worktreeId)
+      if (worktree) {
+        break
+      }
+    }
+    if (!worktree) {
+      return
+    }
+
+    const repo = state.repos.find((r) => r.id === worktree.repoId)
+    if (!repo) {
+      return
+    }
+
+    const now = Date.now()
+    const branch = worktree.branch.replace(/^refs\/heads\//, '')
+    const prKey = `${repo.path}::${branch}`
+    const prEntry = state.prCache[prKey]
+    const prStale = !prEntry || now - prEntry.fetchedAt >= CACHE_TTL
+
+    if (!worktree.isBare && branch && prStale) {
+      void get().fetchPRForBranch(repo.path, branch, { force: true })
+    }
+
+    if (worktree.linkedIssue) {
+      const issueKey = `${repo.path}::${worktree.linkedIssue}`
+      const issueEntry = state.issueCache[issueKey]
+      if (!issueEntry || now - issueEntry.fetchedAt >= CACHE_TTL) {
+        void get().fetchIssue(repo.path, worktree.linkedIssue)
+      }
     }
   }
 })

@@ -475,10 +475,11 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       }
     }
 
-    // Refresh GitHub data (PR + issue status) on every explicit worktree selection.
-    // Re-selecting the active worktree is a user-driven refresh path for stale PR state.
+    // Why: force-refreshing GitHub data on every switch burned API rate limit
+    // quota and added 200-800ms latency. Only refresh when cache is actually
+    // stale (>5 min old). Users can still force-refresh via the sidebar button.
     if (worktreeId) {
-      get().refreshGitHubForWorktree(worktreeId)
+      get().refreshGitHubForWorktreeIfStale(worktreeId)
     }
 
     if (!worktreeId || !findWorktreeById(get().worktreesByRepo, worktreeId)) {

@@ -74,22 +74,46 @@ export function setupGuestContextMenu(args: {
       })
   }
 
-  guest.on('context-menu', handler)
-  const dismissHandler = (_event: Electron.Event, mouse: Electron.MouseInputEvent): void => {
-    if (mouse.type !== 'mouseDown') {
-      return
+  // Why: `before-mouse-event` fires for every mouse event (move, down, up,
+  // scroll) on the guest. Installing the dismiss listener only while a context
+  // menu is open avoids an IPC dispatch per mouse event on idle guests.
+  let dismissHandler: ((_event: Electron.Event, mouse: Electron.MouseInputEvent) => void) | null =
+    null
+
+  const removeDismissListener = (): void => {
+    if (dismissHandler) {
+      try {
+        guest.off('before-mouse-event', dismissHandler)
+      } catch {
+        /* guest may already be destroyed */
+      }
+      dismissHandler = null
     }
-    const renderer = resolveRenderer(browserTabId)
-    if (!renderer) {
-      return
-    }
-    renderer.send('browser:context-menu-dismissed', { browserPageId: browserTabId })
   }
-  guest.on('before-mouse-event', dismissHandler)
+
+  const contextMenuHandler = (_event: Electron.Event, params: Electron.ContextMenuParams): void => {
+    handler(_event, params)
+
+    removeDismissListener()
+    dismissHandler = (_evt: Electron.Event, mouse: Electron.MouseInputEvent): void => {
+      if (mouse.type !== 'mouseDown') {
+        return
+      }
+      const renderer = resolveRenderer(browserTabId)
+      if (renderer) {
+        renderer.send('browser:context-menu-dismissed', { browserPageId: browserTabId })
+      }
+      removeDismissListener()
+    }
+    guest.on('before-mouse-event', dismissHandler)
+  }
+
+  guest.on('context-menu', contextMenuHandler)
+
   return () => {
     try {
-      guest.off('context-menu', handler)
-      guest.off('before-mouse-event', dismissHandler)
+      guest.off('context-menu', contextMenuHandler)
+      removeDismissListener()
     } catch {
       // Why: browser tabs can outlive the guest webContents briefly during
       // teardown. Cleanup should be best-effort instead of throwing while the

@@ -355,7 +355,8 @@ describe('Store', () => {
       // The 300ms debounce hasn't elapsed yet
 
       vi.advanceTimersByTime(300)
-      // Now the save should have fired
+      // The timer fired; wait for the async disk write to complete
+      await store.waitForPendingWrite()
 
       const persisted = readDataFile() as { repos: Repo[] }
       expect(persisted.repos).toHaveLength(1)

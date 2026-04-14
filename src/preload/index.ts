@@ -260,7 +260,7 @@ const api = {
     },
 
     resize: (id: string, cols: number, rows: number): void => {
-      ipcRenderer.invoke('pty:resize', { id, cols, rows })
+      ipcRenderer.send('pty:resize', { id, cols, rows })
     },
 
     kill: (id: string): Promise<void> => ipcRenderer.invoke('pty:kill', { id }),

@@ -2,7 +2,7 @@
 interaction menus, and compact-layout behavior together so the hover/click
 states stay consistent across Claude and Codex. */
 import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ContextMenu,
@@ -409,7 +409,7 @@ function ProviderDetailsMenu({
 // StatusBar
 // ---------------------------------------------------------------------------
 
-export function StatusBar(): React.JSX.Element | null {
+function StatusBarInner(): React.JSX.Element | null {
   const rateLimits = useAppStore((s) => s.rateLimits)
   const refreshRateLimits = useAppStore((s) => s.refreshRateLimits)
   const statusBarVisible = useAppStore((s) => s.statusBarVisible)
@@ -541,3 +541,5 @@ export function StatusBar(): React.JSX.Element | null {
     </ContextMenu>
   )
 }
+
+export const StatusBar = React.memo(StatusBarInner)
