@@ -136,6 +136,8 @@ describe('useIpcEvents updater integration', () => {
         worktrees: { onChanged: () => () => {} },
         ui: {
           onOpenSettings: () => () => {},
+          onToggleLeftSidebar: () => () => {},
+          onToggleRightSidebar: () => () => {},
           onToggleWorktreePalette: () => () => {},
           onOpenQuickOpen: () => () => {},
           onJumpToWorktreeIndex: () => () => {},
