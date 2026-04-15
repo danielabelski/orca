@@ -54,14 +54,19 @@ export default function ChecksPanel(): React.JSX.Element {
   // remount on worktree switch (that caused an IPC storm on Windows).
   // Reset worktree-specific local state so stale UI from the previous
   // worktree doesn't leak (e.g. mid-edit title, stale loading indicators).
-  useEffect(() => {
+  // Done during render (not useEffect) so the reset takes effect on the same
+  // paint as the worktree change — useEffect would leave one render with the
+  // previous worktree's stale title/loading state visible.
+  const [prevActiveWorktreeId, setPrevActiveWorktreeId] = useState(activeWorktreeId)
+  if (activeWorktreeId !== prevActiveWorktreeId) {
+    setPrevActiveWorktreeId(activeWorktreeId)
     setEditingTitle(false)
     setTitleDraft('')
     setTitleSaving(false)
     setIsRefreshing(false)
     setEmptyRefreshing(false)
     conflictSummaryRefreshKeyRef.current = null
-  }, [activeWorktreeId])
+  }
 
   // Find active worktree and repo
   const { worktree, repo } = useMemo(() => {

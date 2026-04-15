@@ -23,10 +23,22 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
   const open = request !== null
 
   const requestId = request?.requestId
-  useEffect(() => {
+
+  // Why: reset form state during render (not useEffect) so the cleared input is
+  // visible on the same paint as the new request arriving — useEffect would
+  // leave one render showing the previous passphrase value.
+  const [prevRequestId, setPrevRequestId] = useState(requestId)
+  if (requestId !== prevRequestId) {
+    setPrevRequestId(requestId)
     if (requestId) {
       setValue('')
       setSubmitting(false)
+    }
+  }
+
+  // DOM focus is a side effect that must remain in useEffect.
+  useEffect(() => {
+    if (requestId) {
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [requestId])
@@ -109,7 +121,12 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
           />
         </div>
         <DialogFooter className="mt-1">
-          <Button variant="outline" size="sm" onClick={() => void handleCancel()} disabled={submitting}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleCancel()}
+            disabled={submitting}
+          >
             Cancel
           </Button>
           <Button size="sm" onClick={() => void handleSubmit()} disabled={!value || submitting}>

@@ -54,10 +54,11 @@ export default function MonacoEditor({
   // cleanup and overwrite the correct value with a stale one.
   const scrollThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const propsRef = useRef({ relativePath, language, onSave })
-
-  useEffect(() => {
-    propsRef.current = { relativePath, language, onSave }
-  }, [relativePath, language, onSave])
+  // Why: assigning during render keeps the ref current before any event handler
+  // or effect reads it, avoiding the one-render stale window that a useEffect
+  // would introduce. Refs are mutable and don't trigger re-renders, so this is
+  // safe to do unconditionally every render.
+  propsRef.current = { relativePath, language, onSave }
 
   const settings = useAppStore((s) => s.settings)
   const editorFontZoomLevel = useAppStore((s) => s.editorFontZoomLevel)

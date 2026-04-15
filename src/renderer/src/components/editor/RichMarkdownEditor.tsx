@@ -72,18 +72,13 @@ export default function RichMarkdownEditor({
   const [isEditingLink, setIsEditingLink] = useState(false)
   const isEditingLinkRef = useRef(false)
 
-  useEffect(() => {
-    onContentChangeRef.current = onContentChange
-  }, [onContentChange])
-  useEffect(() => {
-    onDirtyStateHintRef.current = onDirtyStateHint
-  }, [onDirtyStateHint])
-  useEffect(() => {
-    onSaveRef.current = onSave
-  }, [onSave])
-  useEffect(() => {
-    isEditingLinkRef.current = isEditingLink
-  }, [isEditingLink])
+  // Why: assigning callback refs during render keeps them current before any
+  // ProseMirror handler reads them, avoiding the one-render stale window that
+  // useEffect would introduce. Refs are mutable and never trigger re-renders.
+  onContentChangeRef.current = onContentChange
+  onDirtyStateHintRef.current = onDirtyStateHint
+  onSaveRef.current = onSave
+  isEditingLinkRef.current = isEditingLink
 
   const flushPendingSerialization = useCallback(() => {
     if (serializeTimerRef.current === null) {
