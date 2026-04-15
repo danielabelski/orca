@@ -68,6 +68,10 @@ export default function RichMarkdownEditor({
   // stuck at the first-render null value unless we read the live instance here.
   const editorRef = useRef<Editor | null>(null)
   const serializeTimerRef = useRef<number | null>(null)
+  // Why: normalizeSoftBreaks dispatches a ProseMirror transaction inside onCreate
+  // which triggers onUpdate. Without this guard the editor immediately marks the
+  // file dirty before the user has typed anything.
+  const isInitializingRef = useRef(true)
   const [linkBubble, setLinkBubble] = useState<LinkBubbleState | null>(null)
   const [isEditingLink, setIsEditingLink] = useState(false)
   const isEditingLinkRef = useRef(false)
@@ -263,9 +267,21 @@ export default function RichMarkdownEditor({
       // other block-level operations) treat each line as its own block.
       normalizeSoftBreaks(nextEditor)
       lastCommittedMarkdownRef.current = nextEditor.getMarkdown()
+      // Why: clear the flag *after* normalizeSoftBreaks so any onUpdate
+      // triggered by the normalization transaction is still suppressed.
+      isInitializingRef.current = false
     },
     onUpdate: ({ editor: nextEditor }) => {
       syncSlashMenu(nextEditor, rootRef.current, setSlashMenu)
+
+      // Why: normalizeSoftBreaks in onCreate dispatches a transaction that
+      // triggers this callback before the editor is ready for user interaction.
+      // Treating that structural housekeeping step as a user edit would
+      // immediately mark the file dirty and prompt a spurious save dialog on
+      // close. Bail out until initialization is complete.
+      if (isInitializingRef.current) {
+        return
+      }
 
       // Why: full markdown serialization is debounced for typing performance,
       // but close-confirmation and beforeunload checks still need to know

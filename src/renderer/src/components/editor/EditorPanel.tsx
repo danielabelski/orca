@@ -283,15 +283,21 @@ function EditorPanelInner({
         return
       }
       setEditorDraft(activeFile.id, content)
+      // Why: TipTap's getMarkdown() always appends a trailing newline to the
+      // serialized output. If the file on disk lacks that newline the naive
+      // strict-equality check treats the file as dirty even though no user edit
+      // occurred. Normalising trailing whitespace for markdown files mirrors the
+      // same trimEnd() used in the round-trip checker (markdown-round-trip.ts).
+      const isMarkdown = activeFile.language === 'markdown'
+      const normalize = isMarkdown ? (s: string): string => s.trimEnd() : (s: string): string => s
       if (activeFile.mode === 'edit') {
-        // Compare against saved content to determine dirty state
         const saved = fileContents[activeFile.id]?.content ?? ''
-        markFileDirty(activeFile.id, content !== saved)
+        markFileDirty(activeFile.id, normalize(content) !== normalize(saved))
       } else {
         // Diff mode: compare against the original modified content from git
         const dc = diffContents[activeFile.id]
         const original = dc?.kind === 'text' ? dc.modifiedContent : ''
-        markFileDirty(activeFile.id, content !== original)
+        markFileDirty(activeFile.id, normalize(content) !== normalize(original))
       }
     },
     [activeFile, diffContents, fileContents, markFileDirty, setEditorDraft]
