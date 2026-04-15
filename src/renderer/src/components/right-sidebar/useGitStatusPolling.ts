@@ -84,8 +84,23 @@ export function useGitStatusPolling(): void {
 
   useEffect(() => {
     void fetchStatus()
-    const intervalId = setInterval(() => void fetchStatus(), POLL_INTERVAL_MS)
-    return () => clearInterval(intervalId)
+    // Why: skip IPC-heavy git status calls when the window is not focused.
+    // These intervals run at the App root level regardless of which sidebar tab
+    // is open, so gating on document.hasFocus() prevents wasted CPU and IPC
+    // traffic while the user is working in another application.
+    const intervalId = setInterval(() => {
+      if (document.hasFocus()) {
+        void fetchStatus()
+      }
+    }, POLL_INTERVAL_MS)
+    // Why: when the user returns to the window, poll immediately so the sidebar
+    // shows up-to-date status without waiting up to POLL_INTERVAL_MS.
+    const onFocus = (): void => void fetchStatus()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [fetchStatus])
 
   useEffect(() => {
@@ -98,8 +113,17 @@ export function useGitStatusPolling(): void {
     // list so a branch change updates the sidebar's PR key instead of leaving
     // the previous merged PR attached to this worktree indefinitely.
     void fetchWorktrees(activeRepoId)
-    const intervalId = setInterval(() => void fetchWorktrees(activeRepoId), POLL_INTERVAL_MS)
-    return () => clearInterval(intervalId)
+    const intervalId = setInterval(() => {
+      if (document.hasFocus()) {
+        void fetchWorktrees(activeRepoId)
+      }
+    }, POLL_INTERVAL_MS)
+    const onFocus = (): void => void fetchWorktrees(activeRepoId)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [activeRepoId, activeRepoSupportsGit, fetchWorktrees])
 
   // Why: poll conflict operation for non-active worktrees that have a stale
@@ -125,7 +149,16 @@ export function useGitStatusPolling(): void {
     }
 
     void pollStale()
-    const intervalId = setInterval(() => void pollStale(), POLL_INTERVAL_MS)
-    return () => clearInterval(intervalId)
+    const intervalId = setInterval(() => {
+      if (document.hasFocus()) {
+        void pollStale()
+      }
+    }, POLL_INTERVAL_MS)
+    const onFocus = (): void => void pollStale()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [staleConflictWorktrees, setConflictOperation])
 }

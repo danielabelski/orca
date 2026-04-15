@@ -446,6 +446,16 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                     ([fileId]) => fileId !== replacedPreview.id
                   )
                 )
+          // Why: editorCursorLine entries accumulate per file; clean up the
+          // evicted preview's entry so it does not leak across tab replacements.
+          const nextEditorCursorLine =
+            replacedPreview.id === id
+              ? s.editorCursorLine
+              : Object.fromEntries(
+                  Object.entries(s.editorCursorLine).filter(
+                    ([fileId]) => fileId !== replacedPreview.id
+                  )
+                )
           // Replace in-place to preserve tab position
           newFiles = s.openFiles.map((f, i) =>
             i === existingPreviewIdx ? { ...file, id, isDirty: false, isPreview: true } : f
@@ -463,6 +473,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           return {
             openFiles: newFiles,
             editorDrafts: nextEditorDrafts,
+            editorCursorLine: nextEditorCursorLine,
             markdownViewMode: nextMarkdownViewMode,
             ...previewTabBarUpdate,
             ...activeResult
@@ -552,6 +563,11 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       delete newEditorDrafts[fileId]
       const newMarkdownViewMode = { ...s.markdownViewMode }
       delete newMarkdownViewMode[fileId]
+      // Why: editorCursorLine entries are keyed by fileId and accumulate on
+      // every cursor move. Without cleanup they grow without bound across a
+      // long session as files are opened and closed.
+      const newEditorCursorLine = { ...s.editorCursorLine }
+      delete newEditorCursorLine[fileId]
       let newActiveId = s.activeFileId
       const newActiveFileIdByWorktree = { ...s.activeFileIdByWorktree }
 
@@ -632,6 +648,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       return {
         openFiles: newFiles,
         editorDrafts: newEditorDrafts,
+        editorCursorLine: newEditorCursorLine,
         activeFileId: newActiveId,
         // Why: if closing the last editor also leaves the worktree without any
         // browser or terminal surface, keep parity with the terminal/browser
@@ -671,6 +688,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         return {
           openFiles: [],
           editorDrafts: {},
+          editorCursorLine: {},
           activeFileId: null,
           activeTabType: 'terminal',
           markdownViewMode: {},
@@ -685,6 +703,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       )
       const newMarkdownViewMode = Object.fromEntries(
         Object.entries(s.markdownViewMode).filter(([fileId]) => remainingFileIds.has(fileId))
+      )
+      const newEditorCursorLine = Object.fromEntries(
+        Object.entries(s.editorCursorLine).filter(([fileId]) => remainingFileIds.has(fileId))
       )
       const newActiveFileIdByWorktree = { ...s.activeFileIdByWorktree }
       delete newActiveFileIdByWorktree[activeWorktreeId]
@@ -713,6 +734,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       return {
         openFiles: newFiles,
         editorDrafts: newEditorDrafts,
+        editorCursorLine: newEditorCursorLine,
         activeFileId: null,
         // Why: closing every editor in the active worktree can leave no
         // renderable surface at all. Clear the active worktree in that case so
