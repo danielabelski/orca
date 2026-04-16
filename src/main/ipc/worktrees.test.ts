@@ -219,20 +219,40 @@ describe('registerWorktreeHandlers', () => {
     registerWorktreeHandlers(mainWindow as never, store as never)
   })
 
-  it('rejects worktree creation when the branch already exists on a remote', async () => {
-    getBranchConflictKindMock.mockResolvedValue('remote')
-
-    await expect(
-      handlers['worktrees:create'](null, {
-        repoId: 'repo-1',
-        name: 'improve-dashboard'
-      })
-    ).rejects.toThrow(
-      'Branch "improve-dashboard" already exists on a remote. Pick a different worktree name.'
+  it('auto-suffixes the branch name when the first choice collides with a remote branch', async () => {
+    // Why: new-workspace flow should silently try improve-dashboard-2, -3, ...
+    // rather than failing and forcing the user back to the name picker.
+    getBranchConflictKindMock.mockImplementation(async (_repoPath: string, branch: string) =>
+      branch === 'improve-dashboard' ? 'remote' : null
     )
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/improve-dashboard-2',
+        head: 'abc123',
+        branch: 'improve-dashboard-2',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
 
-    expect(getPRForBranchMock).not.toHaveBeenCalled()
-    expect(addWorktreeMock).not.toHaveBeenCalled()
+    const result = await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'improve-dashboard'
+    })
+
+    expect(addWorktreeMock).toHaveBeenCalledWith(
+      '/workspace/repo',
+      '/workspace/improve-dashboard-2',
+      'improve-dashboard-2',
+      'origin/main',
+      false
+    )
+    expect(result).toEqual({
+      worktree: expect.objectContaining({
+        path: '/workspace/improve-dashboard-2',
+        branch: 'improve-dashboard-2'
+      })
+    })
   })
 
   it('creates an issue-command runner for an existing repo/worktree pair', async () => {
@@ -292,27 +312,51 @@ describe('registerWorktreeHandlers', () => {
     expect(listWorktreesMock).not.toHaveBeenCalled()
   })
 
-  it('rejects worktree creation when the branch name already belongs to a PR', async () => {
-    getPRForBranchMock.mockResolvedValue({
-      number: 3127,
-      title: 'Existing PR',
-      state: 'merged',
-      url: 'https://example.com/pr/3127',
-      checksStatus: 'success',
-      updatedAt: '2026-04-01T00:00:00Z',
-      mergeable: 'UNKNOWN'
+  it('auto-suffixes the branch name when the first choice already belongs to a PR', async () => {
+    // Why: reusing a historical PR head would make a fresh worktree inherit
+    // that old PR, so the loop suffixes past the name until it finds one that
+    // is not associated with any PR.
+    getPRForBranchMock.mockImplementation(async (_repoPath: string, branch: string) =>
+      branch === 'improve-dashboard'
+        ? {
+            number: 3127,
+            title: 'Existing PR',
+            state: 'merged',
+            url: 'https://example.com/pr/3127',
+            checksStatus: 'success',
+            updatedAt: '2026-04-01T00:00:00Z',
+            mergeable: 'UNKNOWN'
+          }
+        : null
+    )
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/improve-dashboard-2',
+        head: 'abc123',
+        branch: 'improve-dashboard-2',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const result = await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'improve-dashboard'
     })
 
-    await expect(
-      handlers['worktrees:create'](null, {
-        repoId: 'repo-1',
-        name: 'improve-dashboard'
-      })
-    ).rejects.toThrow(
-      'Branch "improve-dashboard" already has PR #3127. Pick a different worktree name.'
+    expect(addWorktreeMock).toHaveBeenCalledWith(
+      '/workspace/repo',
+      '/workspace/improve-dashboard-2',
+      'improve-dashboard-2',
+      'origin/main',
+      false
     )
-
-    expect(addWorktreeMock).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      worktree: expect.objectContaining({
+        path: '/workspace/improve-dashboard-2',
+        branch: 'improve-dashboard-2'
+      })
+    })
   })
 
   const createdWorktreeList = [

@@ -155,8 +155,14 @@ export async function createLocalWorktree(
   // Why: silently resolve branch/path/PR name collisions by appending -2/-3/etc.
   // instead of failing and forcing the user back to the name picker. This is
   // especially important for the new-workspace flow where the user may not have
-  // direct control over the branch name.
-  for (let suffix = 1; ; suffix += 1) {
+  // direct control over the branch name. Bounded by MAX_SUFFIX_ATTEMPTS so a
+  // misconfigured environment (e.g. a mock or stub that always reports a
+  // conflict) cannot spin this loop indefinitely.
+  const MAX_SUFFIX_ATTEMPTS = 100
+  let resolved = false
+  let lastBranchConflictKind: 'local' | 'remote' | null = null
+  let lastExistingPR: Awaited<ReturnType<typeof getPRForBranch>> | null = null
+  for (let suffix = 1; suffix <= MAX_SUFFIX_ATTEMPTS; suffix += 1) {
     effectiveSanitizedName = suffix === 1 ? sanitizedName : `${sanitizedName}-${suffix}`
     effectiveRequestedName =
       suffix === 1
@@ -166,21 +172,21 @@ export async function createLocalWorktree(
           : effectiveSanitizedName
 
     branchName = computeBranchName(effectiveSanitizedName, settings, username)
-    const branchConflictKind = await getBranchConflictKind(repo.path, branchName)
-    if (branchConflictKind) {
+    lastBranchConflictKind = await getBranchConflictKind(repo.path, branchName)
+    if (lastBranchConflictKind) {
       continue
     }
 
     // Why: the UI resolves PR status by branch name alone. Reusing a historical
     // PR head name would make a fresh worktree inherit that old merged/closed PR
     // immediately, so auto-suffix until we land on a fresh branch identity.
-    let existingPR: Awaited<ReturnType<typeof getPRForBranch>> | null = null
+    lastExistingPR = null
     try {
-      existingPR = await getPRForBranch(repo.path, branchName)
+      lastExistingPR = await getPRForBranch(repo.path, branchName)
     } catch {
       // GitHub API may be unreachable, rate-limited, or token missing
     }
-    if (existingPR) {
+    if (lastExistingPR) {
       continue
     }
 
@@ -192,7 +198,27 @@ export async function createLocalWorktree(
       continue
     }
 
+    resolved = true
     break
+  }
+
+  if (!resolved) {
+    // Why: if every suffix in range collides, fall back to the original
+    // "reject with a specific reason" behavior so the user sees why creation
+    // failed instead of a generic error or (worse) an infinite spinner.
+    if (lastExistingPR) {
+      throw new Error(
+        `Branch "${branchName}" already has PR #${lastExistingPR.number}. Pick a different worktree name.`
+      )
+    }
+    if (lastBranchConflictKind) {
+      throw new Error(
+        `Branch "${branchName}" already exists ${lastBranchConflictKind === 'local' ? 'locally' : 'on a remote'}. Pick a different worktree name.`
+      )
+    }
+    throw new Error(
+      `Could not find an available worktree name for "${sanitizedName}". Pick a different worktree name.`
+    )
   }
 
   // Determine base branch
