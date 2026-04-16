@@ -13,6 +13,9 @@ vi.mock('../../store', () => ({
 vi.mock('./TabGroupPanel', () => ({
   default: (props: unknown) => ({ __mock: 'TabGroupPanel', props })
 }))
+vi.mock('./TabGroupDndContext', () => ({
+  default: ({ children }: { children: unknown }) => children
+}))
 
 vi.mock('./useTabDragSplit', () => ({
   useTabDragSplit: () => ({

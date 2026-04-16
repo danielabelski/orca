@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { Columns2, Ellipsis, Rows2, X } from 'lucide-react'
 import { useAppStore } from '../../store'
@@ -13,8 +13,7 @@ import TabBar from '../tab-bar/TabBar'
 import TerminalPane from '../terminal-pane/TerminalPane'
 import BrowserPane from '../browser-pane/BrowserPane'
 import { useTabGroupWorkspaceModel } from './useTabGroupWorkspaceModel'
-import TabGroupDropOverlay from './TabGroupDropOverlay'
-import { getTabPaneBodyDroppableId, type TabDropZone } from './useTabDragSplit'
+import { buildGroupContentId, useCrossGroupDragState } from './CrossGroupDragContext'
 
 const EditorPanel = lazy(() => import('../editor/EditorPanel'))
 
@@ -25,23 +24,26 @@ export default function TabGroupPanel({
   isFocused,
   hasSplitGroups,
   reserveClosedExplorerToggleSpace,
-  reserveCollapsedSidebarHeaderSpace,
-  isTabDragActive = false,
-  activeDropZone = null
+  reserveCollapsedSidebarHeaderSpace
 }: {
   groupId: string
   worktreeId: string
+  // Why: preserved from main (PR #777) so TerminalPane.isVisible and
+  // BrowserPane display/isActive can suppress hidden worktrees. Without this
+  // guard, detached panes keep their WebGL renderers alive and exhaust
+  // Chromium's context budget across worktrees.
   isWorktreeActive: boolean
   isFocused: boolean
   hasSplitGroups: boolean
   reserveClosedExplorerToggleSpace: boolean
   reserveCollapsedSidebarHeaderSpace: boolean
-  isTabDragActive?: boolean
-  activeDropZone?: TabDropZone | null
 }): React.JSX.Element {
   const rightSidebarOpen = useAppStore((state) => state.rightSidebarOpen)
   const sidebarOpen = useAppStore((state) => state.sidebarOpen)
-
+  const dragState = useCrossGroupDragState()
+  const { setNodeRef: setContentDropNodeRef } = useDroppable({
+    id: buildGroupContentId(groupId)
+  })
   const model = useTabGroupWorkspaceModel({ groupId, worktreeId })
   const {
     activeBrowserTab,
@@ -54,22 +56,44 @@ export default function TabGroupPanel({
     terminalTabs,
     worktreePath
   } = model
-  const { setNodeRef: setBodyDropRef } = useDroppable({
-    id: getTabPaneBodyDroppableId(groupId),
-    data: {
-      kind: 'pane-body',
-      groupId,
-      worktreeId
-    },
-    disabled: !isTabDragActive
-  })
+  const unifiedTabIdByVisibleId = useMemo(
+    () =>
+      Object.fromEntries(
+        model.groupTabs.map((item) => [
+          item.contentType === 'terminal' || item.contentType === 'browser'
+            ? item.entityId
+            : item.id,
+          item.id
+        ])
+      ),
+    [model.groupTabs]
+  )
+  const isContentDragTarget =
+    dragState.activeTab != null &&
+    dragState.overGroupId === groupId &&
+    dragState.overSplitDirection != null
+  const isForeignDragTarget =
+    dragState.activeTab != null &&
+    dragState.overGroupId === groupId &&
+    dragState.activeTab.sourceGroupId !== groupId
+  const contentOverlayClass =
+    dragState.overSplitDirection === 'left'
+      ? 'left-0 top-0 h-full w-1/2'
+      : dragState.overSplitDirection === 'right'
+        ? 'right-0 top-0 h-full w-1/2'
+        : dragState.overSplitDirection === 'up'
+          ? 'left-0 top-0 h-1/2 w-full'
+          : dragState.overSplitDirection === 'down'
+            ? 'bottom-0 left-0 h-1/2 w-full'
+            : 'inset-0'
 
   const tabBar = (
     <TabBar
       tabs={terminalTabs}
       activeTabId={activeTab?.contentType === 'terminal' ? activeTab.entityId : null}
-      groupId={groupId}
       worktreeId={worktreeId}
+      groupId={groupId}
+      unifiedTabIdByVisibleId={unifiedTabIdByVisibleId}
       expandedPaneByTabId={model.expandedPaneByTabId}
       onActivate={commands.activateTerminal}
       onClose={(terminalId) => {
@@ -96,6 +120,7 @@ export default function TabGroupPanel({
           commands.closeToRight(item.id)
         }
       }}
+      onReorder={(_, order) => commands.reorderTabBar(order)}
       onNewTerminalTab={commands.newTerminalTab}
       onNewBrowserTab={commands.newBrowserTab}
       onNewFileTab={commands.newFileTab}
@@ -154,8 +179,12 @@ export default function TabGroupPanel({
 
   return (
     <div
-      className={`group/tab-group flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden${
-        hasSplitGroups ? ` border-x border-b ${isFocused ? 'border-accent' : 'border-border'}` : ''
+      className={`flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden${
+        hasSplitGroups
+          ? ` group/tab-group border-x border-b ${
+              isFocused || isForeignDragTarget ? 'border-accent' : 'border-border'
+            }`
+          : ''
       }`}
       onPointerDown={commands.focusGroup}
       // Why: keyboard and assistive-tech users can move focus into an unfocused
@@ -193,7 +222,10 @@ export default function TabGroupPanel({
           {/* Why: pane-scoped layout actions belong with the active pane instead
               of the global tab-bar `+`, which should keep opening tabs exactly
               as before. The local overflow menu holds split directions and
-              close-group without changing the existing tab-creation affordance. */}
+              close-group without changing the existing tab-creation affordance.
+              Drag-to-split (via TabGroupDndContext) is the primary way to
+              create splits, but this menu remains the only way to spawn an
+              empty split pane without an originating tab drag. */}
           <div
             className={actionChromeClassName}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -267,8 +299,12 @@ export default function TabGroupPanel({
         </div>
       </div>
 
-      <div ref={setBodyDropRef} className="relative flex-1 min-h-0 overflow-hidden">
-        {activeDropZone ? <TabGroupDropOverlay zone={activeDropZone} /> : null}
+      <div ref={setContentDropNodeRef} className="relative flex-1 min-h-0 overflow-hidden">
+        {isContentDragTarget && (
+          <div
+            className={`pointer-events-none absolute z-10 rounded-md bg-accent/20 transition-all duration-75 ease-out ${contentOverlayClass}`}
+          />
+        )}
         {model.groupTabs
           .filter((item) => item.contentType === 'terminal')
           .map((item) => (
@@ -328,6 +364,10 @@ export default function TabGroupPanel({
           <div
             key={bt.id}
             className="absolute inset-0 flex min-h-0 min-w-0"
+            // Why: hidden worktrees stay mounted so their browser tabs survive
+            // worktree switches, but detached BrowserViews must be hidden or
+            // they leak WebContents and steal keyboard focus. Guarding display
+            // and isActive on isWorktreeActive keeps offscreen worktrees silent.
             style={{
               display: isWorktreeActive && activeBrowserTab?.id === bt.id ? undefined : 'none'
             }}

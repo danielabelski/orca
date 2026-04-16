@@ -941,7 +941,8 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         }
         return group
       })
-      return {
+      const nextState = {
+        ...state,
         unifiedTabsByWorktree: {
           ...state.unifiedTabsByWorktree,
           [worktreeId]: (state.unifiedTabsByWorktree[worktreeId] ?? []).map((candidate) =>
@@ -953,6 +954,12 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
           [worktreeId]: nextGroups
         },
         activeGroupIdByWorktree: nextActiveGroupIdByWorktree
+      }
+      return {
+        unifiedTabsByWorktree: nextState.unifiedTabsByWorktree,
+        groupsByWorktree: nextState.groupsByWorktree,
+        activeGroupIdByWorktree: nextState.activeGroupIdByWorktree,
+        ...(opts?.activate ? buildActiveSurfacePatch(nextState, worktreeId, targetGroupId) : {})
       }
     })
     return moved

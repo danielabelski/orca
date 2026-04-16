@@ -1,8 +1,22 @@
+/* eslint-disable max-lines -- Why: cross-group drag support requires shared
+ * sortable-ID mapping, drop-indicator state, and dual DnD-context switching to
+ * live alongside the existing tab-bar ordering logic. Splitting into separate
+ * files would fragment the rendering pipeline these pieces must coordinate. */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
+import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { FilePlus, Globe, Plus, TerminalSquare } from 'lucide-react'
 import type {
   BrowserTab as BrowserTabState,
+  TabContentType,
   TerminalTab,
   WorkspaceVisibleTabType
 } from '../../../../shared/types'
@@ -11,9 +25,9 @@ import { buildStatusMap } from '../right-sidebar/status-display'
 import type { OpenFile } from '../../store/slices/editor'
 import SortableTab from './SortableTab'
 import EditorFileTab from './EditorFileTab'
-import BrowserTab from './BrowserTab'
+import BrowserTab, { getBrowserTabLabel } from './BrowserTab'
 import { reconcileTabOrder } from './reconcile-order'
-import type { TabDragItemData } from '../tab-group/useTabDragSplit'
+import type { DropIndicator } from './drop-indicator'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,22 +35,31 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { getEditorDisplayLabel } from '../editor/editor-labels'
+import {
+  buildGroupDropId,
+  buildSharedSortableId,
+  useCrossGroupDragState,
+  useIsCrossGroupDndPresent
+} from '../tab-group/CrossGroupDragContext'
 
 const isMac = navigator.userAgent.includes('Mac')
 const NEW_TERMINAL_SHORTCUT = isMac ? '⌘T' : 'Ctrl+T'
 const NEW_BROWSER_SHORTCUT = isMac ? '⌘⇧B' : 'Ctrl+Shift+B'
+// Why: main moved the New Markdown shortcut to ⌘⇧M to avoid clashing with the
+// OS-level "new window" chord. Keep that binding even as cross-group DnD lands.
 const NEW_FILE_SHORTCUT = isMac ? '⌘⇧M' : 'Ctrl+Shift+M'
 
 type TabBarProps = {
-  tabs: (TerminalTab & { unifiedTabId?: string })[]
+  tabs: TerminalTab[]
   activeTabId: string | null
-  groupId?: string
   worktreeId: string
   expandedPaneByTabId: Record<string, boolean>
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
   onCloseOthers: (tabId: string) => void
   onCloseToRight: (tabId: string) => void
+  onReorder: (worktreeId: string, order: string[]) => void
   onNewTerminalTab: () => void
   onNewBrowserTab: () => void
   onNewFileTab?: () => void
@@ -44,7 +67,7 @@ type TabBarProps = {
   onSetTabColor: (tabId: string, color: string | null) => void
   onTogglePaneExpand: (tabId: string) => void
   editorFiles?: (OpenFile & { tabId?: string })[]
-  browserTabs?: (BrowserTabState & { tabId?: string })[]
+  browserTabs?: BrowserTabState[]
   activeFileId?: string | null
   activeBrowserTabId?: string | null
   activeTabType?: WorkspaceVisibleTabType
@@ -55,6 +78,8 @@ type TabBarProps = {
   onCloseAllFiles?: () => void
   onPinFile?: (fileId: string, tabId?: string) => void
   tabBarOrder?: string[]
+  groupId?: string
+  unifiedTabIdByVisibleId?: Record<string, string>
   onCreateSplitGroup?: (
     direction: 'left' | 'right' | 'up' | 'down',
     sourceVisibleTabId?: string
@@ -64,28 +89,44 @@ type TabBarProps = {
 type TabItem =
   | {
       type: 'terminal'
-      id: string
+      visibleId: string
       unifiedTabId: string
-      data: TerminalTab & { unifiedTabId?: string }
+      sortableId: string
+      data: TerminalTab
     }
-  | { type: 'editor'; id: string; unifiedTabId: string; data: OpenFile & { tabId?: string } }
+  | {
+      type: 'editor'
+      visibleId: string
+      unifiedTabId: string
+      sortableId: string
+      data: OpenFile & { tabId?: string }
+    }
   | {
       type: 'browser'
-      id: string
+      visibleId: string
       unifiedTabId: string
-      data: BrowserTabState & { tabId?: string }
+      sortableId: string
+      data: BrowserTabState
     }
+
+function getEditorDragContentType(file: OpenFile & { tabId?: string }): TabContentType {
+  return file.mode === 'diff'
+    ? 'diff'
+    : file.mode === 'conflict-review'
+      ? 'conflict-review'
+      : 'editor'
+}
 
 function TabBarInner({
   tabs,
   activeTabId,
-  groupId,
   worktreeId,
   expandedPaneByTabId,
   onActivate,
   onClose,
   onCloseOthers,
   onCloseToRight,
+  onReorder,
   onNewTerminalTab,
   onNewBrowserTab,
   onNewFileTab,
@@ -104,10 +145,23 @@ function TabBarInner({
   onCloseAllFiles,
   onPinFile,
   tabBarOrder,
+  groupId,
+  unifiedTabIdByVisibleId,
   onCreateSplitGroup
 }: TabBarProps): React.JSX.Element {
+  const isSharedDnd = useIsCrossGroupDndPresent() && Boolean(groupId)
+  const dragState = useCrossGroupDragState()
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 }
+    })
+  )
+  const { setNodeRef: setGroupDropNodeRef } = useDroppable({
+    id: buildGroupDropId(groupId ?? `legacy-${worktreeId}`),
+    disabled: !isSharedDnd
+  })
+
   const gitStatusByWorktree = useAppStore((s) => s.gitStatusByWorktree)
-  const resolvedGroupId = groupId ?? worktreeId
   const statusByRelativePath = useMemo(
     () => buildStatusMap(gitStatusByWorktree[worktreeId] ?? []),
     [worktreeId, gitStatusByWorktree]
@@ -136,31 +190,98 @@ function TabBarInner({
       if (terminal) {
         items.push({
           type: 'terminal',
-          id,
-          unifiedTabId: terminal.unifiedTabId ?? terminal.id,
+          visibleId: id,
+          unifiedTabId: unifiedTabIdByVisibleId?.[id] ?? id,
+          sortableId: isSharedDnd && groupId ? buildSharedSortableId(groupId, id) : id,
           data: terminal
         })
         continue
       }
       const file = editorMap.get(id)
       if (file) {
-        items.push({ type: 'editor', id, unifiedTabId: file.tabId ?? file.id, data: file })
+        items.push({
+          type: 'editor',
+          visibleId: id,
+          unifiedTabId: file.tabId ?? file.id,
+          sortableId: isSharedDnd && groupId ? buildSharedSortableId(groupId, id) : id,
+          data: file
+        })
         continue
       }
       const browserTab = browserMap.get(id)
       if (browserTab) {
         items.push({
           type: 'browser',
-          id,
-          unifiedTabId: browserTab.tabId ?? browserTab.id,
+          visibleId: id,
+          unifiedTabId: unifiedTabIdByVisibleId?.[id] ?? id,
+          sortableId: isSharedDnd && groupId ? buildSharedSortableId(groupId, id) : id,
           data: browserTab
         })
       }
     }
     return items
-  }, [tabBarOrder, terminalIds, editorFileIds, browserTabIds, terminalMap, editorMap, browserMap])
+  }, [
+    browserMap,
+    browserTabIds,
+    editorFileIds,
+    editorMap,
+    groupId,
+    isSharedDnd,
+    tabBarOrder,
+    terminalIds,
+    terminalMap,
+    unifiedTabIdByVisibleId
+  ])
 
-  const sortableIds = useMemo(() => orderedItems.map((item) => item.id), [orderedItems])
+  const sortableIds = useMemo(() => orderedItems.map((item) => item.sortableId), [orderedItems])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) {
+        return
+      }
+
+      const oldIndex = sortableIds.indexOf(active.id as string)
+      const newIndex = sortableIds.indexOf(over.id as string)
+      if (oldIndex === -1 || newIndex === -1) {
+        return
+      }
+
+      const newOrder = arrayMove(sortableIds, oldIndex, newIndex)
+      onReorder(worktreeId, newOrder)
+    },
+    [sortableIds, worktreeId, onReorder]
+  )
+
+  const dropIndicatorByVisibleId = useMemo(() => {
+    const indicators = new Map<string, DropIndicator>()
+    if (
+      !isSharedDnd ||
+      dragState.activeTab == null ||
+      dragState.overGroupId !== groupId ||
+      dragState.overTabBarIndex == null ||
+      orderedItems.length === 0
+    ) {
+      return indicators
+    }
+
+    const insertionIndex = Math.max(0, Math.min(dragState.overTabBarIndex, orderedItems.length))
+    if (insertionIndex >= orderedItems.length) {
+      indicators.set(orderedItems.at(-1)!.visibleId, 'right')
+      return indicators
+    }
+
+    indicators.set(orderedItems[insertionIndex]!.visibleId, 'left')
+    return indicators
+  }, [
+    dragState.activeTab,
+    dragState.overGroupId,
+    dragState.overTabBarIndex,
+    groupId,
+    isSharedDnd,
+    orderedItems
+  ])
 
   const focusTerminalTabSurface = useCallback((tabId: string) => {
     // Why: creating a terminal from the "+" menu is a two-step focus race:
@@ -185,6 +306,11 @@ function TabBarInner({
 
   // Horizontal wheel scrolling for the tab strip
   const tabStripRef = useRef<HTMLDivElement>(null)
+  // Why: auto-scroll-to-end bookkeeping from main. `prevStripLenRef` tracks the
+  // previous strip length per worktree so we only auto-scroll when a tab was
+  // genuinely added (not on worktree switches); `stickToEndRef` captures the
+  // "user is parked at the right edge" state so label-width growth (e.g.
+  // "Terminal 5" → branch name) keeps the close button visible.
   const prevStripLenRef = useRef<{ worktreeId: string; len: number } | null>(null)
   const stickToEndRef = useRef(false)
 
@@ -281,6 +407,143 @@ function TabBarInner({
     prevStripLenRef.current = { worktreeId, len }
   }, [orderedItems, worktreeId])
 
+  // Why: composed ref. `useDroppable` needs the DOM node so the group's drop
+  // target registers with dnd-kit, while the wheel / ResizeObserver / auto-
+  // scroll-to-end effects above read `tabStripRef.current` directly. Writing to
+  // both from a single callback ref keeps main's scroll behavior working under
+  // THEIRS' cross-group drag abstractions without duplicating the node.
+  const setTabStripNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      tabStripRef.current = node
+      setGroupDropNodeRef(node)
+    },
+    [setGroupDropNodeRef]
+  )
+
+  const getDragData = useCallback(
+    <TContentType extends TabContentType>(
+      item: TabItem,
+      contentType: TContentType,
+      label: string
+    ):
+      | {
+          sourceGroupId: string
+          unifiedTabId: string
+          visibleId: string
+          contentType: TContentType
+          worktreeId: string
+          label: string
+        }
+      | undefined => {
+      if (!isSharedDnd || !groupId) {
+        return undefined
+      }
+      return {
+        sourceGroupId: groupId,
+        unifiedTabId: item.unifiedTabId,
+        visibleId: item.visibleId,
+        contentType,
+        worktreeId,
+        label
+      }
+    },
+    [groupId, isSharedDnd, worktreeId]
+  )
+
+  const tabStrip = (
+    <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
+      {/* Why: no-drag lets tab interactions work inside the titlebar's drag
+          region. The outer container inherits drag so empty space after the
+          "+" button remains window-draggable. */}
+      <div
+        ref={setTabStripNode}
+        className="terminal-tab-strip flex items-stretch overflow-x-auto overflow-y-hidden"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        {orderedItems.map((item, index) => {
+          const dropIndicator = dropIndicatorByVisibleId.get(item.visibleId) ?? null
+          if (item.type === 'terminal') {
+            return (
+              <SortableTab
+                key={item.visibleId}
+                tab={item.data}
+                groupId={groupId}
+                unifiedTabId={item.unifiedTabId}
+                sortableId={item.sortableId}
+                dragData={getDragData(item, 'terminal', item.data.customTitle ?? item.data.title)}
+                dropIndicator={dropIndicator}
+                sharedDragMode={isSharedDnd}
+                tabCount={tabs.length}
+                hasTabsToRight={index < orderedItems.length - 1}
+                isActive={activeTabType === 'terminal' && item.visibleId === activeTabId}
+                isExpanded={expandedPaneByTabId[item.visibleId] === true}
+                onActivate={onActivate}
+                onClose={onClose}
+                onCloseOthers={onCloseOthers}
+                onCloseToRight={onCloseToRight}
+                onSetCustomTitle={onSetCustomTitle}
+                onSetTabColor={onSetTabColor}
+                onToggleExpand={onTogglePaneExpand}
+                onSplitGroup={(direction, sourceVisibleTabId) =>
+                  onCreateSplitGroup?.(direction, sourceVisibleTabId)
+                }
+              />
+            )
+          }
+          if (item.type === 'browser') {
+            return (
+              <BrowserTab
+                key={item.visibleId}
+                tab={item.data}
+                groupId={groupId}
+                unifiedTabId={item.unifiedTabId}
+                sortableId={item.sortableId}
+                dragData={getDragData(item, 'browser', getBrowserTabLabel(item.data))}
+                dropIndicator={dropIndicator}
+                sharedDragMode={isSharedDnd}
+                isActive={activeTabType === 'browser' && activeBrowserTabId === item.visibleId}
+                hasTabsToRight={index < orderedItems.length - 1}
+                onActivate={() => onActivateBrowserTab?.(item.visibleId)}
+                onClose={() => onCloseBrowserTab?.(item.visibleId)}
+                onCloseToRight={() => onCloseToRight(item.visibleId)}
+                onSplitGroup={(direction, sourceVisibleTabId) =>
+                  onCreateSplitGroup?.(direction, sourceVisibleTabId)
+                }
+              />
+            )
+          }
+          return (
+            <EditorFileTab
+              key={item.visibleId}
+              file={item.data}
+              groupId={groupId}
+              unifiedTabId={item.unifiedTabId}
+              sortableId={item.sortableId}
+              dragData={getDragData(
+                item,
+                getEditorDragContentType(item.data),
+                getEditorDisplayLabel(item.data)
+              )}
+              dropIndicator={dropIndicator}
+              sharedDragMode={isSharedDnd}
+              isActive={activeTabType === 'editor' && activeFileId === item.visibleId}
+              hasTabsToRight={index < orderedItems.length - 1}
+              statusByRelativePath={statusByRelativePath}
+              onActivate={() => onActivateFile?.(item.visibleId)}
+              onClose={() => onCloseFile?.(item.visibleId)}
+              onCloseToRight={() => onCloseToRight(item.visibleId)}
+              onCloseAll={() => onCloseAllFiles?.()}
+              onPin={() => onPinFile?.(item.data.id, item.data.tabId)}
+              onSplitGroup={(direction, sourceVisibleTabId) =>
+                onCreateSplitGroup?.(direction, sourceVisibleTabId)
+              }
+            />
+          )
+        })}
+      </div>
+    </SortableContext>
+  )
+
   return (
     <div
       className="flex items-stretch h-full overflow-hidden flex-1 min-w-0"
@@ -291,86 +554,13 @@ function TabBarInner({
       // editor drop zone.
       data-native-file-drop-target="editor"
     >
-      <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
-        {/* Why: no-drag lets tab interactions work inside the titlebar's drag
-            region. The outer container inherits drag so empty space after the
-            "+" button remains window-draggable. */}
-        <div
-          ref={tabStripRef}
-          className="terminal-tab-strip flex items-stretch overflow-x-auto overflow-y-hidden"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          {orderedItems.map((item, index) => {
-            const dragData: TabDragItemData = {
-              kind: 'tab',
-              worktreeId,
-              groupId: resolvedGroupId,
-              unifiedTabId: item.unifiedTabId,
-              visibleTabId: item.id,
-              tabType: item.type
-            }
-
-            if (item.type === 'terminal') {
-              return (
-                <SortableTab
-                  key={item.id}
-                  tab={item.data}
-                  tabCount={tabs.length}
-                  hasTabsToRight={index < orderedItems.length - 1}
-                  isActive={activeTabType === 'terminal' && item.id === activeTabId}
-                  isExpanded={expandedPaneByTabId[item.id] === true}
-                  onActivate={onActivate}
-                  onClose={onClose}
-                  onCloseOthers={onCloseOthers}
-                  onCloseToRight={onCloseToRight}
-                  onSetCustomTitle={onSetCustomTitle}
-                  onSetTabColor={onSetTabColor}
-                  onToggleExpand={onTogglePaneExpand}
-                  onSplitGroup={(direction, sourceVisibleTabId) =>
-                    onCreateSplitGroup?.(direction, sourceVisibleTabId)
-                  }
-                  dragData={dragData}
-                />
-              )
-            }
-            if (item.type === 'browser') {
-              return (
-                <BrowserTab
-                  key={item.id}
-                  tab={item.data}
-                  isActive={activeTabType === 'browser' && activeBrowserTabId === item.id}
-                  hasTabsToRight={index < orderedItems.length - 1}
-                  onActivate={() => onActivateBrowserTab?.(item.id)}
-                  onClose={() => onCloseBrowserTab?.(item.id)}
-                  onCloseToRight={() => onCloseToRight(item.id)}
-                  onSplitGroup={(direction, sourceVisibleTabId) =>
-                    onCreateSplitGroup?.(direction, sourceVisibleTabId)
-                  }
-                  dragData={dragData}
-                />
-              )
-            }
-            return (
-              <EditorFileTab
-                key={item.id}
-                file={item.data}
-                isActive={activeTabType === 'editor' && activeFileId === item.id}
-                hasTabsToRight={index < orderedItems.length - 1}
-                statusByRelativePath={statusByRelativePath}
-                onActivate={() => onActivateFile?.(item.id)}
-                onClose={() => onCloseFile?.(item.id)}
-                onCloseToRight={() => onCloseToRight(item.id)}
-                onCloseAll={() => onCloseAllFiles?.()}
-                onPin={() => onPinFile?.(item.data.id, item.data.tabId)}
-                onSplitGroup={(direction, sourceVisibleTabId) =>
-                  onCreateSplitGroup?.(direction, sourceVisibleTabId)
-                }
-                dragData={dragData}
-              />
-            )
-          })}
-        </div>
-      </SortableContext>
+      {isSharedDnd ? (
+        tabStrip
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          {tabStrip}
+        </DndContext>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

@@ -13,7 +13,7 @@ import { ORCA_BROWSER_BLANK_URL } from '../../../../shared/constants'
 import type { BrowserTab as BrowserTabState } from '../../../../shared/types'
 import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from './SortableTab'
 import { getLiveBrowserUrl } from '../browser-pane/browser-runtime'
-import type { TabDragItemData } from '../tab-group/useTabDragSplit'
+import { getDropIndicatorClasses, type DropIndicator } from './drop-indicator'
 
 function formatBrowserTabUrlLabel(url: string): string {
   if (url === ORCA_BROWSER_BLANK_URL || url === 'about:blank') {
@@ -27,7 +27,7 @@ function formatBrowserTabUrlLabel(url: string): string {
   }
 }
 
-function getBrowserTabLabel(tab: BrowserTabState): string {
+export function getBrowserTabLabel(tab: BrowserTabState): string {
   if (
     !tab.title ||
     tab.title === tab.url ||
@@ -51,7 +51,12 @@ export default function BrowserTab({
   onClose,
   onCloseToRight,
   onSplitGroup,
-  dragData
+  groupId,
+  unifiedTabId,
+  sortableId,
+  dragData,
+  dropIndicator,
+  sharedDragMode = false
 }: {
   tab: BrowserTabState
   isActive: boolean
@@ -60,10 +65,22 @@ export default function BrowserTab({
   onClose: () => void
   onCloseToRight: () => void
   onSplitGroup: (direction: 'left' | 'right' | 'up' | 'down', sourceVisibleTabId: string) => void
-  dragData: TabDragItemData
+  groupId?: string
+  unifiedTabId?: string
+  sortableId?: string
+  dragData?: {
+    sourceGroupId: string
+    unifiedTabId: string
+    visibleId: string
+    contentType: 'browser'
+    worktreeId: string
+    label: string
+  }
+  dropIndicator?: DropIndicator
+  sharedDragMode?: boolean
 }): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.id,
+    id: sortableId ?? tab.id,
     data: dragData
   })
   const [menuOpen, setMenuOpen] = useState(false)
@@ -103,15 +120,17 @@ export default function BrowserTab({
             transform: CSS.Transform.toString(transform),
             transition,
             zIndex: isDragging ? 10 : undefined,
-            opacity: isDragging ? 0.8 : 1
+            opacity: isDragging ? (sharedDragMode ? 0 : 0.8) : 1
           }}
           {...attributes}
           {...listeners}
-          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${
+          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${getDropIndicatorClasses(dropIndicator ?? null)} ${
             isActive
               ? 'bg-accent/40 text-foreground border-b-transparent'
               : 'bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50'
           }`}
+          data-tab-group-id={groupId}
+          data-unified-tab-id={unifiedTabId}
           onPointerDown={(e) => {
             if (e.button !== 0) {
               return

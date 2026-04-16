@@ -20,7 +20,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { TerminalTab } from '../../../../shared/types'
-import type { TabDragItemData } from '../tab-group/useTabDragSplit'
+import { getDropIndicatorClasses, type DropIndicator } from './drop-indicator'
 
 type SortableTabProps = {
   tab: TerminalTab
@@ -36,7 +36,19 @@ type SortableTabProps = {
   onSetTabColor: (tabId: string, color: string | null) => void
   onToggleExpand: (tabId: string) => void
   onSplitGroup: (direction: 'left' | 'right' | 'up' | 'down', sourceVisibleTabId: string) => void
-  dragData: TabDragItemData
+  groupId?: string
+  unifiedTabId?: string
+  sortableId?: string
+  dragData?: {
+    sourceGroupId: string
+    unifiedTabId: string
+    visibleId: string
+    contentType: 'terminal'
+    worktreeId: string
+    label: string
+  }
+  dropIndicator?: DropIndicator
+  sharedDragMode?: boolean
 }
 
 export const TAB_COLORS = [
@@ -68,10 +80,15 @@ export default function SortableTab({
   onSetTabColor,
   onToggleExpand,
   onSplitGroup,
-  dragData
+  groupId,
+  unifiedTabId,
+  sortableId,
+  dragData,
+  dropIndicator,
+  sharedDragMode = false
 }: SortableTabProps): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.id,
+    id: sortableId ?? tab.id,
     data: dragData
   })
 
@@ -79,7 +96,7 @@ export default function SortableTab({
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 10 : undefined,
-    opacity: isDragging ? 0.8 : 1
+    opacity: isDragging ? (sharedDragMode ? 0 : 0.8) : 1
   }
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
@@ -130,11 +147,13 @@ export default function SortableTab({
           style={style}
           {...attributes}
           {...listeners}
-          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${
+          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${getDropIndicatorClasses(dropIndicator ?? null)} ${
             isActive
               ? 'bg-accent/40 text-foreground border-b-transparent'
               : 'bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50'
           }`}
+          data-tab-group-id={groupId}
+          data-unified-tab-id={unifiedTabId}
           onPointerDown={(e) => {
             if (e.button !== 0) {
               return

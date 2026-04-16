@@ -468,6 +468,93 @@ describe('TabsSlice', () => {
       ).toEqual([tab.id])
     })
 
+    it('updates active editor surface state when moving with activation', () => {
+      store.setState({
+        activeWorktreeId: WT,
+        openFiles: [
+          {
+            id: 'file-a.ts',
+            filePath: '/tmp/feature/file-a.ts',
+            relativePath: 'file-a.ts',
+            worktreeId: WT,
+            language: 'typescript',
+            isDirty: false,
+            isPreview: false,
+            mode: 'edit'
+          }
+        ]
+      })
+      const tab = store.getState().createUnifiedTab(WT, 'editor', {
+        id: 'file-a.ts',
+        entityId: 'file-a.ts',
+        label: 'file-a.ts'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+
+      store.getState().moveUnifiedTabToGroup(tab.id, targetGroupId!, { activate: true })
+
+      const state = store.getState()
+      expect(state.activeGroupIdByWorktree[WT]).toBe(targetGroupId)
+      expect(state.activeFileIdByWorktree[WT]).toBe('file-a.ts')
+      expect(state.activeTabTypeByWorktree[WT]).toBe('editor')
+      expect(state.activeFileId).toBe('file-a.ts')
+      expect(state.activeTabType).toBe('editor')
+    })
+
+    it('updates active browser surface state when moving with activation', () => {
+      store.setState({ activeWorktreeId: WT })
+      const browserTab = store.getState().createBrowserTab(WT, 'https://example.com', {
+        title: 'Example',
+        activate: true
+      })
+      const unifiedTab = store.getState().createUnifiedTab(WT, 'browser', {
+        entityId: browserTab.id,
+        label: 'Example'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+
+      store.getState().moveUnifiedTabToGroup(unifiedTab.id, targetGroupId!, { activate: true })
+
+      const state = store.getState()
+      expect(state.activeGroupIdByWorktree[WT]).toBe(targetGroupId)
+      expect(state.activeBrowserTabIdByWorktree[WT]).toBe(browserTab.id)
+      expect(state.activeTabTypeByWorktree[WT]).toBe('browser')
+      expect(state.activeBrowserTabId).toBe(browserTab.id)
+      expect(state.activeTabType).toBe('browser')
+    })
+
+    it('updates active terminal surface state when moving with activation', () => {
+      store.setState({ activeWorktreeId: WT })
+      const runtimeTerminal = {
+        id: 'term-1',
+        ptyId: 'pty-1',
+        worktreeId: WT,
+        title: 'Terminal 1',
+        sortOrder: 0,
+        createdAt: Date.now(),
+        customTitle: null,
+        color: null
+      }
+      store.setState({ tabsByWorktree: { [WT]: [runtimeTerminal] } })
+      const terminalTab = store.getState().createUnifiedTab(WT, 'terminal', {
+        entityId: runtimeTerminal.id,
+        label: 'Terminal 1'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+
+      store.getState().moveUnifiedTabToGroup(terminalTab.id, targetGroupId!, { activate: true })
+
+      const state = store.getState()
+      expect(state.activeGroupIdByWorktree[WT]).toBe(targetGroupId)
+      expect(state.activeTabIdByWorktree[WT]).toBe(runtimeTerminal.id)
+      expect(state.activeTabTypeByWorktree[WT]).toBe('terminal')
+      expect(state.activeTabId).toBe(runtimeTerminal.id)
+      expect(state.activeTabType).toBe('terminal')
+    })
+
     it('copies a unified tab into another group', () => {
       const tab = store.getState().createUnifiedTab(WT, 'editor', {
         id: 'file-a.ts',
