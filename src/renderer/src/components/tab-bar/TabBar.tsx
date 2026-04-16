@@ -32,7 +32,7 @@ import {
 const isMac = navigator.userAgent.includes('Mac')
 const NEW_TERMINAL_SHORTCUT = isMac ? '⌘T' : 'Ctrl+T'
 const NEW_BROWSER_SHORTCUT = isMac ? '⌘⇧B' : 'Ctrl+Shift+B'
-const NEW_FILE_SHORTCUT = isMac ? '⌘⇧N' : 'Ctrl+Shift+N'
+const NEW_FILE_SHORTCUT = isMac ? '⌘⇧M' : 'Ctrl+Shift+M'
 
 type TabBarProps = {
   tabs: TerminalTab[]

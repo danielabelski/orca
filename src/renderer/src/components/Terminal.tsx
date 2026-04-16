@@ -285,7 +285,7 @@ function Terminal(): React.JSX.Element | null {
       return
     }
     try {
-      // Why: the global Cmd/Ctrl+Shift+N shortcut is handled here rather than
+      // Why: the global Cmd/Ctrl+Shift+M shortcut is handled here rather than
       // inside a specific TabGroupPanel, so it must snapshot the store's
       // current focused group explicitly. Otherwise split layouts fall back to
       // the ambient/default group and open the file in the wrong pane.
@@ -558,8 +558,8 @@ function Terminal(): React.JSX.Element | null {
         }
       }
 
-      // Cmd/Ctrl+Shift+N - new file
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'n' && !e.repeat) {
+      // Cmd/Ctrl+Shift+M - new markdown file
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'm' && !e.repeat) {
         e.preventDefault()
         void handleNewFile()
         return

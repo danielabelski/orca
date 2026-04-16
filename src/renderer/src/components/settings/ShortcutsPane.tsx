@@ -105,9 +105,19 @@ const SHORTCUT_GROUP_DEFINITIONS: ShortcutGroupDefinition[] = [
     title: 'Terminal Tabs',
     items: [
       {
-        action: 'New tab',
-        searchKeywords: ['shortcut', 'tab'],
+        action: 'New Terminal',
+        searchKeywords: ['shortcut', 'tab', 'terminal'],
         keys: ({ mod }) => [mod, 'T']
+      },
+      {
+        action: 'New Browser Tab',
+        searchKeywords: ['shortcut', 'tab', 'browser'],
+        keys: ({ mod, shift }) => [mod, shift, 'B']
+      },
+      {
+        action: 'New Markdown',
+        searchKeywords: ['shortcut', 'tab', 'markdown', 'file'],
+        keys: ({ mod, shift }) => [mod, shift, 'M']
       },
       {
         action: 'Close active tab / pane',
