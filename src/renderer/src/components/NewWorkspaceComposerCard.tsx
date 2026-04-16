@@ -266,7 +266,7 @@ export default function NewWorkspaceComposerCard({
                 value={agentPrompt}
                 onChange={(event) => onAgentPromptChange(event.target.value)}
                 onKeyDown={onPromptKeyDown}
-                placeholder="[Optional] What do you want to do?"
+                placeholder="Describe a task to start an agent, or leave blank..."
                 className="min-h-[110px] w-full resize-none bg-transparent py-4 pl-3 pr-4 font-mono text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground/50"
                 spellCheck={false}
               />
@@ -455,7 +455,10 @@ export default function NewWorkspaceComposerCard({
               >
                 <SelectTrigger
                   size="sm"
-                  className="h-8 rounded-full border-border/50 bg-background/50 px-3 backdrop-blur-md supports-[backdrop-filter]:bg-background/50"
+                  className={cn(
+                    'h-8 rounded-full border-border/50 bg-background/50 px-3 backdrop-blur-md supports-[backdrop-filter]:bg-background/50 transition-opacity',
+                    !agentPrompt.trim() && 'opacity-60 hover:opacity-100 grayscale-[0.5]'
+                  )}
                 >
                   <SelectValue>
                     <span className="flex items-center gap-2">
@@ -521,7 +524,7 @@ export default function NewWorkspaceComposerCard({
                 className="rounded-full px-3"
               >
                 {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
-                Create
+                {agentPrompt.trim() ? 'Start Agent' : 'Create Worktree'}
                 <span className="ml-1 rounded-full border border-white/20 p-1 text-current/80">
                   <CornerDownLeft className="size-3" />
                 </span>
