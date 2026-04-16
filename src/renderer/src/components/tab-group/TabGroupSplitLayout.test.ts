@@ -32,6 +32,8 @@ describe('TabGroupSplitLayout', () => {
       worktreeId: string
       isFocused: boolean
       hasSplitGroups: boolean
+      reserveClosedExplorerToggleSpace: boolean
+      reserveCollapsedSidebarHeaderSpace: boolean
     }
   }
 
@@ -41,7 +43,9 @@ describe('TabGroupSplitLayout', () => {
         groupId: 'group-1',
         worktreeId: 'wt-1',
         isFocused: false,
-        hasSplitGroups: false
+        hasSplitGroups: false,
+        reserveClosedExplorerToggleSpace: true,
+        reserveCollapsedSidebarHeaderSpace: true
       })
     )
   })
@@ -52,7 +56,50 @@ describe('TabGroupSplitLayout', () => {
         groupId: 'group-1',
         worktreeId: 'wt-1',
         isFocused: true,
-        hasSplitGroups: false
+        hasSplitGroups: false,
+        reserveClosedExplorerToggleSpace: true,
+        reserveCollapsedSidebarHeaderSpace: true
+      })
+    )
+  })
+
+  it('only reserves top-right header space for the floating explorer toggle', () => {
+    const element = TabGroupSplitLayout({
+      layout: {
+        type: 'split',
+        direction: 'horizontal',
+        ratio: 0.5,
+        first: { type: 'leaf', groupId: 'left-group' },
+        second: { type: 'leaf', groupId: 'right-group' }
+      },
+      worktreeId: 'wt-1',
+      focusedGroupId: 'right-group',
+      isWorktreeActive: true
+    })
+
+    const splitNodeElement = element.props.children
+    const rootElement = splitNodeElement.type(splitNodeElement.props)
+    const leftChild = rootElement.props.children[0].props.children
+    const rightChild = rootElement.props.children[2].props.children
+    const leftPanelProps = leftChild.type(leftChild.props).props as {
+      reserveClosedExplorerToggleSpace: boolean
+      reserveCollapsedSidebarHeaderSpace: boolean
+    }
+    const rightPanelProps = rightChild.type(rightChild.props).props as {
+      reserveClosedExplorerToggleSpace: boolean
+      reserveCollapsedSidebarHeaderSpace: boolean
+    }
+
+    expect(leftPanelProps).toEqual(
+      expect.objectContaining({
+        reserveClosedExplorerToggleSpace: false,
+        reserveCollapsedSidebarHeaderSpace: true
+      })
+    )
+    expect(rightPanelProps).toEqual(
+      expect.objectContaining({
+        reserveClosedExplorerToggleSpace: true,
+        reserveCollapsedSidebarHeaderSpace: false
       })
     )
   })
