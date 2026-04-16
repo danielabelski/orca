@@ -384,17 +384,17 @@ describe('buildWorktreeComparator', () => {
   })
 })
 
-describe('buildWorktreeComparator — recent (lastActivityAt)', () => {
-  it('sorts by lastActivityAt descending', () => {
+describe('buildWorktreeComparator — recent (sortOrder / creation time)', () => {
+  it('sorts by sortOrder descending (newest first)', () => {
     const older = makeWorktree({
       id: 'older',
       displayName: 'Older',
-      lastActivityAt: NOW - 60_000
+      sortOrder: 1000
     })
     const newer = makeWorktree({
       id: 'newer',
       displayName: 'Newer',
-      lastActivityAt: NOW - 10_000
+      sortOrder: 2000
     })
     const worktrees = [older, newer]
 
@@ -403,34 +403,34 @@ describe('buildWorktreeComparator — recent (lastActivityAt)', () => {
     expect(worktrees.map((w) => w.id)).toEqual(['newer', 'older'])
   })
 
-  it('sorts worktrees with lastActivityAt 0 to the bottom', () => {
-    const active = makeWorktree({
-      id: 'active',
-      displayName: 'Active',
-      lastActivityAt: NOW - 60_000
+  it('sorts worktrees with sortOrder 0 to the bottom', () => {
+    const created = makeWorktree({
+      id: 'created',
+      displayName: 'Created',
+      sortOrder: 1000
     })
-    const neverOpened = makeWorktree({
-      id: 'never',
-      displayName: 'Never Opened',
-      lastActivityAt: 0
+    const legacy = makeWorktree({
+      id: 'legacy',
+      displayName: 'Legacy',
+      sortOrder: 0
     })
-    const worktrees = [neverOpened, active]
+    const worktrees = [legacy, created]
 
     worktrees.sort(buildWorktreeComparator('recent', null, repoMap, null, NOW))
 
-    expect(worktrees.map((w) => w.id)).toEqual(['active', 'never'])
+    expect(worktrees.map((w) => w.id)).toEqual(['created', 'legacy'])
   })
 
-  it('falls back to alphabetical when lastActivityAt is equal', () => {
+  it('falls back to alphabetical when sortOrder is equal', () => {
     const bravo = makeWorktree({
       id: 'bravo',
       displayName: 'Bravo',
-      lastActivityAt: NOW - 60_000
+      sortOrder: 1000
     })
     const alpha = makeWorktree({
       id: 'alpha',
       displayName: 'Alpha',
-      lastActivityAt: NOW - 60_000
+      sortOrder: 1000
     })
     const worktrees = [bravo, alpha]
 

@@ -145,7 +145,7 @@ export function buildWorktreeComparator(
         )
       }
       case 'recent':
-        return b.lastActivityAt - a.lastActivityAt || a.displayName.localeCompare(b.displayName)
+        return b.sortOrder - a.sortOrder || a.displayName.localeCompare(b.displayName)
       case 'repo': {
         const ra = repoMap.get(a.repoId)?.displayName ?? ''
         const rb = repoMap.get(b.repoId)?.displayName ?? ''

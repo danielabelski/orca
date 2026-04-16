@@ -497,12 +497,11 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ? restoredTabId
             : (worktreeTabs[0]?.id ?? null)
 
-      // Why: bump lastActivityAt on selection so the 'recent' sort (which
-      // orders by last interaction time) reflects the user's navigation.
-      // For 'smart' sort, do NOT bump sortEpoch — that would re-sort the
-      // sidebar on every click, causing the reorder-on-click bug (PR #209).
-      // For 'recent' sort, bump sortEpoch so the list reorders immediately;
-      // WorktreeList applies a FLIP animation to smooth the visual transition.
+      // Why: bump lastActivityAt so the smart sort's time-decay signal
+      // reflects navigation recency. Do NOT bump sortEpoch — that would
+      // re-sort the sidebar on every click, causing the reorder-on-click
+      // bug (PR #209). The timestamp is persisted so the next sortEpoch
+      // bump (from a background event) includes this worktree's updated score.
       const metaUpdates: Partial<WorktreeMeta> = { lastActivityAt: now }
       if (shouldClearUnread) {
         metaUpdates.isUnread = false
@@ -514,8 +513,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         activeTabType,
         activeTabTypeByWorktree: { ...s.activeTabTypeByWorktree, [worktreeId]: activeTabType },
         activeTabId,
-        worktreesByRepo: applyWorktreeUpdates(s.worktreesByRepo, worktreeId, metaUpdates),
-        ...(s.sortBy === 'recent' ? { sortEpoch: s.sortEpoch + 1 } : {})
+        worktreesByRepo: applyWorktreeUpdates(s.worktreesByRepo, worktreeId, metaUpdates)
       }
     })
 
