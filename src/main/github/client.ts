@@ -5,7 +5,8 @@ import type {
   PRMergeableState,
   PRCheckDetail,
   PRComment,
-  GitHubViewer
+  GitHubViewer,
+  GitHubWorkItem
 } from '../../shared/types'
 import { getPRConflictSummary } from './conflict-summary'
 import { execFileAsync, ghExecFileAsync, acquire, release, getOwnerRepo } from './gh-utils'
@@ -80,6 +81,547 @@ export async function getAuthenticatedViewer(): Promise<GitHubViewer | null> {
     return {
       login: viewer.login.trim(),
       email: viewer.email?.trim() || null
+    }
+  } catch {
+    return null
+  } finally {
+    release()
+  }
+}
+
+function mapIssueWorkItem(item: Record<string, unknown>): GitHubWorkItem {
+  return {
+    id: `issue:${String(item.number)}`,
+    type: 'issue',
+    number: Number(item.number),
+    title: String(item.title ?? ''),
+    state: String(item.state ?? 'open') === 'closed' ? 'closed' : 'open',
+    url: String(item.html_url ?? item.url ?? ''),
+    labels: Array.isArray(item.labels)
+      ? item.labels
+          .map((label) =>
+            typeof label === 'object' && label !== null && 'name' in label
+              ? String((label as { name?: unknown }).name ?? '')
+              : ''
+          )
+          .filter(Boolean)
+      : [],
+    updatedAt: String(item.updated_at ?? item.updatedAt ?? ''),
+    author:
+      typeof item.user === 'object' && item.user !== null && 'login' in item.user
+        ? String((item.user as { login?: unknown }).login ?? '')
+        : typeof item.author === 'object' && item.author !== null && 'login' in item.author
+          ? String((item.author as { login?: unknown }).login ?? '')
+          : null
+  }
+}
+
+function mapPullRequestWorkItem(item: Record<string, unknown>): GitHubWorkItem {
+  return {
+    id: `pr:${String(item.number)}`,
+    type: 'pr',
+    number: Number(item.number),
+    title: String(item.title ?? ''),
+    state:
+      item.state === 'closed'
+        ? item.merged_at || item.mergedAt
+          ? 'merged'
+          : 'closed'
+        : item.isDraft || item.draft
+          ? 'draft'
+          : 'open',
+    url: String(item.html_url ?? item.url ?? ''),
+    labels: Array.isArray(item.labels)
+      ? item.labels
+          .map((label) =>
+            typeof label === 'object' && label !== null && 'name' in label
+              ? String((label as { name?: unknown }).name ?? '')
+              : ''
+          )
+          .filter(Boolean)
+      : [],
+    updatedAt: String(item.updated_at ?? item.updatedAt ?? ''),
+    author:
+      typeof item.user === 'object' && item.user !== null && 'login' in item.user
+        ? String((item.user as { login?: unknown }).login ?? '')
+        : typeof item.author === 'object' && item.author !== null && 'login' in item.author
+          ? String((item.author as { login?: unknown }).login ?? '')
+          : null,
+    branchName:
+      typeof item.head === 'object' && item.head !== null && 'ref' in item.head
+        ? String((item.head as { ref?: unknown }).ref ?? '')
+        : String(item.headRefName ?? ''),
+    baseRefName:
+      typeof item.base === 'object' && item.base !== null && 'ref' in item.base
+        ? String((item.base as { ref?: unknown }).ref ?? '')
+        : String(item.baseRefName ?? '')
+  }
+}
+
+function sortWorkItemsByUpdatedAt(items: GitHubWorkItem[]): GitHubWorkItem[] {
+  return [...items].sort((left, right) => {
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  })
+}
+
+type ParsedTaskQuery = {
+  scope: 'all' | 'issue' | 'pr'
+  state: 'open' | 'closed' | 'all' | 'merged' | null
+  assignee: string | null
+  author: string | null
+  reviewRequested: string | null
+  reviewedBy: string | null
+  labels: string[]
+  freeText: string
+}
+
+function tokenizeSearchQuery(rawQuery: string): string[] {
+  const tokens: string[] = []
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(rawQuery)) !== null) {
+    tokens.push(match[1] ?? match[2] ?? match[3] ?? '')
+  }
+  return tokens
+}
+
+function parseTaskQuery(rawQuery: string): ParsedTaskQuery {
+  const query: ParsedTaskQuery = {
+    scope: 'all',
+    state: null,
+    assignee: null,
+    author: null,
+    reviewRequested: null,
+    reviewedBy: null,
+    labels: [],
+    freeText: ''
+  }
+
+  const freeTextTokens: string[] = []
+  for (const token of tokenizeSearchQuery(rawQuery.trim())) {
+    const normalized = token.toLowerCase()
+    if (normalized === 'is:issue') {
+      if (query.scope === 'pr') {
+        continue
+      }
+      query.scope = 'issue'
+      continue
+    }
+    if (normalized === 'is:pr') {
+      query.scope = query.scope === 'issue' ? 'all' : 'pr'
+      continue
+    }
+    if (normalized === 'is:open') {
+      query.state = 'open'
+      continue
+    }
+    if (normalized === 'is:closed') {
+      query.state = 'closed'
+      continue
+    }
+    if (normalized === 'is:merged') {
+      query.state = 'merged'
+      continue
+    }
+    if (normalized === 'is:draft') {
+      query.scope = 'pr'
+      query.state = 'open'
+      continue
+    }
+
+    const [rawKey, ...rest] = token.split(':')
+    const value = rest.join(':').trim()
+    const key = rawKey.toLowerCase()
+    if (!value) {
+      freeTextTokens.push(token)
+      continue
+    }
+
+    if (key === 'assignee') {
+      query.assignee = value
+      continue
+    }
+    if (key === 'author') {
+      query.author = value
+      continue
+    }
+    if (key === 'review-requested') {
+      query.scope = 'pr'
+      query.reviewRequested = value
+      continue
+    }
+    if (key === 'reviewed-by') {
+      query.scope = 'pr'
+      query.reviewedBy = value
+      continue
+    }
+    if (key === 'label') {
+      query.labels.push(value)
+      continue
+    }
+
+    freeTextTokens.push(token)
+  }
+
+  query.freeText = freeTextTokens.join(' ').trim()
+  return query
+}
+
+function buildWorkItemListArgs(args: {
+  kind: 'issue' | 'pr'
+  ownerRepo: { owner: string; repo: string } | null
+  limit: number
+  query: ParsedTaskQuery
+}): string[] {
+  const { kind, ownerRepo, limit, query } = args
+  const fields =
+    kind === 'issue'
+      ? 'number,title,state,url,labels,updatedAt,author'
+      : 'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName'
+  const command = kind === 'issue' ? ['issue', 'list'] : ['pr', 'list']
+  const out = [...command, '--limit', String(limit), '--json', fields]
+
+  if (ownerRepo) {
+    out.push('--repo', `${ownerRepo.owner}/${ownerRepo.repo}`)
+  }
+
+  const state = query.state
+  if (state && !(kind === 'issue' && state === 'merged')) {
+    out.push('--state', state === 'all' ? 'all' : state)
+  }
+
+  if (kind === 'pr' && query.state === 'merged') {
+    out.push('--state', 'merged')
+  }
+
+  if (query.assignee) {
+    out.push('--assignee', query.assignee)
+  }
+  if (query.author) {
+    out.push('--author', query.author)
+  }
+  if (query.labels.length > 0) {
+    for (const label of query.labels) {
+      out.push('--label', label)
+    }
+  }
+  if (kind === 'pr' && query.reviewRequested) {
+    out.push('--review-requested', query.reviewRequested)
+  }
+  if (kind === 'pr' && query.reviewedBy) {
+    out.push('--reviewed-by', query.reviewedBy)
+  }
+  if (kind === 'pr' && query.scope === 'pr' && query.state === 'open' && query.freeText === '') {
+    out.push('--draft')
+  }
+  if (query.freeText) {
+    out.push('--search', query.freeText)
+  }
+  return out
+}
+
+async function listRecentWorkItems(
+  repoPath: string,
+  ownerRepo: { owner: string; repo: string } | null,
+  limit: number
+): Promise<GitHubWorkItem[]> {
+  if (ownerRepo) {
+    const [issuesResult, prsResult] = await Promise.all([
+      ghExecFileAsync(
+        [
+          'api',
+          '--cache',
+          '120s',
+          `repos/${ownerRepo.owner}/${ownerRepo.repo}/issues?per_page=${limit}&state=open&sort=updated&direction=desc`
+        ],
+        { cwd: repoPath }
+      ),
+      ghExecFileAsync(
+        [
+          'api',
+          '--cache',
+          '120s',
+          `repos/${ownerRepo.owner}/${ownerRepo.repo}/pulls?per_page=${limit}&state=open&sort=updated&direction=desc`
+        ],
+        { cwd: repoPath }
+      )
+    ])
+
+    const issues = (JSON.parse(issuesResult.stdout) as Record<string, unknown>[])
+      // Why: the GitHub issues REST endpoint also returns pull requests with a
+      // `pull_request` marker. The new-workspace task picker needs distinct
+      // issue vs PR buckets, so drop PR-shaped issue rows here before merging.
+      .filter((item) => !('pull_request' in item))
+      .map(mapIssueWorkItem)
+
+    const prs = (JSON.parse(prsResult.stdout) as Record<string, unknown>[]).map(
+      mapPullRequestWorkItem
+    )
+
+    return sortWorkItemsByUpdatedAt([...issues, ...prs]).slice(0, limit)
+  }
+
+  const [issuesResult, prsResult] = await Promise.all([
+    ghExecFileAsync(
+      [
+        'issue',
+        'list',
+        '--limit',
+        String(limit),
+        '--state',
+        'open',
+        '--json',
+        'number,title,state,url,labels,updatedAt,author'
+      ],
+      { cwd: repoPath }
+    ),
+    ghExecFileAsync(
+      [
+        'pr',
+        'list',
+        '--limit',
+        String(limit),
+        '--state',
+        'open',
+        '--json',
+        'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName'
+      ],
+      { cwd: repoPath }
+    )
+  ])
+
+  const issues = (JSON.parse(issuesResult.stdout) as Record<string, unknown>[]).map(
+    mapIssueWorkItem
+  )
+  const prs = (JSON.parse(prsResult.stdout) as Record<string, unknown>[]).map(
+    mapPullRequestWorkItem
+  )
+
+  return sortWorkItemsByUpdatedAt([...issues, ...prs]).slice(0, limit)
+}
+
+async function listQueriedWorkItems(
+  repoPath: string,
+  ownerRepo: { owner: string; repo: string } | null,
+  query: ParsedTaskQuery,
+  limit: number
+): Promise<GitHubWorkItem[]> {
+  const fetchers: Promise<GitHubWorkItem[]>[] = []
+  const issueScope = query.scope !== 'pr'
+  const prScope = query.scope !== 'issue'
+
+  if (issueScope) {
+    fetchers.push(
+      (async () => {
+        const args = buildWorkItemListArgs({ kind: 'issue', ownerRepo, limit, query })
+        try {
+          const { stdout } = await ghExecFileAsync(args, { cwd: repoPath })
+          return (JSON.parse(stdout) as Record<string, unknown>[]).map(mapIssueWorkItem)
+        } catch {
+          return []
+        }
+      })()
+    )
+  }
+
+  if (prScope) {
+    fetchers.push(
+      (async () => {
+        const args = buildWorkItemListArgs({ kind: 'pr', ownerRepo, limit, query })
+        try {
+          const { stdout } = await ghExecFileAsync(args, { cwd: repoPath })
+          return (JSON.parse(stdout) as Record<string, unknown>[]).map(mapPullRequestWorkItem)
+        } catch {
+          return []
+        }
+      })()
+    )
+  }
+
+  const results = await Promise.all(fetchers)
+  return sortWorkItemsByUpdatedAt(results.flat()).slice(0, limit)
+}
+
+export async function listWorkItems(
+  repoPath: string,
+  limit = 24,
+  query?: string
+): Promise<GitHubWorkItem[]> {
+  const ownerRepo = await getOwnerRepo(repoPath)
+  const trimmedQuery = query?.trim() ?? ''
+  await acquire()
+  try {
+    if (!trimmedQuery) {
+      return await listRecentWorkItems(repoPath, ownerRepo, limit)
+    }
+
+    const parsedQuery = parseTaskQuery(trimmedQuery)
+    return await listQueriedWorkItems(repoPath, ownerRepo, parsedQuery, limit)
+  } catch {
+    return []
+  } finally {
+    release()
+  }
+}
+
+export async function getRepoSlug(
+  repoPath: string
+): Promise<{ owner: string; repo: string } | null> {
+  return getOwnerRepo(repoPath)
+}
+
+export async function getWorkItem(
+  repoPath: string,
+  number: number
+): Promise<GitHubWorkItem | null> {
+  await acquire()
+  try {
+    const ownerRepo = await getOwnerRepo(repoPath)
+    if (ownerRepo) {
+      const { stdout } = await ghExecFileAsync(
+        ['api', `repos/${ownerRepo.owner}/${ownerRepo.repo}/issues/${number}`],
+        { cwd: repoPath }
+      )
+      const item = JSON.parse(stdout) as Record<string, unknown>
+      if ('pull_request' in item) {
+        const prResult = await ghExecFileAsync(
+          ['api', `repos/${ownerRepo.owner}/${ownerRepo.repo}/pulls/${number}`],
+          { cwd: repoPath }
+        )
+        const pr = JSON.parse(prResult.stdout) as Record<string, unknown>
+        return {
+          id: `pr:${String(pr.number)}`,
+          type: 'pr',
+          number: Number(pr.number),
+          title: String(pr.title ?? ''),
+          state:
+            pr.state === 'closed'
+              ? pr.merged_at
+                ? 'merged'
+                : 'closed'
+              : pr.draft
+                ? 'draft'
+                : 'open',
+          url: String(pr.html_url ?? pr.url ?? ''),
+          labels: Array.isArray(pr.labels)
+            ? pr.labels
+                .map((label) =>
+                  typeof label === 'object' && label !== null && 'name' in label
+                    ? String((label as { name?: unknown }).name ?? '')
+                    : ''
+                )
+                .filter(Boolean)
+            : [],
+          updatedAt: String(pr.updated_at ?? ''),
+          author:
+            typeof pr.user === 'object' && pr.user !== null && 'login' in pr.user
+              ? String((pr.user as { login?: unknown }).login ?? '')
+              : null,
+          branchName:
+            typeof pr.head === 'object' && pr.head !== null && 'ref' in pr.head
+              ? String((pr.head as { ref?: unknown }).ref ?? '')
+              : undefined,
+          baseRefName:
+            typeof pr.base === 'object' && pr.base !== null && 'ref' in pr.base
+              ? String((pr.base as { ref?: unknown }).ref ?? '')
+              : undefined
+        }
+      }
+
+      return {
+        id: `issue:${String(item.number)}`,
+        type: 'issue',
+        number: Number(item.number),
+        title: String(item.title ?? ''),
+        state: String(item.state ?? 'open') === 'closed' ? 'closed' : 'open',
+        url: String(item.html_url ?? item.url ?? ''),
+        labels: Array.isArray(item.labels)
+          ? item.labels
+              .map((label) =>
+                typeof label === 'object' && label !== null && 'name' in label
+                  ? String((label as { name?: unknown }).name ?? '')
+                  : ''
+              )
+              .filter(Boolean)
+          : [],
+        updatedAt: String(item.updated_at ?? ''),
+        author:
+          typeof item.user === 'object' && item.user !== null && 'login' in item.user
+            ? String((item.user as { login?: unknown }).login ?? '')
+            : null
+      }
+    }
+
+    try {
+      const { stdout } = await ghExecFileAsync(
+        [
+          'issue',
+          'view',
+          String(number),
+          '--json',
+          'number,title,state,url,labels,updatedAt,author'
+        ],
+        { cwd: repoPath }
+      )
+      const item = JSON.parse(stdout) as Record<string, unknown>
+      return {
+        id: `issue:${String(item.number)}`,
+        type: 'issue',
+        number: Number(item.number),
+        title: String(item.title ?? ''),
+        state: String(item.state ?? 'open') === 'closed' ? 'closed' : 'open',
+        url: String(item.url ?? ''),
+        labels: Array.isArray(item.labels)
+          ? item.labels
+              .map((label) =>
+                typeof label === 'object' && label !== null && 'name' in label
+                  ? String((label as { name?: unknown }).name ?? '')
+                  : ''
+              )
+              .filter(Boolean)
+          : [],
+        updatedAt: String(item.updatedAt ?? ''),
+        author:
+          typeof item.author === 'object' && item.author !== null && 'login' in item.author
+            ? String((item.author as { login?: unknown }).login ?? '')
+            : null
+      }
+    } catch {
+      const { stdout } = await ghExecFileAsync(
+        [
+          'pr',
+          'view',
+          String(number),
+          '--json',
+          'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName'
+        ],
+        { cwd: repoPath }
+      )
+      const item = JSON.parse(stdout) as Record<string, unknown>
+      return {
+        id: `pr:${String(item.number)}`,
+        type: 'pr',
+        number: Number(item.number),
+        title: String(item.title ?? ''),
+        state: item.isDraft ? 'draft' : String(item.state ?? 'open') === 'open' ? 'open' : 'closed',
+        url: String(item.url ?? ''),
+        labels: Array.isArray(item.labels)
+          ? item.labels
+              .map((label) =>
+                typeof label === 'object' && label !== null && 'name' in label
+                  ? String((label as { name?: unknown }).name ?? '')
+                  : ''
+              )
+              .filter(Boolean)
+          : [],
+        updatedAt: String(item.updatedAt ?? ''),
+        author:
+          typeof item.author === 'object' && item.author !== null && 'login' in item.author
+            ? String((item.author as { login?: unknown }).login ?? '')
+            : null,
+        branchName: String(item.headRefName ?? ''),
+        baseRefName: String(item.baseRefName ?? '')
+      }
     }
   } catch {
     return null

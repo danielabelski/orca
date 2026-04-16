@@ -404,7 +404,8 @@ const WorktreeList = React.memo(function WorktreeList() {
   const sortBy = useAppStore((s) => s.sortBy)
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
   const filterRepoIds = useAppStore((s) => s.filterRepoIds)
-  const openModal = useAppStore((s) => s.openModal)
+  const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
+  const activeView = useAppStore((s) => s.activeView)
   const activeModal = useAppStore((s) => s.activeModal)
   const pendingRevealWorktreeId = useAppStore((s) => s.pendingRevealWorktreeId)
   const clearPendingRevealWorktreeId = useAppStore((s) => s.clearPendingRevealWorktreeId)
@@ -490,7 +491,6 @@ const WorktreeList = React.memo(function WorktreeList() {
     }
     return m
   }, [repos])
-
   // ── Stable sort order ──────────────────────────────────────────
   // The sort order is cached and only recomputed when `sortEpoch` changes
   // (worktree add/remove, terminal activity, backend refresh, etc.).
@@ -631,6 +631,10 @@ const WorktreeList = React.memo(function WorktreeList() {
         .map((r) => r.worktree),
     [rows]
   )
+  // Why: when the new-workspace page is active, no sidebar card should appear
+  // selected — the user hasn't picked a worktree yet.
+  const selectedSidebarWorktreeId = activeView === 'new-workspace' ? null : activeWorktreeId
+
   // Why layout effect instead of effect: the global Cmd/Ctrl+1–9 key handler
   // can fire immediately after React commits the new grouped/collapsed order.
   // Publishing after paint leaves a brief window where the sidebar shows the
@@ -653,9 +657,9 @@ const WorktreeList = React.memo(function WorktreeList() {
 
   const handleCreateForRepo = useCallback(
     (repoId: string) => {
-      openModal('create-worktree', { preselectedRepoId: repoId })
+      openNewWorkspacePage({ preselectedRepoId: repoId })
     },
-    [openModal]
+    [openNewWorkspacePage]
   )
 
   const hasFilters = !!(searchQuery || showActiveOnly || filterRepoIds.length)
@@ -671,17 +675,19 @@ const WorktreeList = React.memo(function WorktreeList() {
 
   if (worktrees.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 px-4 py-6 text-center text-[11px] text-muted-foreground">
-        <span>No worktrees found</span>
-        {hasFilters && (
-          <button
-            onClick={clearFilters}
-            className="inline-flex items-center gap-1.5 bg-secondary/70 border border-border/80 text-foreground font-medium text-[11px] px-2.5 py-1 rounded-md cursor-pointer hover:bg-accent transition-colors"
-          >
-            <CircleX className="size-3.5" />
-            Clear Filters
-          </button>
-        )}
+      <div className="flex flex-col">
+        <div className="flex flex-col items-center gap-2 px-4 py-6 text-center text-[11px] text-muted-foreground">
+          <span>No worktrees found</span>
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 bg-secondary/70 border border-border/80 text-foreground font-medium text-[11px] px-2.5 py-1 rounded-md cursor-pointer hover:bg-accent transition-colors"
+            >
+              <CircleX className="size-3.5" />
+              Clear Filters
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -690,7 +696,7 @@ const WorktreeList = React.memo(function WorktreeList() {
     <VirtualizedWorktreeViewport
       key={viewportResetKey}
       rows={rows}
-      activeWorktreeId={activeWorktreeId}
+      activeWorktreeId={selectedSidebarWorktreeId}
       setActiveWorktree={setActiveWorktree}
       groupBy={groupBy}
       toggleGroup={toggleGroup}

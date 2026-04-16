@@ -36,7 +36,7 @@ const isMac = navigator.userAgent.includes('Mac')
 const newWorktreeShortcutLabel = isMac ? '⌘N' : 'Ctrl+N'
 
 const SidebarHeader = React.memo(function SidebarHeader() {
-  const openModal = useAppStore((s) => s.openModal)
+  const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
   const repos = useAppStore((s) => s.repos)
   const canCreateWorktree = repos.some((repo) => isGitRepoKind(repo))
 
@@ -112,7 +112,7 @@ const SidebarHeader = React.memo(function SidebarHeader() {
                 if (!canCreateWorktree) {
                   return
                 }
-                openModal('create-worktree')
+                openNewWorkspacePage()
               }}
               aria-label="Add worktree"
               disabled={!canCreateWorktree}
@@ -122,7 +122,7 @@ const SidebarHeader = React.memo(function SidebarHeader() {
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={6}>
             {canCreateWorktree
-              ? `New worktree (${newWorktreeShortcutLabel})`
+              ? `New workspace (${newWorktreeShortcutLabel})`
               : 'Add a Git repo to create worktrees'}
           </TooltipContent>
         </Tooltip>

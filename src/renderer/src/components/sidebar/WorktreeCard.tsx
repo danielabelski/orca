@@ -38,6 +38,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   hintNumber
 }: WorktreeCardProps) {
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
+  const setActiveView = useAppStore((s) => s.setActiveView)
   const openModal = useAppStore((s) => s.openModal)
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
   const fetchPRForBranch = useAppStore((s) => s.fetchPRForBranch)
@@ -165,6 +166,12 @@ const WorktreeCard = React.memo(function WorktreeCard({
     if (selection && selection.toString().length > 0) {
       return
     }
+    if (useAppStore.getState().activeView !== 'terminal') {
+      // Why: the sidebar remains visible during the new-workspace flow, so
+      // clicking a real worktree should switch the main pane back to that
+      // worktree instead of leaving the create surface visible.
+      setActiveView('terminal')
+    }
     // Why: always activate the worktree so the user can see terminal history,
     // editor state, etc. even when SSH is disconnected. Show the reconnect
     // dialog as a non-blocking overlay rather than a gate.
@@ -172,7 +179,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
     if (isSshDisconnected) {
       setShowDisconnectedDialog(true)
     }
-  }, [worktree.id, setActiveWorktree, isSshDisconnected])
+  }, [worktree.id, setActiveView, setActiveWorktree, isSshDisconnected])
 
   const handleDoubleClick = useCallback(() => {
     openModal('edit-meta', {

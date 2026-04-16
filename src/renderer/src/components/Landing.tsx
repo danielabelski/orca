@@ -148,6 +148,7 @@ function PreflightBanner({ issues }: { issues: PreflightIssue[] }): React.JSX.El
 
 export default function Landing(): React.JSX.Element {
   const repos = useAppStore((s) => s.repos)
+  const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
   const openModal = useAppStore((s) => s.openModal)
 
   const canCreateWorktree = repos.some((repo) => isGitRepoKind(repo))
@@ -247,7 +248,7 @@ export default function Landing(): React.JSX.Element {
               className="inline-flex items-center gap-1.5 bg-secondary/70 border border-border/80 text-foreground font-medium text-sm px-4 py-2 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed enabled:cursor-pointer enabled:hover:bg-accent"
               disabled={!canCreateWorktree}
               title={!canCreateWorktree ? 'Add a Git repo first' : undefined}
-              onClick={() => openModal('create-worktree')}
+              onClick={() => openNewWorkspacePage()}
             >
               <GitBranchPlus className="size-3.5" />
               Create Worktree

@@ -4,6 +4,7 @@ import type {
   ChangelogData,
   PersistedUIState,
   StatusBarItem,
+  TuiAgent,
   UpdateStatus,
   WorktreeCardProperty
 } from '../../../../shared/types'
@@ -28,10 +29,38 @@ export type UISlice = {
   toggleSidebar: () => void
   setSidebarOpen: (open: boolean) => void
   setSidebarWidth: (width: number) => void
-  activeView: 'terminal' | 'settings'
+  activeView: 'terminal' | 'settings' | 'new-workspace'
+  previousViewBeforeNewWorkspace: 'terminal' | 'settings'
+  previousViewBeforeSettings: 'terminal' | 'new-workspace'
   setActiveView: (view: UISlice['activeView']) => void
+  newWorkspacePageData: {
+    preselectedRepoId?: string
+    prefilledName?: string
+  }
+  newWorkspaceDraft: {
+    repoId: string | null
+    name: string
+    prompt: string
+    note: string
+    attachments: string[]
+    linkedWorkItem: {
+      type: 'issue' | 'pr'
+      number: number
+      title: string
+      url: string
+    } | null
+    agent: TuiAgent
+    linkedIssue: string
+    linkedPR: number | null
+  } | null
+  openNewWorkspacePage: (data?: UISlice['newWorkspacePageData']) => void
+  closeNewWorkspacePage: () => void
+  setNewWorkspaceDraft: (draft: NonNullable<UISlice['newWorkspaceDraft']>) => void
+  clearNewWorkspaceDraft: () => void
+  openSettingsPage: () => void
+  closeSettingsPage: () => void
   settingsNavigationTarget: {
-    pane: 'general' | 'appearance' | 'terminal' | 'shortcuts' | 'repo'
+    pane: 'general' | 'appearance' | 'terminal' | 'shortcuts' | 'repo' | 'agents'
     repoId: string | null
     sectionId?: string
   } | null
@@ -101,7 +130,41 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
 
   activeView: 'terminal',
+  previousViewBeforeNewWorkspace: 'terminal',
+  previousViewBeforeSettings: 'terminal',
   setActiveView: (view) => set({ activeView: view }),
+  newWorkspacePageData: {},
+  newWorkspaceDraft: null,
+  openNewWorkspacePage: (data = {}) =>
+    set((state) => ({
+      activeView: 'new-workspace',
+      previousViewBeforeNewWorkspace:
+        state.activeView === 'new-workspace'
+          ? state.previousViewBeforeNewWorkspace
+          : state.activeView,
+      newWorkspacePageData: data
+    })),
+  closeNewWorkspacePage: () =>
+    set((state) => ({
+      activeView: state.previousViewBeforeNewWorkspace,
+      newWorkspacePageData: {}
+    })),
+  setNewWorkspaceDraft: (draft) => set({ newWorkspaceDraft: draft }),
+  clearNewWorkspaceDraft: () => set({ newWorkspaceDraft: null }),
+  openSettingsPage: () =>
+    set((state) => ({
+      activeView: 'settings',
+      // Why: Settings is a temporary detour from either terminal or the
+      // full-page new-workspace composer. Preserve the originating view so the
+      // Settings back action restores an in-progress workspace draft instead of
+      // always dumping the user into terminal.
+      previousViewBeforeSettings:
+        state.activeView === 'settings' ? state.previousViewBeforeSettings : state.activeView
+    })),
+  closeSettingsPage: () =>
+    set((state) => ({
+      activeView: state.previousViewBeforeSettings
+    })),
   settingsNavigationTarget: null,
   openSettingsTarget: (target) => set({ settingsNavigationTarget: target }),
   clearSettingsTarget: () => set({ settingsNavigationTarget: null }),

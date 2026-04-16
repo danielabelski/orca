@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import path from 'path'
+import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 
 const execFileAsync = promisify(execFile)
 
@@ -25,6 +27,37 @@ async function isCommandAvailable(command: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// Why: `which`/`where` is faster than spawning the agent binary itself and avoids
+// triggering any agent-specific startup side-effects. This gives a reliable
+// PATH-based check without requiring `--version` support from each agent.
+async function isCommandOnPath(command: string): Promise<boolean> {
+  const finder = process.platform === 'win32' ? 'where' : 'which'
+  try {
+    const { stdout } = await execFileAsync(finder, [command], { encoding: 'utf-8' })
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .some((line) => path.isAbsolute(line))
+  } catch {
+    return false
+  }
+}
+
+const KNOWN_AGENT_COMMANDS = Object.entries(TUI_AGENT_CONFIG).map(([id, config]) => ({
+  id,
+  cmd: config.detectCmd
+}))
+
+export async function detectInstalledAgents(): Promise<string[]> {
+  const checks = await Promise.all(
+    KNOWN_AGENT_COMMANDS.map(async ({ id, cmd }) => ({
+      id,
+      installed: await isCommandOnPath(cmd)
+    }))
+  )
+  return checks.filter((c) => c.installed).map((c) => c.id)
 }
 
 async function isGhAuthenticated(): Promise<boolean> {
@@ -73,4 +106,8 @@ export function registerPreflightHandlers(): void {
       return runPreflightCheck(args?.force)
     }
   )
+
+  ipcMain.handle('preflight:detectAgents', async (): Promise<string[]> => {
+    return detectInstalledAgents()
+  })
 }

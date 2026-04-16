@@ -21,7 +21,12 @@ vi.mock('child_process', () => {
   }
 })
 
-import { _resetPreflightCache, registerPreflightHandlers, runPreflightCheck } from './preflight'
+import {
+  _resetPreflightCache,
+  detectInstalledAgents,
+  registerPreflightHandlers,
+  runPreflightCheck
+} from './preflight'
 
 type HandlerMap = Record<string, (_event?: unknown, args?: { force?: boolean }) => Promise<unknown>>
 
@@ -136,5 +141,43 @@ describe('preflight', () => {
       git: { installed: true },
       gh: { installed: true, authenticated: true }
     })
+  })
+
+  it('only reports agents when which/where resolves to a real executable path', async () => {
+    execFileAsyncMock.mockImplementation(async (command, args) => {
+      if (command !== 'which') {
+        throw new Error(`unexpected command ${String(command)}`)
+      }
+
+      const target = String(args[0])
+      if (target === 'claude') {
+        return { stdout: '/Users/test/.local/bin/claude\n' }
+      }
+      if (target === 'continue') {
+        return { stdout: 'continue: shell built-in command\n' }
+      }
+      if (target === 'cursor-agent') {
+        return { stdout: '/Users/test/.local/bin/cursor-agent\n' }
+      }
+      throw new Error('not found')
+    })
+
+    await expect(detectInstalledAgents()).resolves.toEqual(['claude', 'cursor'])
+  })
+
+  it('registers agent detection through the shared launch config commands', async () => {
+    execFileAsyncMock.mockImplementation(async (command, args) => {
+      if (command !== 'which') {
+        throw new Error(`unexpected command ${String(command)}`)
+      }
+      if (String(args[0]) === 'cursor-agent') {
+        return { stdout: '/Users/test/.local/bin/cursor-agent\n' }
+      }
+      throw new Error('not found')
+    })
+
+    registerPreflightHandlers()
+
+    await expect(handlers['preflight:detectAgents']()).resolves.toEqual(['cursor'])
   })
 })

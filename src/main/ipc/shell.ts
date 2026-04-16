@@ -97,6 +97,18 @@ export function registerShellHandlers(): void {
   )
 
   // Why: window.prompt() and <input type="file"> are unreliable in Electron,
+  // so we use the native OS dialog to let the user pick any attachment file.
+  ipcMain.handle('shell:pickAttachment', async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
+  })
+
+  // Why: window.prompt() and <input type="file"> are unreliable in Electron,
   // so we use the native OS dialog to let the user pick an image file.
   ipcMain.handle('shell:pickImage', async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog({

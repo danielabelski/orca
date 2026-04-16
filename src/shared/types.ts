@@ -352,6 +352,20 @@ export type GitHubViewer = {
   email: string | null
 }
 
+export type GitHubWorkItem = {
+  id: string
+  type: 'issue' | 'pr'
+  number: number
+  title: string
+  state: 'open' | 'closed' | 'merged' | 'draft'
+  url: string
+  labels: string[]
+  updatedAt: string
+  author: string | null
+  branchName?: string
+  baseRefName?: string
+}
+
 // ─── Hooks (orca.yaml) ──────────────────────────────────────────────
 export type OrcaHooks = {
   scripts: {
@@ -466,6 +480,34 @@ export type CodexRateLimitAccountsState = {
   activeAccountId: string | null
 }
 
+/** All AI coding agents Orca knows how to launch. Used for the agent picker in the new-workspace
+ *  flow and for the default-agent setting. Extend this union as new agents are added. */
+export type TuiAgent =
+  | 'claude' // Claude Code
+  | 'codex' // OpenAI Codex
+  | 'opencode' // OpenCode
+  | 'pi' // Pi (pi.dev)
+  | 'gemini' // Gemini CLI
+  | 'aider' // Aider
+  | 'goose' // Goose
+  | 'amp' // Amp
+  | 'kilo' // Kilocode
+  | 'kiro' // Kiro
+  | 'crush' // Charm/Crush
+  | 'aug' // Augment/Auggie
+  | 'cline' // Cline
+  | 'codebuff' // Codebuff
+  | 'continue' // Continue
+  | 'cursor' // Cursor
+  | 'droid' // Factory Droid
+  | 'kimi' // Kimi
+  | 'mistral-vibe' // Mistral Vibe
+  | 'qwen-code' // Qwen Code
+  | 'rovo' // Rovo Dev
+  | 'hermes' // Hermes Agent
+
+export type TaskViewPresetId = 'all' | 'issues' | 'review' | 'my-issues' | 'my-prs' | 'prs'
+
 export type GlobalSettings = {
   workspaceDir: string
   nestWorkspaces: boolean
@@ -522,6 +564,12 @@ export type GlobalSettings = {
    *  does not surface commands from other worktrees. Defaults to true.
    *  Disable to revert to shared global shell history. */
   terminalScopeHistoryByWorktree: boolean
+  /** Which agent to pre-select in the new-workspace composer. null = auto (first detected). */
+  defaultTuiAgent: TuiAgent | null
+  /** Default preset in the new-workspace GitHub task view. */
+  defaultTaskViewPreset: TaskViewPresetId
+  /** Per-agent CLI command overrides. A missing key means use the catalog default binary name. */
+  agentCmdOverrides: Partial<Record<TuiAgent, string>>
 }
 
 export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 'test'

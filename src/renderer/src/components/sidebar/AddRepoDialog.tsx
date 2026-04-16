@@ -23,8 +23,8 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
   const repos = useAppStore((s) => s.repos)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const fetchWorktrees = useAppStore((s) => s.fetchWorktrees)
-  const openModal = useAppStore((s) => s.openModal)
-  const setActiveView = useAppStore((s) => s.setActiveView)
+  const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
 
   const [step, setStep] = useState<'add' | 'clone' | 'remote' | 'setup'>('add')
@@ -186,17 +186,19 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
 
   const handleCreateWorktree = useCallback(() => {
     closeModal()
-    // Why: small delay so the close animation finishes before the create dialog opens.
+    // Why: small delay so the close animation finishes before the full-page create
+    // view takes focus; otherwise the dialog teardown can steal the first focus
+    // frame from the workspace form.
     setTimeout(() => {
-      openModal('create-worktree', { preselectedRepoId: repoId })
+      openNewWorkspacePage({ preselectedRepoId: repoId })
     }, 150)
-  }, [closeModal, openModal, repoId])
+  }, [closeModal, openNewWorkspacePage, repoId])
 
   const handleConfigureRepo = useCallback(() => {
     closeModal()
     openSettingsTarget({ pane: 'repo', repoId })
-    setActiveView('settings')
-  }, [closeModal, openSettingsTarget, setActiveView, repoId])
+    openSettingsPage()
+  }, [closeModal, openSettingsTarget, openSettingsPage, repoId])
 
   // Why: handleBack reuses resetState which already aborts clones and resets all fields.
   const handleBack = resetState

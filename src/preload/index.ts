@@ -300,14 +300,26 @@ const api = {
   gh: {
     viewer: (): Promise<unknown> => ipcRenderer.invoke('gh:viewer'),
 
+    repoSlug: (args: { repoPath: string }): Promise<unknown> =>
+      ipcRenderer.invoke('gh:repoSlug', args),
+
     prForBranch: (args: { repoPath: string; branch: string }): Promise<unknown> =>
       ipcRenderer.invoke('gh:prForBranch', args),
 
     issue: (args: { repoPath: string; number: number }): Promise<unknown> =>
       ipcRenderer.invoke('gh:issue', args),
 
+    workItem: (args: { repoPath: string; number: number }): Promise<unknown> =>
+      ipcRenderer.invoke('gh:workItem', args),
+
     listIssues: (args: { repoPath: string; limit?: number }): Promise<unknown[]> =>
       ipcRenderer.invoke('gh:listIssues', args),
+
+    listWorkItems: (args: {
+      repoPath: string
+      limit?: number
+      query?: string
+    }): Promise<unknown[]> => ipcRenderer.invoke('gh:listWorkItems', args),
 
     prChecks: (args: {
       repoPath: string
@@ -377,7 +389,8 @@ const api = {
     }): Promise<{
       git: { installed: boolean }
       gh: { installed: boolean; authenticated: boolean }
-    }> => ipcRenderer.invoke('preflight:check', args)
+    }> => ipcRenderer.invoke('preflight:check', args),
+    detectAgents: (): Promise<string[]> => ipcRenderer.invoke('preflight:detectAgents')
   },
 
   notifications: {
@@ -396,6 +409,8 @@ const api = {
     openFileUri: (uri: string): Promise<void> => ipcRenderer.invoke('shell:openFileUri', uri),
 
     pathExists: (path: string): Promise<boolean> => ipcRenderer.invoke('shell:pathExists', path),
+
+    pickAttachment: (): Promise<string | null> => ipcRenderer.invoke('shell:pickAttachment'),
 
     pickImage: (): Promise<string | null> => ipcRenderer.invoke('shell:pickImage'),
 

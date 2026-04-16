@@ -19,13 +19,15 @@ type RepoComboboxProps = {
   value: string
   onValueChange: (repoId: string) => void
   placeholder?: string
+  triggerClassName?: string
 }
 
 export default function RepoCombobox({
   repos,
   value,
   onValueChange,
-  placeholder = 'Select repo...'
+  placeholder = 'Select repo...',
+  triggerClassName
 }: RepoComboboxProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -63,7 +65,7 @@ export default function RepoCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="h-8 w-full justify-between px-3 text-xs font-normal"
+          className={cn('h-8 w-full justify-between px-3 text-xs font-normal', triggerClassName)}
           data-repo-combobox-root="true"
         >
           {selectedRepo ? (

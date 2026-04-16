@@ -85,16 +85,42 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   },
 
   createWorktree: async (repoId, name, baseBranch, setupDecision = 'inherit') => {
+    const retryableConflictPatterns = [
+      /already exists locally/i,
+      /already exists on a remote/i,
+      /already has pr #\d+/i
+    ]
+    const nextCandidateName = (current: string, attempt: number): string =>
+      attempt === 0 ? current : `${current}-${attempt + 1}`
+
     try {
-      const result = await window.api.worktrees.create({ repoId, name, baseBranch, setupDecision })
-      set((s) => ({
-        worktreesByRepo: {
-          ...s.worktreesByRepo,
-          [repoId]: [...(s.worktreesByRepo[repoId] ?? []), result.worktree]
-        },
-        sortEpoch: s.sortEpoch + 1
-      }))
-      return result
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        const candidateName = nextCandidateName(name, attempt)
+        try {
+          const result = await window.api.worktrees.create({
+            repoId,
+            name: candidateName,
+            baseBranch,
+            setupDecision
+          })
+          set((s) => ({
+            worktreesByRepo: {
+              ...s.worktreesByRepo,
+              [repoId]: [...(s.worktreesByRepo[repoId] ?? []), result.worktree]
+            },
+            sortEpoch: s.sortEpoch + 1
+          }))
+          return result
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          const shouldRetry = retryableConflictPatterns.some((pattern) => pattern.test(message))
+          if (!shouldRetry || attempt === 24) {
+            throw error
+          }
+        }
+      }
+
+      throw new Error('Failed to create worktree after retrying branch conflicts.')
     } catch (err) {
       console.error('Failed to create worktree:', err)
       throw err

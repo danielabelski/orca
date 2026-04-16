@@ -1994,7 +1994,7 @@ function BrowserPagePane({
           title="Browser Settings"
           onClick={() => {
             useAppStore.getState().openSettingsTarget({ pane: 'general', repoId: null })
-            useAppStore.getState().setActiveView('settings')
+            useAppStore.getState().openSettingsPage()
           }}
         >
           <Settings className="size-4" />

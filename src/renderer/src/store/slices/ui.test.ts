@@ -79,3 +79,33 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(store.getState().showActiveOnly).toBe(true)
   })
 })
+
+describe('createUISlice settings navigation', () => {
+  it('returns to the new workspace page after visiting settings from an in-progress draft', () => {
+    const store = createUIStore()
+
+    store.getState().openNewWorkspacePage({ preselectedRepoId: 'repo-1' })
+    store.getState().openSettingsPage()
+
+    expect(store.getState().activeView).toBe('settings')
+    expect(store.getState().previousViewBeforeSettings).toBe('new-workspace')
+
+    store.getState().closeSettingsPage()
+
+    expect(store.getState().activeView).toBe('new-workspace')
+  })
+
+  it('keeps the original return target when settings is reopened while already visible', () => {
+    const store = createUIStore()
+
+    store.getState().openNewWorkspacePage()
+    store.getState().openSettingsPage()
+    store.getState().openSettingsPage()
+
+    expect(store.getState().previousViewBeforeSettings).toBe('new-workspace')
+
+    store.getState().closeSettingsPage()
+
+    expect(store.getState().activeView).toBe('new-workspace')
+  })
+})

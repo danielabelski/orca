@@ -9,6 +9,10 @@ type WorktreeActivationStore = {
   createTab: (worktreeId: string) => { id: string }
   setActiveTab: (tabId: string) => void
   reconcileWorktreeTabModel: (worktreeId: string) => { renderableTabCount: number }
+  queueTabStartupCommand: (
+    tabId: string,
+    startup: { command: string; env?: Record<string, string> }
+  ) => void
   queueTabSetupSplit: (
     tabId: string,
     startup: { command: string; env?: Record<string, string> }
@@ -22,7 +26,7 @@ type WorktreeActivationStore = {
 /**
  * Shared activation sequence used by the worktree palette, AddRepoDialog,
  * and AddWorktreeDialog. Covers: cross-repo `activeRepoId` switch,
- * `activeView` from settings, `setActiveWorktree`, initial terminal
+ * `activeView` back to terminal, `setActiveWorktree`, initial terminal
  * creation, sidebar filter clearing, and sidebar reveal.
  *
  * The caller only passes `worktreeId`; the helper derives `repoId`
@@ -32,6 +36,7 @@ type WorktreeActivationStore = {
 export function activateAndRevealWorktree(
   worktreeId: string,
   opts?: {
+    startup?: { command: string; env?: Record<string, string> }
     setup?: WorktreeSetupLaunch
     issueCommand?: WorktreeSetupLaunch
   }
@@ -47,8 +52,8 @@ export function activateAndRevealWorktree(
     state.setActiveRepo(wt.repoId)
   }
 
-  // 2. Switch activeView from settings to terminal
-  if (state.activeView === 'settings') {
+  // 2. Switch any non-terminal view back to terminal
+  if (state.activeView !== 'terminal') {
     state.setActiveView('terminal')
   }
 
@@ -60,6 +65,7 @@ export function activateAndRevealWorktree(
   ensureWorktreeHasInitialTerminal(
     useAppStore.getState(),
     worktreeId,
+    opts?.startup,
     opts?.setup,
     opts?.issueCommand
   )
@@ -84,6 +90,7 @@ export function activateAndRevealWorktree(
 export function ensureWorktreeHasInitialTerminal(
   store: WorktreeActivationStore,
   worktreeId: string,
+  startup?: { command: string; env?: Record<string, string> },
   setup?: WorktreeSetupLaunch,
   issueCommand?: WorktreeSetupLaunch
 ): void {
@@ -97,6 +104,14 @@ export function ensureWorktreeHasInitialTerminal(
 
   const terminalTab = store.createTab(worktreeId)
   store.setActiveTab(terminalTab.id)
+
+  // Why: the new-workspace flow can seed the first terminal with a selected
+  // coding agent and user prompt. Queue that startup command on the initial
+  // pane so the main terminal begins in the requested agent session instead of
+  // opening to an idle shell and forcing the user to repeat the same prompt.
+  if (startup) {
+    store.queueTabStartupCommand(terminalTab.id, startup)
+  }
 
   // Why: run the setup script in a split pane to the right so the main
   // terminal stays immediately interactive. The TerminalPane reads this

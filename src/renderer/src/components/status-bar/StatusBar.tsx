@@ -147,7 +147,7 @@ function CodexSwitcherMenu({
     activeAccountId: null
   })
   const [isSwitching, setIsSwitching] = useState(false)
-  const setActiveView = useAppStore((s) => s.setActiveView)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const fetchSettings = useAppStore((s) => s.fetchSettings)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
@@ -331,7 +331,7 @@ function CodexSwitcherMenu({
             repoId: null,
             sectionId: 'general-codex-accounts'
           })
-          setActiveView('settings')
+          openSettingsPage()
         }}
       >
         Manage Accounts…

@@ -131,7 +131,7 @@ function findBrowserSelection(
 export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
   const closeModal = useAppStore((s) => s.closeModal)
-  const openModal = useAppStore((s) => s.openModal)
+  const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const repos = useAppStore((s) => s.repos)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
@@ -474,10 +474,12 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const handleCreateWorktree = useCallback(() => {
     skipRestoreFocusRef.current = true
     closeModal()
+    // Why: we open the full-page new-workspace view in a microtask so Radix
+    // fully unmounts before the next autofocus cycle runs, avoiding focus churn.
     queueMicrotask(() =>
-      openModal('create-worktree', createWorktreeName ? { prefilledName: createWorktreeName } : {})
+      openNewWorkspacePage(createWorktreeName ? { prefilledName: createWorktreeName } : {})
     )
-  }, [closeModal, createWorktreeName, openModal])
+  }, [closeModal, createWorktreeName, openNewWorkspacePage])
 
   const handleCloseAutoFocus = useCallback((e: Event) => {
     e.preventDefault()

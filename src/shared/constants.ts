@@ -117,7 +117,10 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     promptCacheTtlMs: 300_000,
     codexManagedAccounts: [],
     activeCodexManagedAccountId: null,
-    terminalScopeHistoryByWorktree: true
+    terminalScopeHistoryByWorktree: true,
+    defaultTuiAgent: null,
+    defaultTaskViewPreset: 'all',
+    agentCmdOverrides: {}
   }
 }
 

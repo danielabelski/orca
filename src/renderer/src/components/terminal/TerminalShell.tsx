@@ -130,7 +130,7 @@ export function TerminalShell({
       >
         {mountedWorktrees.map((worktree) => {
           const worktreeTabs = tabsByWorktree[worktree.id] ?? []
-          const isVisible = activeView !== 'settings' && worktree.id === activeWorktreeId
+          const isVisible = activeView === 'terminal' && worktree.id === activeWorktreeId
 
           return (
             <div

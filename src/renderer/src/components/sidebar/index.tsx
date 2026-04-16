@@ -8,7 +8,6 @@ import SearchBar from './SearchBar'
 import GroupControls from './GroupControls'
 import WorktreeList from './WorktreeList'
 import SidebarToolbar from './SidebarToolbar'
-import AddWorktreeDialog from './AddWorktreeDialog'
 import WorktreeMetaDialog from './WorktreeMetaDialog'
 import DeleteWorktreeDialog from './DeleteWorktreeDialog'
 import NonGitFolderDialog from './NonGitFolderDialog'
@@ -50,9 +49,6 @@ function Sidebar(): React.JSX.Element {
           'relative min-h-0 flex-shrink-0 bg-sidebar flex flex-col overflow-hidden scrollbar-sleek-parent',
           isResizing ? 'transition-none' : 'transition-[width] duration-200'
         )}
-        style={{
-          borderRight: sidebarOpen ? '1px solid var(--sidebar-border)' : 'none'
-        }}
       >
         {/* Fixed controls */}
         <SidebarHeader />
@@ -73,7 +69,6 @@ function Sidebar(): React.JSX.Element {
       </div>
 
       {/* Dialog (rendered outside sidebar to avoid clipping) */}
-      <AddWorktreeDialog />
       <WorktreeMetaDialog />
       <DeleteWorktreeDialog />
       <NonGitFolderDialog />

@@ -232,6 +232,14 @@ export function connectPanePty(
     // terminal state is preserved.  This matches the MAX_BUFFER_BYTES
     // constant used for serialized scrollback capture.
     const MAX_PENDING_BYTES = 512 * 1024
+
+    // Why: startup command delivery is deferred until the shell has emitted its
+    // first output chunk, then injected on the next animation frame. This avoids
+    // racing the shell's first prompt paint which can cause the command to appear
+    // as a bare echoed line before the actual prompt.
+    let pendingStartupCommand = paneStartup?.command ?? null
+    let startupDispatchScheduled = false
+
     const startFreshSpawn = (): void => {
       const spawnPromise = Promise.resolve(
         transport.connect({
@@ -277,6 +285,22 @@ export function connectPanePty(
           buf = buf.slice(cutAt)
         }
         pending.set(pane.id, buf)
+      }
+
+      if (pendingStartupCommand && !startupDispatchScheduled) {
+        startupDispatchScheduled = true
+        requestAnimationFrame(() => {
+          if (!pendingStartupCommand) {
+            return
+          }
+          // Why: writing the startup command immediately on PTY connect can race
+          // the shell's first prompt paint, which makes the command appear once
+          // as a bare echoed line and again at the actual prompt. Wait until the
+          // shell has emitted its first output chunk, then inject on the next
+          // frame so the command lands on a normal prompt line.
+          transport.sendInput(`${pendingStartupCommand}\r`)
+          pendingStartupCommand = null
+        })
       }
     }
 

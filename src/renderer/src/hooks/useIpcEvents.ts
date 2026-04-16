@@ -38,7 +38,7 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.ui.onOpenSettings(() => {
-        useAppStore.getState().setActiveView('settings')
+        useAppStore.getState().openSettingsPage()
       })
     )
 
@@ -68,7 +68,7 @@ export function useIpcEvents(): void {
     unsubs.push(
       window.api.ui.onOpenQuickOpen(() => {
         const store = useAppStore.getState()
-        if (store.activeView !== 'settings' && store.activeWorktreeId !== null) {
+        if (store.activeView === 'terminal' && store.activeWorktreeId !== null) {
           store.openModal('quick-open')
         }
       })
@@ -77,7 +77,7 @@ export function useIpcEvents(): void {
     unsubs.push(
       window.api.ui.onJumpToWorktreeIndex((index) => {
         const store = useAppStore.getState()
-        if (store.activeView === 'settings') {
+        if (store.activeView !== 'terminal') {
           return
         }
         const visibleIds = getVisibleWorktreeIds()

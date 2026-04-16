@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart3,
   Bell,
+  Bot,
   GitBranch,
   Keyboard,
   Palette,
@@ -25,6 +26,7 @@ import { getTerminalPaneSearchEntries } from './terminal-search'
 import { GitPane, GIT_PANE_SEARCH_ENTRIES } from './GitPane'
 import { NotificationsPane, NOTIFICATIONS_PANE_SEARCH_ENTRIES } from './NotificationsPane'
 import { SshPane, SSH_PANE_SEARCH_ENTRIES } from './SshPane'
+import { AgentsPane, AGENTS_PANE_SEARCH_ENTRIES } from './AgentsPane'
 import { StatsPane, STATS_PANE_SEARCH_ENTRIES } from '../stats/StatsPane'
 import { SettingsSidebar } from './SettingsSidebar'
 import { SettingsSection } from './SettingsSection'
@@ -39,6 +41,7 @@ type SettingsNavTarget =
   | 'shortcuts'
   | 'stats'
   | 'ssh'
+  | 'agents'
   | 'repo'
 
 type SettingsNavSection = {
@@ -65,7 +68,7 @@ function Settings(): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const fetchSettings = useAppStore((s) => s.fetchSettings)
-  const setActiveView = useAppStore((s) => s.setActiveView)
+  const closeSettingsPage = useAppStore((s) => s.closeSettingsPage)
   const repos = useAppStore((s) => s.repos)
   const updateRepo = useAppStore((s) => s.updateRepo)
   const removeRepo = useAppStore((s) => s.removeRepo)
@@ -230,6 +233,13 @@ function Settings(): React.JSX.Element {
         description: 'Workspace, editor, and updates.',
         icon: SlidersHorizontal,
         searchEntries: GENERAL_PANE_SEARCH_ENTRIES
+      },
+      {
+        id: 'agents',
+        title: 'Agents',
+        description: 'Manage AI agents, set a default, and customize commands.',
+        icon: Bot,
+        searchEntries: AGENTS_PANE_SEARCH_ENTRIES
       },
       {
         id: 'git',
@@ -402,7 +412,7 @@ function Settings(): React.JSX.Element {
         repoSections={repoNavSections}
         hasRepos={repos.length > 0}
         searchQuery={settingsSearchQuery}
-        onBack={() => setActiveView('terminal')}
+        onBack={closeSettingsPage}
         onSearchChange={setSettingsSearchQuery}
         onSelectSection={scrollToSection}
       />
@@ -423,6 +433,15 @@ function Settings(): React.JSX.Element {
                   searchEntries={GENERAL_PANE_SEARCH_ENTRIES}
                 >
                   <GeneralPane settings={settings} updateSettings={updateSettings} />
+                </SettingsSection>
+
+                <SettingsSection
+                  id="agents"
+                  title="Agents"
+                  description="Manage AI agents, set a default, and customize commands."
+                  searchEntries={AGENTS_PANE_SEARCH_ENTRIES}
+                >
+                  <AgentsPane settings={settings} updateSettings={updateSettings} />
                 </SettingsSection>
 
                 <SettingsSection

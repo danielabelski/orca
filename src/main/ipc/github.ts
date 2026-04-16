@@ -6,7 +6,10 @@ import type { StatsCollector } from '../stats/collector'
 import {
   getPRForBranch,
   getIssue,
+  getRepoSlug,
   listIssues,
+  listWorkItems,
+  getWorkItem,
   getAuthenticatedViewer,
   getPRChecks,
   getPRComments,
@@ -54,6 +57,24 @@ export function registerGitHubHandlers(store: Store, stats: StatsCollector): voi
   ipcMain.handle('gh:listIssues', (_event, args: { repoPath: string; limit?: number }) => {
     const repo = assertRegisteredRepo(args.repoPath, store)
     return listIssues(repo.path, args.limit)
+  })
+
+  ipcMain.handle(
+    'gh:listWorkItems',
+    (_event, args: { repoPath: string; limit?: number; query?: string }) => {
+      const repo = assertRegisteredRepo(args.repoPath, store)
+      return listWorkItems(repo.path, args.limit, args.query)
+    }
+  )
+
+  ipcMain.handle('gh:workItem', (_event, args: { repoPath: string; number: number }) => {
+    const repo = assertRegisteredRepo(args.repoPath, store)
+    return getWorkItem(repo.path, args.number)
+  })
+
+  ipcMain.handle('gh:repoSlug', (_event, args: { repoPath: string }) => {
+    const repo = assertRegisteredRepo(args.repoPath, store)
+    return getRepoSlug(repo.path)
   })
 
   ipcMain.handle(

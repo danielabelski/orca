@@ -104,6 +104,14 @@ export const GENERAL_CODEX_ACCOUNTS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   }
 ]
 
+export const GENERAL_AGENT_SEARCH_ENTRIES: SettingsSearchEntry[] = [
+  {
+    title: 'Default Agent',
+    description: 'Pre-select an AI coding agent in the new-workspace composer.',
+    keywords: ['agent', 'default', 'claude', 'codex', 'opencode', 'pi', 'gemini', 'aider']
+  }
+]
+
 export const GENERAL_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   ...GENERAL_WORKSPACE_SEARCH_ENTRIES,
   ...GENERAL_BROWSER_SEARCH_ENTRIES,

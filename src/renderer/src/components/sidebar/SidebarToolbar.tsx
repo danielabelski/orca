@@ -263,7 +263,7 @@ function FeedbackDialog({
 
 const SidebarToolbar = React.memo(function SidebarToolbar() {
   const openModal = useAppStore((s) => s.openModal)
-  const setActiveView = useAppStore((s) => s.setActiveView)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   return (
@@ -306,7 +306,7 @@ const SidebarToolbar = React.memo(function SidebarToolbar() {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={() => setActiveView('settings')}
+                onClick={openSettingsPage}
                 className="text-muted-foreground"
               >
                 <Settings className="size-3.5" />

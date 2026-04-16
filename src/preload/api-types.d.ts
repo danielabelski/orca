@@ -15,6 +15,7 @@ import type {
   GitConflictOperation,
   GitDiffResult,
   GitStatusEntry,
+  GitHubWorkItem,
   GitHubViewer,
   IssueInfo,
   NotificationDispatchRequest,
@@ -148,6 +149,7 @@ export type PreflightStatus = {
 
 export type PreflightApi = {
   check: (args?: { force?: boolean }) => Promise<PreflightStatus>
+  detectAgents: () => Promise<string[]>
 }
 
 export type StatsApi = {
@@ -264,9 +266,16 @@ export type PreloadApi = {
   }
   gh: {
     viewer: () => Promise<GitHubViewer | null>
+    repoSlug: (args: { repoPath: string }) => Promise<{ owner: string; repo: string } | null>
     prForBranch: (args: { repoPath: string; branch: string }) => Promise<PRInfo | null>
     issue: (args: { repoPath: string; number: number }) => Promise<IssueInfo | null>
+    workItem: (args: { repoPath: string; number: number }) => Promise<GitHubWorkItem | null>
     listIssues: (args: { repoPath: string; limit?: number }) => Promise<IssueInfo[]>
+    listWorkItems: (args: {
+      repoPath: string
+      limit?: number
+      query?: string
+    }) => Promise<GitHubWorkItem[]>
     prChecks: (args: {
       repoPath: string
       prNumber: number
@@ -320,6 +329,7 @@ export type PreloadApi = {
     openFilePath: (path: string) => Promise<void>
     openFileUri: (uri: string) => Promise<void>
     pathExists: (path: string) => Promise<boolean>
+    pickAttachment: () => Promise<string | null>
     pickImage: () => Promise<string | null>
     pickDirectory: (args: { defaultPath?: string }) => Promise<string | null>
     copyFile: (args: { srcPath: string; destPath: string }) => Promise<void>
