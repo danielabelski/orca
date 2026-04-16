@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -24,18 +25,24 @@ const NonGitFolderDialog = React.memo(function NonGitFolderDialog() {
     if (connectionId && folderPath) {
       void (async () => {
         try {
-          const repo = await window.api.repos.addRemote({
+          const result = await window.api.repos.addRemote({
             connectionId,
             remotePath: folderPath,
             kind: 'folder'
           })
+          if ('error' in result) {
+            throw new Error(result.error)
+          }
+          const repo = result.repo
           const state = useAppStore.getState()
           if (!state.repos.some((r) => r.id === repo.id)) {
             useAppStore.setState({ repos: [...state.repos, repo] })
           }
           await state.fetchWorktrees(repo.id)
-        } catch {
-          // Best-effort — the toast from the store handles errors
+        } catch (err) {
+          // This code path calls addRemote directly (not through the store),
+          // so the store's toast handling does not apply.
+          toast.error(err instanceof Error ? err.message : 'Failed to add remote folder')
         }
       })()
     } else if (folderPath) {
