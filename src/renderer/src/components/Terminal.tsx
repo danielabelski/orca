@@ -79,6 +79,7 @@ function Terminal(): React.JSX.Element | null {
     [activeWorktreeId, tabsByWorktree]
   )
   const allWorktrees = Object.values(worktreesByRepo).flat()
+  const activeWorktree = allWorktrees.find((wt) => wt.id === activeWorktreeId)
 
   // Why: the TabBar is rendered into the titlebar via a portal so tabs share
   // the same row as the "Orca" title. The target element is created by App.tsx.
@@ -881,42 +882,35 @@ function Terminal(): React.JSX.Element | null {
                 : ''
             }`}
           >
-            {allWorktrees
-              .filter((wt) => mountedWorktreeIdsRef.current.has(wt.id))
-              .map((worktree) => {
-                const isVisible = activeView !== 'settings' && worktree.id === activeWorktreeId
-
-                return (
-                  <div
-                    key={worktree.id}
-                    className={isVisible ? 'absolute inset-0' : 'absolute inset-0 hidden'}
-                    aria-hidden={!isVisible}
-                  >
-                    <CodexRestartChip worktreeId={worktree.id} />
-                    {(tabsByWorktree[worktree.id] ?? []).map((tab) => (
-                      <TerminalPane
-                        key={`${tab.id}-${tab.generation ?? 0}`}
-                        tabId={tab.id}
-                        worktreeId={worktree.id}
-                        cwd={worktree.path}
-                        isActive={
-                          isVisible && tab.id === activeTabId && activeTabType === 'terminal'
-                        }
-                        // Why: the bootstrap fallback still uses the legacy
-                        // workspace-level terminal host, where only the active
-                        // tab should render. Keeping `isVisible` explicit avoids
-                        // multiple panes stacking during the short window before
-                        // the split-group root layout is ready.
-                        isVisible={
-                          isVisible && tab.id === activeTabId && activeTabType === 'terminal'
-                        }
-                        onPtyExit={(ptyId) => handlePtyExit(tab.id, ptyId)}
-                        onCloseTab={() => handleCloseTab(tab.id)}
-                      />
-                    ))}
-                  </div>
-                )
-              })}
+            {activeWorktree && mountedWorktreeIdsRef.current.has(activeWorktree.id) ? (
+              <div
+                key={activeWorktree.id}
+                className={
+                  activeView !== 'settings' ? 'absolute inset-0' : 'absolute inset-0 hidden'
+                }
+                aria-hidden={activeView === 'settings'}
+              >
+                <CodexRestartChip worktreeId={activeWorktree.id} />
+                {(tabsByWorktree[activeWorktree.id] ?? []).map((tab) => (
+                  <TerminalPane
+                    key={`${tab.id}-${tab.generation ?? 0}`}
+                    tabId={tab.id}
+                    worktreeId={activeWorktree.id}
+                    cwd={activeWorktree.path}
+                    isActive={tab.id === activeTabId && activeTabType === 'terminal'}
+                    // Why: when the active worktree falls back to the legacy
+                    // workspace-level terminal host, rendering hidden panes for
+                    // every mounted worktree duplicates tabs that are already
+                    // alive in the split-group tree. Mount only the active
+                    // worktree here so worktree switches do not race two
+                    // TerminalPane instances against the same PTY.
+                    isVisible={tab.id === activeTabId && activeTabType === 'terminal'}
+                    onPtyExit={(ptyId) => handlePtyExit(tab.id, ptyId)}
+                    onCloseTab={() => handleCloseTab(tab.id)}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* Browser panes container — all browser panes for the active worktree
