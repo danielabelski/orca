@@ -109,7 +109,9 @@ type TabItem =
       data: BrowserTabState
     }
 
-function getEditorDragContentType(file: OpenFile & { tabId?: string }): TabContentType {
+function getEditorDragContentType(
+  file: OpenFile & { tabId?: string }
+): 'editor' | 'diff' | 'conflict-review' {
   return file.mode === 'diff'
     ? 'diff'
     : file.mode === 'conflict-review'
@@ -202,7 +204,7 @@ function TabBarInner({
         items.push({
           type: 'editor',
           visibleId: id,
-          unifiedTabId: file.tabId ?? file.id,
+          unifiedTabId: unifiedTabIdByVisibleId?.[id] ?? file.tabId ?? file.id,
           sortableId: isSharedDnd && groupId ? buildSharedSortableId(groupId, id) : id,
           data: file
         })
@@ -254,6 +256,10 @@ function TabBarInner({
     [sortableIds, worktreeId, onReorder]
   )
 
+  // Why: VS Code marks both adjacent tabs at the insertion point — the left
+  // tab gets a right-edge indicator and the right tab gets a left-edge
+  // indicator — so the two pseudo-elements form one continuous vertical line
+  // between them. This mirrors that pattern for visual clarity.
   const dropIndicatorByVisibleId = useMemo(() => {
     const indicators = new Map<string, DropIndicator>()
     if (
@@ -267,12 +273,12 @@ function TabBarInner({
     }
 
     const insertionIndex = Math.max(0, Math.min(dragState.overTabBarIndex, orderedItems.length))
-    if (insertionIndex >= orderedItems.length) {
-      indicators.set(orderedItems.at(-1)!.visibleId, 'right')
-      return indicators
+    if (insertionIndex > 0) {
+      indicators.set(orderedItems[insertionIndex - 1]!.visibleId, 'right')
     }
-
-    indicators.set(orderedItems[insertionIndex]!.visibleId, 'left')
+    if (insertionIndex < orderedItems.length) {
+      indicators.set(orderedItems[insertionIndex]!.visibleId, 'left')
+    }
     return indicators
   }, [
     dragState.activeTab,

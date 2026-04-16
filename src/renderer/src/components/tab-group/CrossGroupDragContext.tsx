@@ -1,8 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { TabContentType } from '../../../../shared/types'
 
-export type SplitDropDirection = 'left' | 'right' | 'up' | 'down' | 'center'
-
 export type TabDragData = {
   sourceGroupId: string
   unifiedTabId: string
@@ -16,17 +14,14 @@ export type CrossGroupDragState = {
   activeTab: TabDragData | null
   overGroupId: string | null
   overTabBarIndex: number | null
-  overSplitDirection: SplitDropDirection | null
 }
 
 export const GROUP_DROP_PREFIX = 'group-drop::'
-export const GROUP_CONTENT_PREFIX = 'group-content::'
 
 const EMPTY_DRAG_STATE: CrossGroupDragState = {
   activeTab: null,
   overGroupId: null,
-  overTabBarIndex: null,
-  overSplitDirection: null
+  overTabBarIndex: null
 }
 
 export const CrossGroupDragStateContext = createContext<CrossGroupDragState>(EMPTY_DRAG_STATE)
@@ -42,7 +37,7 @@ export function buildSharedSortableId(groupId: string, visibleId: string): strin
 }
 
 export function parseSharedSortableId(id: string): { groupId: string; visibleId: string } | null {
-  if (id.startsWith(GROUP_DROP_PREFIX) || id.startsWith(GROUP_CONTENT_PREFIX)) {
+  if (id.startsWith(GROUP_DROP_PREFIX)) {
     return null
   }
   const separatorIndex = id.indexOf('::')
@@ -61,16 +56,6 @@ export function buildGroupDropId(groupId: string): string {
 
 export function parseGroupDropId(id: string): { groupId: string } | null {
   return id.startsWith(GROUP_DROP_PREFIX) ? { groupId: id.slice(GROUP_DROP_PREFIX.length) } : null
-}
-
-export function buildGroupContentId(groupId: string): string {
-  return `${GROUP_CONTENT_PREFIX}${groupId}`
-}
-
-export function parseGroupContentId(id: string): { groupId: string } | null {
-  return id.startsWith(GROUP_CONTENT_PREFIX)
-    ? { groupId: id.slice(GROUP_CONTENT_PREFIX.length) }
-    : null
 }
 
 export function useCrossGroupDragState(): CrossGroupDragState {

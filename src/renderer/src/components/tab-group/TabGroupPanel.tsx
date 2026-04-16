@@ -1,5 +1,4 @@
 import { lazy, Suspense, useMemo } from 'react'
-import { useDroppable } from '@dnd-kit/core'
 import { Columns2, Ellipsis, Rows2, X } from 'lucide-react'
 import { useAppStore } from '../../store'
 import {
@@ -13,7 +12,7 @@ import TabBar from '../tab-bar/TabBar'
 import TerminalPane from '../terminal-pane/TerminalPane'
 import BrowserPane from '../browser-pane/BrowserPane'
 import { useTabGroupWorkspaceModel } from './useTabGroupWorkspaceModel'
-import { buildGroupContentId, useCrossGroupDragState } from './CrossGroupDragContext'
+import { useCrossGroupDragState } from './CrossGroupDragContext'
 
 const EditorPanel = lazy(() => import('../editor/EditorPanel'))
 
@@ -41,9 +40,6 @@ export default function TabGroupPanel({
   const rightSidebarOpen = useAppStore((state) => state.rightSidebarOpen)
   const sidebarOpen = useAppStore((state) => state.sidebarOpen)
   const dragState = useCrossGroupDragState()
-  const { setNodeRef: setContentDropNodeRef } = useDroppable({
-    id: buildGroupContentId(groupId)
-  })
   const model = useTabGroupWorkspaceModel({ groupId, worktreeId })
   const {
     activeBrowserTab,
@@ -68,24 +64,10 @@ export default function TabGroupPanel({
       ),
     [model.groupTabs]
   )
-  const isContentDragTarget =
-    dragState.activeTab != null &&
-    dragState.overGroupId === groupId &&
-    dragState.overSplitDirection != null
   const isForeignDragTarget =
     dragState.activeTab != null &&
     dragState.overGroupId === groupId &&
     dragState.activeTab.sourceGroupId !== groupId
-  const contentOverlayClass =
-    dragState.overSplitDirection === 'left'
-      ? 'left-0 top-0 h-full w-1/2'
-      : dragState.overSplitDirection === 'right'
-        ? 'right-0 top-0 h-full w-1/2'
-        : dragState.overSplitDirection === 'up'
-          ? 'left-0 top-0 h-1/2 w-full'
-          : dragState.overSplitDirection === 'down'
-            ? 'bottom-0 left-0 h-1/2 w-full'
-            : 'inset-0'
 
   const tabBar = (
     <TabBar
@@ -299,12 +281,7 @@ export default function TabGroupPanel({
         </div>
       </div>
 
-      <div ref={setContentDropNodeRef} className="relative flex-1 min-h-0 overflow-hidden">
-        {isContentDragTarget && (
-          <div
-            className={`pointer-events-none absolute z-10 rounded-md bg-accent/20 transition-all duration-75 ease-out ${contentOverlayClass}`}
-          />
-        )}
+      <div className="relative flex-1 min-h-0 overflow-hidden">
         {model.groupTabs
           .filter((item) => item.contentType === 'terminal')
           .map((item) => (

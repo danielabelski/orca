@@ -42,8 +42,12 @@ describe('TabGroupSplitLayout', () => {
       isWorktreeActive
     })
 
-    const splitNodeElement = element.props.children.props.children
-    const tabGroupPanelElement = splitNodeElement.type(splitNodeElement.props)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const innerDiv = (element.type as any)(element.props) as React.ReactElement
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const splitNodeElement = (innerDiv.props as any).children
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tabGroupPanelElement = (splitNodeElement.type as any)(splitNodeElement.props)
     return tabGroupPanelElement.props as {
       groupId: string
       worktreeId: string
@@ -97,8 +101,12 @@ describe('TabGroupSplitLayout', () => {
       isWorktreeActive: true
     })
 
-    const splitNodeElement = element.props.children.props.children
-    const rootElement = splitNodeElement.type(splitNodeElement.props)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const innerDiv = (element.type as any)(element.props) as React.ReactElement
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const splitNodeElement = (innerDiv.props as any).children
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rootElement = (splitNodeElement.type as any)(splitNodeElement.props)
     const leftChild = rootElement.props.children[0].props.children
     const rightChild = rootElement.props.children[2].props.children
     const leftPanelProps = leftChild.type(leftChild.props).props as {

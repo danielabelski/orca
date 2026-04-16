@@ -1,6 +1,3 @@
-/* eslint-disable max-lines -- Why: the cross-group DnD context must keep
- * collision detection, drag-state management, and drop-commit logic together
- * so the multi-phase drag lifecycle stays atomic and debuggable. */
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   closestCenter,
@@ -12,7 +9,6 @@ import {
   type ClientRect,
   type Collision,
   type CollisionDetection,
-  type CollisionDetectionArgs,
   type DragCancelEvent,
   type DragEndEvent,
   type DragMoveEvent,
@@ -25,11 +21,9 @@ import { useAppStore } from '../../store'
 import {
   CrossGroupDndContextPresent,
   CrossGroupDragStateContext,
-  parseGroupContentId,
   parseGroupDropId,
   parseSharedSortableId,
   type CrossGroupDragState,
-  type SplitDropDirection,
   type TabDragData
 } from './CrossGroupDragContext'
 
@@ -47,7 +41,7 @@ function pointInRect(point: { x: number; y: number }, rect?: ClientRect | null):
   )
 }
 
-function makeCollision(containerId: string, args: CollisionDetectionArgs): Collision[] {
+function makeCollision(containerId: string, args: Parameters<CollisionDetection>[0]): Collision[] {
   const container = args.droppableContainers.find(
     (candidate) => String(candidate.id) === containerId
   )
@@ -56,68 +50,6 @@ function makeCollision(containerId: string, args: CollisionDetectionArgs): Colli
 
 function toVisibleTabId(tab: Tab): string {
   return tab.contentType === 'terminal' || tab.contentType === 'browser' ? tab.entityId : tab.id
-}
-
-const EDGE_LOCK_THRESHOLD = 0.22
-const EDGE_RELEASE_THRESHOLD = 0.35
-
-function isStillInsideLockedEdge(
-  direction: Exclude<SplitDropDirection, 'center'>,
-  relativeX: number,
-  relativeY: number
-): boolean {
-  if (direction === 'left') {
-    return relativeX <= EDGE_RELEASE_THRESHOLD
-  }
-  if (direction === 'right') {
-    return relativeX >= 1 - EDGE_RELEASE_THRESHOLD
-  }
-  if (direction === 'up') {
-    return relativeY <= EDGE_RELEASE_THRESHOLD
-  }
-  return relativeY >= 1 - EDGE_RELEASE_THRESHOLD
-}
-
-function getSplitDirection(
-  point: { x: number; y: number } | null,
-  rect?: ClientRect | null,
-  lockedDirection?: SplitDropDirection | null
-): SplitDropDirection | null {
-  if (!point || !rect || rect.width <= 0 || rect.height <= 0) {
-    return null
-  }
-
-  const relativeX = (point.x - rect.left) / rect.width
-  const relativeY = (point.y - rect.top) / rect.height
-  const edgeDistances: { direction: SplitDropDirection; distance: number }[] = []
-
-  if (
-    lockedDirection &&
-    lockedDirection !== 'center' &&
-    isStillInsideLockedEdge(lockedDirection, relativeX, relativeY)
-  ) {
-    return lockedDirection
-  }
-
-  if (relativeX <= EDGE_LOCK_THRESHOLD) {
-    edgeDistances.push({ direction: 'left', distance: relativeX })
-  }
-  if (relativeX >= 1 - EDGE_LOCK_THRESHOLD) {
-    edgeDistances.push({ direction: 'right', distance: 1 - relativeX })
-  }
-  if (relativeY <= EDGE_LOCK_THRESHOLD) {
-    edgeDistances.push({ direction: 'up', distance: relativeY })
-  }
-  if (relativeY >= 1 - EDGE_LOCK_THRESHOLD) {
-    edgeDistances.push({ direction: 'down', distance: 1 - relativeY })
-  }
-
-  if (edgeDistances.length === 0) {
-    return 'center'
-  }
-
-  edgeDistances.sort((left, right) => left.distance - right.distance)
-  return edgeDistances[0]?.direction ?? 'center'
 }
 
 function computeInsertionIndex(
@@ -135,6 +67,52 @@ function computeInsertionIndex(
   }
   const midpoint = hoveredRect.left + hoveredRect.width / 2
   return hoveredIndex + (pointerX >= midpoint ? 1 : 0)
+}
+
+// Why: when the pointer is in the tab-bar container but not directly over a
+// sortable item (e.g. empty space after the last tab), we still need a usable
+// insertion index. This scans all sortable rects for the group and picks the
+// closest tab by horizontal distance, then uses pointer-vs-midpoint to decide
+// whether to insert before or after it.
+function computeInsertionFromPointer(
+  orderedTabs: GroupVisibleTab[],
+  pointer: { x: number; y: number } | null,
+  rects: Map<string, ClientRect | undefined>,
+  groupId: string
+): number | null {
+  if (!pointer || orderedTabs.length === 0) {
+    return null
+  }
+
+  let bestIndex = -1
+  let bestDistance = Infinity
+
+  for (let i = 0; i < orderedTabs.length; i++) {
+    const sortableId = `${groupId}::${orderedTabs[i]!.visibleId}`
+    const rect = rects.get(sortableId)
+    if (!rect) {
+      continue
+    }
+    const midpoint = rect.left + rect.width / 2
+    const distance = Math.abs(pointer.x - midpoint)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = i
+    }
+  }
+
+  if (bestIndex === -1) {
+    return orderedTabs.length
+  }
+
+  const sortableId = `${groupId}::${orderedTabs[bestIndex]!.visibleId}`
+  const rect = rects.get(sortableId)
+  if (!rect) {
+    return bestIndex
+  }
+
+  const midpoint = rect.left + rect.width / 2
+  return bestIndex + (pointer.x >= midpoint ? 1 : 0)
 }
 
 function applyInsertionIndex(
@@ -158,8 +136,7 @@ function applyInsertionIndex(
 const EMPTY_DRAG_STATE: CrossGroupDragState = {
   activeTab: null,
   overGroupId: null,
-  overTabBarIndex: null,
-  overSplitDirection: null
+  overTabBarIndex: null
 }
 
 export default function TabGroupDndContext({
@@ -176,13 +153,14 @@ export default function TabGroupDndContext({
   )
   const reorderUnifiedTabs = useAppStore((state) => state.reorderUnifiedTabs)
   const moveUnifiedTabToGroup = useAppStore((state) => state.moveUnifiedTabToGroup)
-  const createEmptySplitGroup = useAppStore((state) => state.createEmptySplitGroup)
   const closeEmptyGroup = useAppStore((state) => state.closeEmptyGroup)
   const groups = useAppStore((state) => state.groupsByWorktree[worktreeId] ?? [])
   const unifiedTabs = useAppStore((state) => state.unifiedTabsByWorktree[worktreeId] ?? [])
   const [dragState, setDragState] = useState<CrossGroupDragState>(EMPTY_DRAG_STATE)
+  const dragStateRef = useRef(dragState)
+  dragStateRef.current = dragState
   const pointerRef = useRef<{ x: number; y: number } | null>(null)
-  const droppableRectsRef = useRef<Map<string, ClientRect>>(new Map())
+  const droppableRectsRef = useRef<Map<string, ClientRect | undefined>>(new Map())
 
   const groupVisibleOrder = useMemo(() => {
     const tabsById = new Map(unifiedTabs.map((tab) => [tab.id, tab]))
@@ -213,73 +191,79 @@ export default function TabGroupDndContext({
     [closeEmptyGroup, worktreeId]
   )
 
-  const collisionDetection = useCallback<CollisionDetection>((args: CollisionDetectionArgs) => {
-    if (args.pointerCoordinates) {
-      pointerRef.current = args.pointerCoordinates
-    }
-    droppableRectsRef.current = new Map(
-      args.droppableContainers.map((container) => [
-        String(container.id),
-        args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-      ])
-    )
-
-    if (!args.pointerCoordinates) {
-      return closestCenter(args)
-    }
-
-    const sortableHits = args.droppableContainers.filter((container) => {
-      const parsed = parseSharedSortableId(String(container.id))
-      if (!parsed) {
-        return false
+  // Why: collision detection checks the tab-bar container first (generous
+  // hitbox covering the entire strip including empty space), then falls back
+  // to individual sortable items. This inverts the default dnd-kit priority
+  // so that dragging anywhere in the tab bar registers a hit — not just on
+  // the tiny rect of a specific tab element.
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args: Parameters<CollisionDetection>[0]) => {
+      if (args.pointerCoordinates) {
+        pointerRef.current = args.pointerCoordinates
       }
-      return pointInRect(
-        args.pointerCoordinates!,
-        args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
+      droppableRectsRef.current = new Map(
+        args.droppableContainers.map((container) => [
+          String(container.id),
+          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
+        ])
       )
-    })
 
-    if (sortableHits.length > 0) {
-      const parsedTarget = parseSharedSortableId(String(sortableHits[0]?.id))
-      if (parsedTarget) {
-        const groupSortables = args.droppableContainers.filter(
-          (container) =>
-            parseSharedSortableId(String(container.id))?.groupId === parsedTarget.groupId
+      if (!args.pointerCoordinates) {
+        return closestCenter(args)
+      }
+
+      // 1. Check if pointer is over any tab-bar container (generous hitbox)
+      const tabBarHit = args.droppableContainers.find((container) => {
+        const parsed = parseGroupDropId(String(container.id))
+        if (!parsed) {
+          return false
+        }
+        return pointInRect(
+          args.pointerCoordinates!,
+          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
         )
-        return closestCenter({ ...args, droppableContainers: groupSortables })
-      }
-    }
+      })
 
-    const tabBarHit = args.droppableContainers.find((container) => {
-      const parsed = parseGroupDropId(String(container.id))
-      if (!parsed) {
-        return false
+      if (tabBarHit) {
+        const parsed = parseGroupDropId(String(tabBarHit.id))
+        if (parsed) {
+          const groupSortables = args.droppableContainers.filter(
+            (container) => parseSharedSortableId(String(container.id))?.groupId === parsed.groupId
+          )
+          if (groupSortables.length > 0) {
+            return closestCenter({ ...args, droppableContainers: groupSortables })
+          }
+        }
+        return makeCollision(String(tabBarHit.id), args)
       }
-      return pointInRect(
-        args.pointerCoordinates!,
-        args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-      )
-    })
-    if (tabBarHit) {
-      return makeCollision(String(tabBarHit.id), args)
-    }
 
-    const contentHit = args.droppableContainers.find((container) => {
-      const parsed = parseGroupContentId(String(container.id))
-      if (!parsed) {
-        return false
+      // 2. Check individual sortable hits (fallback for single-group mode)
+      const sortableHits = args.droppableContainers.filter((container) => {
+        const parsed = parseSharedSortableId(String(container.id))
+        if (!parsed) {
+          return false
+        }
+        return pointInRect(
+          args.pointerCoordinates!,
+          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
+        )
+      })
+
+      if (sortableHits.length > 0) {
+        const parsedTarget = parseSharedSortableId(String(sortableHits[0]?.id))
+        if (parsedTarget) {
+          const groupSortables = args.droppableContainers.filter(
+            (container) =>
+              parseSharedSortableId(String(container.id))?.groupId === parsedTarget.groupId
+          )
+          return closestCenter({ ...args, droppableContainers: groupSortables })
+        }
       }
-      return pointInRect(
-        args.pointerCoordinates!,
-        args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-      )
-    })
-    if (contentHit) {
-      return makeCollision(String(contentHit.id), args)
-    }
 
-    return []
-  }, [])
+      return []
+    },
+    []
+  )
 
   const clearDragState = useCallback(() => {
     pointerRef.current = null
@@ -296,8 +280,7 @@ export default function TabGroupDndContext({
       setDragState({
         activeTab,
         overGroupId: activeTab.sourceGroupId,
-        overTabBarIndex: null,
-        overSplitDirection: null
+        overTabBarIndex: null
       })
     },
     [clearDragState]
@@ -308,6 +291,9 @@ export default function TabGroupDndContext({
     if (!translatedRect) {
       return
     }
+    // Why: collisionDetection records pointer coordinates when available, but dnd-kit
+    // does not always provide them on every event. handleDragMove fills the gap using
+    // the overlay center, which stays close to the cursor for the small tab-label overlay.
     pointerRef.current = {
       x: translatedRect.left + translatedRect.width / 2,
       y: translatedRect.top + translatedRect.height / 2
@@ -323,8 +309,7 @@ export default function TabGroupDndContext({
             ? {
                 activeTab: current.activeTab,
                 overGroupId: null,
-                overTabBarIndex: null,
-                overSplitDirection: null
+                overTabBarIndex: null
               }
             : EMPTY_DRAG_STATE
         )
@@ -344,8 +329,7 @@ export default function TabGroupDndContext({
         setDragState({
           activeTab,
           overGroupId: sortableTarget.groupId,
-          overTabBarIndex: insertionIndex,
-          overSplitDirection: null
+          overTabBarIndex: insertionIndex
         })
         return
       }
@@ -353,35 +337,23 @@ export default function TabGroupDndContext({
       const groupDropTarget = parseGroupDropId(overId)
       if (groupDropTarget) {
         const orderedTabs = groupVisibleOrder.get(groupDropTarget.groupId) ?? []
+        const insertionIndex = computeInsertionFromPointer(
+          orderedTabs,
+          pointerRef.current,
+          droppableRectsRef.current,
+          groupDropTarget.groupId
+        )
         setDragState({
           activeTab,
           overGroupId: groupDropTarget.groupId,
-          overTabBarIndex: orderedTabs.length,
-          overSplitDirection: null
-        })
-        return
-      }
-
-      const groupContentTarget = parseGroupContentId(overId)
-      if (groupContentTarget) {
-        const lockedDirection =
-          dragState.overGroupId === groupContentTarget.groupId ? dragState.overSplitDirection : null
-        setDragState({
-          activeTab,
-          overGroupId: groupContentTarget.groupId,
-          overTabBarIndex: null,
-          overSplitDirection: getSplitDirection(
-            pointerRef.current,
-            droppableRectsRef.current.get(overId),
-            lockedDirection
-          )
+          overTabBarIndex: insertionIndex ?? orderedTabs.length
         })
         return
       }
 
       clearDragState()
     },
-    [clearDragState, dragState.overGroupId, dragState.overSplitDirection, groupVisibleOrder]
+    [clearDragState, groupVisibleOrder]
   )
 
   const handleDragCancel = useCallback(
@@ -394,7 +366,7 @@ export default function TabGroupDndContext({
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const activeTab = event.active.data.current as TabDragData | undefined
-      const currentDragState = dragState
+      const currentDragState = dragStateRef.current
       clearDragState()
 
       if (!activeTab || !event.over || !currentDragState.overGroupId) {
@@ -423,42 +395,14 @@ export default function TabGroupDndContext({
           activate: true
         })
         maybeCloseEmptySourceGroup(activeTab.sourceGroupId)
-        return
       }
-
-      if (!currentDragState.overSplitDirection) {
-        return
-      }
-
-      if (currentDragState.overSplitDirection === 'center') {
-        if (activeTab.sourceGroupId !== targetGroupId) {
-          moveUnifiedTabToGroup(activeTab.unifiedTabId, targetGroupId, { activate: true })
-          maybeCloseEmptySourceGroup(activeTab.sourceGroupId)
-        }
-        return
-      }
-
-      const newGroupId = createEmptySplitGroup(
-        worktreeId,
-        targetGroupId,
-        currentDragState.overSplitDirection
-      )
-      if (!newGroupId) {
-        return
-      }
-
-      moveUnifiedTabToGroup(activeTab.unifiedTabId, newGroupId, { activate: true })
-      maybeCloseEmptySourceGroup(activeTab.sourceGroupId)
     },
     [
       clearDragState,
-      createEmptySplitGroup,
-      dragState,
       groupVisibleOrder,
       maybeCloseEmptySourceGroup,
       moveUnifiedTabToGroup,
-      reorderUnifiedTabs,
-      worktreeId
+      reorderUnifiedTabs
     ]
   )
 
