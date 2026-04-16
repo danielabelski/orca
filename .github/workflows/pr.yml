@@ -23,11 +23,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+      - name: Setup pnpm via corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.24.0 --activate
+          pnpm --version
+
+      - name: Normalize node-gyp launcher perms
+        # pnpm's bundled node-gyp/gyp/gyp_main.py may lack +x, which causes
+        # make's "Regenerating Makefile" action to fail with Permission denied
+        # when concurrent native builds (node-pty, cpu-features) race on the
+        # shared header cache and trigger Makefile re-generation.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t GYP_MAIN_FILES < <(
+            find "$HOME/.cache" "$HOME/.local/share" -path '*/node-gyp/gyp/gyp_main.py' -type f 2>/dev/null
+          )
+          if [ "${#GYP_MAIN_FILES[@]}" -eq 0 ]; then
+            echo "No cached gyp_main.py found before install; continuing"
+            exit 0
+          fi
+          for gyp_main in "${GYP_MAIN_FILES[@]}"; do
+            ls -l "$gyp_main"
+            chmod +x "$gyp_main"
+            ls -l "$gyp_main"
+          done
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
