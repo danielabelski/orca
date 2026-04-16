@@ -19,6 +19,7 @@ import { FileCode, Globe, TerminalSquare } from 'lucide-react'
 import type { Tab } from '../../../../shared/types'
 import { useAppStore } from '../../store'
 import {
+  buildSharedSortableId,
   CrossGroupDndContextPresent,
   CrossGroupDragStateContext,
   parseGroupDropId,
@@ -88,7 +89,7 @@ function computeInsertionFromPointer(
   let bestDistance = Infinity
 
   for (let i = 0; i < orderedTabs.length; i++) {
-    const sortableId = `${groupId}::${orderedTabs[i]!.visibleId}`
+    const sortableId = buildSharedSortableId(groupId, orderedTabs[i]!.visibleId)
     const rect = rects.get(sortableId)
     if (!rect) {
       continue
@@ -105,7 +106,7 @@ function computeInsertionFromPointer(
     return orderedTabs.length
   }
 
-  const sortableId = `${groupId}::${orderedTabs[bestIndex]!.visibleId}`
+  const sortableId = buildSharedSortableId(groupId, orderedTabs[bestIndex]!.visibleId)
   const rect = rects.get(sortableId)
   if (!rect) {
     return bestIndex

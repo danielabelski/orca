@@ -959,7 +959,11 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         unifiedTabsByWorktree: nextState.unifiedTabsByWorktree,
         groupsByWorktree: nextState.groupsByWorktree,
         activeGroupIdByWorktree: nextState.activeGroupIdByWorktree,
-        ...(opts?.activate ? buildActiveSurfacePatch(nextState, worktreeId, targetGroupId) : {})
+        // Only update the active surface when this worktree is the active one,
+        // matching the guard pattern used by other buildActiveSurfacePatch callers.
+        ...(opts?.activate && state.activeWorktreeId === worktreeId
+          ? buildActiveSurfacePatch(nextState, worktreeId, targetGroupId)
+          : {})
       }
     })
     return moved

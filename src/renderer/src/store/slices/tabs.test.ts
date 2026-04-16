@@ -555,6 +555,49 @@ describe('TabsSlice', () => {
       expect(state.activeTabType).toBe('terminal')
     })
 
+    it('does not overwrite global surface state when activating in a non-active worktree', () => {
+      // When the moved tab's worktree is not the active worktree, per-worktree
+      // state should still update but global surface state must remain untouched.
+      // This prevents a background worktree move from hijacking the user's
+      // current focus.
+      const runtimeTerminal = {
+        id: 'term-1',
+        ptyId: 'pty-1',
+        worktreeId: WT,
+        title: 'Terminal 1',
+        sortOrder: 0,
+        createdAt: Date.now(),
+        customTitle: null,
+        color: null
+      }
+      store.setState({
+        activeWorktreeId: 'other-worktree',
+        tabsByWorktree: { [WT]: [runtimeTerminal] }
+      })
+      const terminalTab = store.getState().createUnifiedTab(WT, 'terminal', {
+        entityId: runtimeTerminal.id,
+        label: 'Terminal 1'
+      })
+      const sourceGroupId = store.getState().groupsByWorktree[WT][0].id
+      const targetGroupId = store.getState().createEmptySplitGroup(WT, sourceGroupId, 'right')
+
+      // Capture global surface state before the move
+      const beforeState = store.getState()
+      const prevActiveTabId = beforeState.activeTabId
+      const prevActiveTabType = beforeState.activeTabType
+      const prevActiveFileId = beforeState.activeFileId
+
+      store.getState().moveUnifiedTabToGroup(terminalTab.id, targetGroupId!, { activate: true })
+
+      const state = store.getState()
+      // Per-worktree state should still update
+      expect(state.activeGroupIdByWorktree[WT]).toBe(targetGroupId)
+      // Global surface state should NOT have changed
+      expect(state.activeTabId).toBe(prevActiveTabId)
+      expect(state.activeTabType).toBe(prevActiveTabType)
+      expect(state.activeFileId).toBe(prevActiveFileId)
+    })
+
     it('copies a unified tab into another group', () => {
       const tab = store.getState().createUnifiedTab(WT, 'editor', {
         id: 'file-a.ts',

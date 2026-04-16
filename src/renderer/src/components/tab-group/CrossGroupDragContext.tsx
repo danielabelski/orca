@@ -37,6 +37,8 @@ export function buildSharedSortableId(groupId: string, visibleId: string): strin
 }
 
 export function parseSharedSortableId(id: string): { groupId: string; visibleId: string } | null {
+  // Group-drop IDs (e.g. 'group-drop::someGroup') share the '::' delimiter with
+  // sortable IDs, so without this guard we'd mis-parse them as { groupId: 'group-drop', visibleId: 'someGroup' }.
   if (id.startsWith(GROUP_DROP_PREFIX)) {
     return null
   }
