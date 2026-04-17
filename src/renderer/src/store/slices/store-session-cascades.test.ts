@@ -1129,6 +1129,42 @@ describe('shutdownWorktreeTerminals', () => {
     resolveKill()
     await shutdownPromise
   })
+
+  it('clears split-pane reattach bindings and queued reconnect metadata for the worktree', async () => {
+    const store = createTestStore()
+    const wt1 = 'repo1::/path/wt1'
+
+    store.setState({
+      tabsByWorktree: {
+        [wt1]: [makeTab({ id: 'tab1', worktreeId: wt1, ptyId: 'tab-session-1' })]
+      },
+      ptyIdsByTabId: {
+        tab1: ['leaf-session-1', 'leaf-session-2']
+      },
+      terminalLayoutsByTabId: {
+        tab1: {
+          ...makeLayout(),
+          ptyIdsByLeafId: { 'pane:1': 'leaf-session-1', 'pane:2': 'leaf-session-2' },
+          buffersByLeafId: { 'pane:1': 'buffer' }
+        }
+      },
+      pendingReconnectTabByWorktree: {
+        [wt1]: ['tab1']
+      },
+      pendingReconnectPtyIdByTabId: {
+        tab1: 'tab-session-1'
+      }
+    })
+
+    await store.getState().shutdownWorktreeTerminals(wt1)
+
+    expect(store.getState().terminalLayoutsByTabId.tab1).toEqual({
+      ...makeLayout(),
+      buffersByLeafId: { 'pane:1': 'buffer' }
+    })
+    expect(store.getState().pendingReconnectTabByWorktree[wt1]).toBeUndefined()
+    expect(store.getState().pendingReconnectPtyIdByTabId.tab1).toBeUndefined()
+  })
 })
 
 describe('hydrateEditorSession', () => {

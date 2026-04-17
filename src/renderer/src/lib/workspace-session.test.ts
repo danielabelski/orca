@@ -114,6 +114,33 @@ describe('buildWorkspaceSessionPayload', () => {
     expect(payload.activeWorktreeIdsOnShutdown).toEqual([])
   })
 
+  it('strips stale split-pane reattach bindings when the authoritative PTY map is empty', () => {
+    const payload = buildWorkspaceSessionPayload(
+      createSnapshot({
+        terminalLayoutsByTabId: {
+          'tab-1': {
+            root: null,
+            activeLeafId: null,
+            expandedLeafId: null,
+            ptyIdsByLeafId: { 'pane:1': 'stale-leaf-session' },
+            buffersByLeafId: { 'pane:1': 'buffer' }
+          }
+        },
+        ptyIdsByTabId: {
+          'tab-1': [],
+          'tab-2': []
+        }
+      })
+    )
+
+    expect(payload.terminalLayoutsByTabId['tab-1']).toEqual({
+      root: null,
+      activeLeafId: null,
+      expandedLeafId: null,
+      buffersByLeafId: { 'pane:1': 'buffer' }
+    })
+  })
+
   it('persists only edit-mode files and resets browser loading state', () => {
     const payload = buildWorkspaceSessionPayload(createSnapshot())
 

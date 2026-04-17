@@ -719,6 +719,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ...s.ptyIdsByTabId,
         ...Object.fromEntries(tabs.map((tab) => [tab.id, [] as string[]] as const))
       }
+      const nextTerminalLayoutsByTabId = { ...s.terminalLayoutsByTabId }
       const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       const nextSuppressedPtyExitIds = {
         ...s.suppressedPtyExitIds,
@@ -735,11 +736,25 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // is later remounted.
       const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
       const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
+      const nextPendingReconnectTabByWorktree = { ...s.pendingReconnectTabByWorktree }
+      const nextPendingReconnectPtyIdByTabId = { ...s.pendingReconnectPtyIdByTabId }
       for (const tab of tabs) {
+        const existingLayout = nextTerminalLayoutsByTabId[tab.id]
+        if (existingLayout?.ptyIdsByLeafId) {
+          // Why: split-pane layouts persist daemon session IDs separately from
+          // the tab-level ptyId. If shutdown only clears the tab and live PTY
+          // map, a later remount can still read these leaf bindings and try to
+          // reattach to sessions the daemon has already tombstoned, producing
+          // noisy TerminalKilledError logs and failed "shutdown" UX.
+          const { ptyIdsByLeafId: _existingPtyIdsByLeafId, ...layoutWithoutPtyIds } = existingLayout
+          nextTerminalLayoutsByTabId[tab.id] = layoutWithoutPtyIds
+        }
         delete nextRuntimePaneTitlesByTabId[tab.id]
         delete nextPendingSetupSplitByTabId[tab.id]
         delete nextPendingIssueCommandSplitByTabId[tab.id]
+        delete nextPendingReconnectPtyIdByTabId[tab.id]
       }
+      delete nextPendingReconnectTabByWorktree[worktreeId]
 
       // Why: browser tabs are factored into getWorktreeStatus — leaving them
       // behind after shutdown keeps the sidebar dot green even though all
@@ -768,12 +783,15 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ...(isActiveWorktree ? { activeWorktreeId: null } : {}),
         tabsByWorktree: nextTabsByWorktree,
         ptyIdsByTabId: nextPtyIdsByTabId,
+        terminalLayoutsByTabId: nextTerminalLayoutsByTabId,
         runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
         suppressedPtyExitIds: nextSuppressedPtyExitIds,
         pendingCodexPaneRestartIds: nextPendingCodexPaneRestartIds,
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
         pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
         pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
+        pendingReconnectTabByWorktree: nextPendingReconnectTabByWorktree,
+        pendingReconnectPtyIdByTabId: nextPendingReconnectPtyIdByTabId,
         browserTabsByWorktree: nextBrowserTabsByWorktree,
         activeBrowserTabIdByWorktree: nextActiveBrowserTabIdByWorktree,
         ...(shouldResetGlobalBrowser
