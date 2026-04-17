@@ -359,10 +359,39 @@ function Settings(): React.JSX.Element {
         return
       }
 
-      const containerTop = container.getBoundingClientRect().top
-      const candidate =
-        sections.find((section) => section.getBoundingClientRect().top - containerTop >= -24) ??
-        sections.at(-1)
+      // Why: highlight the section that the user is actually reading.
+      // We pick the section whose body crosses a probe line ~40% down the
+      // viewport (roughly the middle, biased slightly up toward where the
+      // eye naturally focuses). Earlier logic used the first section with
+      // its top near the container top, which lagged badly — a section
+      // could still fill most of the viewport while the sidebar had already
+      // advanced to the next one.
+      const containerRect = container.getBoundingClientRect()
+      const probeY = containerRect.top + containerRect.height * 0.4
+
+      // If we've scrolled to the very bottom, force-highlight the last
+      // section even when it's too short to reach the probe line.
+      const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2
+
+      let candidate: HTMLElement | undefined
+      if (atBottom) {
+        candidate = sections.at(-1)
+      } else {
+        for (const section of sections) {
+          const rect = section.getBoundingClientRect()
+          if (rect.top <= probeY && rect.bottom > probeY) {
+            candidate = section
+            break
+          }
+          if (rect.top <= probeY) {
+            // Last section whose heading is above the probe line — used
+            // when no section straddles the probe (e.g. between sections,
+            // or when the probe sits in the gutter above the first one).
+            candidate = section
+          }
+        }
+        candidate ??= sections.at(0)
+      }
       if (!candidate) {
         return
       }
