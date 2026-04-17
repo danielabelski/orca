@@ -702,10 +702,22 @@ export default function NewWorkspacePage(): React.JSX.Element {
                         </Tooltip>
 
                         <div className="flex items-center justify-start gap-1 lg:justify-end">
-                          <span className="inline-flex items-center gap-1 rounded-xl border border-border/50 bg-background/50 backdrop-blur-md px-3 py-1.5 text-sm text-foreground supports-[backdrop-filter]:bg-background/50">
+                          {/* Why: "Use" is the primary CTA — it should open
+                              the composer directly, skipping the read-only
+                              drawer that the row-click opens for previewing.
+                              Stop propagation so the row-level button that
+                              owns this grid doesn't also toggle the drawer. */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSelectWorkItem(item)
+                            }}
+                            className="inline-flex items-center gap-1 rounded-xl border border-border/50 bg-background/50 backdrop-blur-md px-3 py-1.5 text-sm text-foreground transition hover:bg-muted/60 supports-[backdrop-filter]:bg-background/50"
+                          >
                             Use
                             <ArrowRight className="size-4" />
-                          </span>
+                          </button>
                           <DropdownMenu modal={false}>
                             <DropdownMenuTrigger asChild>
                               <button

@@ -160,6 +160,13 @@ function PromptPrefixTextarea({
         </span>
         <textarea
           ref={setRefs}
+          // Why: native autoFocus reliably focuses the prompt on initial mount
+          // — used by both the full-page composer and the Cmd+J modal so the
+          // user can start typing immediately without an extra tab. Running
+          // during React's mount means it beats Radix Dialog's FocusScope,
+          // which would otherwise land focus on the first focusable child
+          // (the "Workspace name" input that renders above this textarea).
+          autoFocus
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
