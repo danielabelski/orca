@@ -654,6 +654,22 @@ vi.mock('@/components/terminal-pane/pty-transport', () => ({
 describe('reconnectPersistedTerminals', () => {
   let ptyIdCounter: number
 
+  // Why: reconnect-by-daemon-session-ID is an opt-in path (the experimental
+  // daemon toggle). These tests exercise that path, so each store created here
+  // must have the toggle set to true before hydrateWorkspaceSession runs —
+  // otherwise hydration clears pendingReconnectPtyIdByTabId and tab.ptyId
+  // never gets rehydrated.
+  function createDaemonEnabledStore(): ReturnType<typeof createTestStore> {
+    const store = createTestStore()
+    store.setState((prev) => ({
+      settings: {
+        ...(prev.settings ?? ({} as AppState['settings'])),
+        experimentalTerminalDaemon: true
+      } as AppState['settings']
+    }))
+    return store
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     ptyIdCounter = 0
@@ -666,7 +682,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('records daemon session IDs for deferred reattach and sets workspaceSessionReady', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const wt1 = 'repo1::/path/wt1'
     const wt2 = 'repo1::/path/wt2'
 
@@ -775,7 +791,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('falls back to tab ptyIds when activeWorktreeIdsOnShutdown is absent (upgrade)', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const wt1 = 'repo1::/path/wt1'
 
     store.setState({
@@ -808,7 +824,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('reconnects the correct tab per worktree (not always tabs[0])', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const wt1 = 'repo1::/path/wt1'
 
     store.setState({
@@ -843,7 +859,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('reconnects multiple live tabs in the same worktree', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const wt1 = 'repo1::/path/wt1'
 
     store.setState({
@@ -908,7 +924,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('skips deleted worktrees in activeWorktreeIdsOnShutdown', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const existing = 'repo1::/path/wt1'
     const deleted = 'repo1::/path/deleted'
 
@@ -943,7 +959,7 @@ describe('reconnectPersistedTerminals', () => {
   })
 
   it('preserves split-pane ptyIdsByLeafId for deferred reattach by connectPanePty', async () => {
-    const store = createTestStore()
+    const store = createDaemonEnabledStore()
     const wt1 = 'repo1::/path/wt1'
 
     store.setState({

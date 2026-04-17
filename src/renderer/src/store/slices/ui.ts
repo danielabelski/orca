@@ -84,7 +84,15 @@ export type UISlice = {
   openSettingsPage: () => void
   closeSettingsPage: () => void
   settingsNavigationTarget: {
-    pane: 'general' | 'browser' | 'appearance' | 'terminal' | 'shortcuts' | 'repo' | 'agents'
+    pane:
+      | 'general'
+      | 'browser'
+      | 'appearance'
+      | 'terminal'
+      | 'shortcuts'
+      | 'repo'
+      | 'agents'
+      | 'experimental'
     repoId: string | null
     sectionId?: string
   } | null

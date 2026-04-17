@@ -3,8 +3,15 @@ import { app } from 'electron'
 import { mkdirSync, existsSync, unlinkSync } from 'fs'
 import { fork } from 'child_process'
 import { connect } from 'net'
-import { DaemonSpawner, type DaemonLauncher } from './daemon-spawner'
+import {
+  DaemonSpawner,
+  getDaemonSocketPath,
+  getDaemonTokenPath,
+  type DaemonLauncher
+} from './daemon-spawner'
 import { DaemonPtyAdapter } from './daemon-pty-adapter'
+import { DaemonClient } from './client'
+import type { ListSessionsResult } from './types'
 import { setLocalPtyProvider } from '../ipc/pty'
 
 let spawner: DaemonSpawner | null = null
@@ -176,4 +183,76 @@ export async function shutdownDaemon(): Promise<void> {
   adapter = null
   await spawner?.shutdown()
   spawner = null
+}
+
+export type OrphanedDaemonCleanupResult = {
+  /** True when we detected a live daemon socket and connected to tear it down.
+   *  False when no daemon was running (fresh install or clean previous quit). */
+  cleaned: boolean
+  /** Number of live PTY sessions killed during cleanup. The caller surfaces this
+   *  to the user so they know what background work was stopped. */
+  killedCount: number
+}
+
+/** Detect and tear down an orphaned daemon left behind by a previous app
+ *  session (e.g. a user who had `experimentalTerminalDaemon` enabled on an
+ *  older build and is now launching a build where the feature is disabled).
+ *
+ *  Why it matters: the daemon is designed to outlive the Electron process.
+ *  If we just skip `initDaemonPtyProvider()` on this launch, any live sessions
+ *  from the previous session keep running invisibly — consuming CPU / holding
+ *  files open / re-launching on every boot because nothing ever kills them.
+ *  This helper connects to the existing socket, enumerates sessions, and asks
+ *  the daemon to shut itself down (which terminates all PTYs). */
+export async function cleanupOrphanedDaemon(): Promise<OrphanedDaemonCleanupResult> {
+  const runtimeDir = getRuntimeDir()
+  const socketPath = getDaemonSocketPath(runtimeDir)
+  const tokenPath = getDaemonTokenPath(runtimeDir)
+
+  const alive = await probeSocket(socketPath)
+  if (!alive) {
+    // Why: still best-effort remove a stale socket file so a future opt-in
+    // launch doesn't hit EADDRINUSE when the daemon tries to bind.
+    if (process.platform !== 'win32' && existsSync(socketPath)) {
+      try {
+        unlinkSync(socketPath)
+      } catch {
+        // Best-effort
+      }
+    }
+    return { cleaned: false, killedCount: 0 }
+  }
+
+  const client = new DaemonClient({ socketPath, tokenPath })
+  let killedCount = 0
+  try {
+    await client.ensureConnected()
+    const sessions = await client
+      .request<ListSessionsResult>('listSessions', undefined)
+      .catch(() => ({ sessions: [] }))
+    killedCount = sessions.sessions.filter((s) => s.isAlive).length
+
+    // Why: the daemon exposes a single-shot `shutdown` RPC (daemon-server.ts:263)
+    // that kills every session and then terminates its own process. Using it
+    // avoids the race between per-session `kill` calls and the daemon exiting.
+    await client.request('shutdown', { killSessions: true }).catch(() => {
+      // Daemon exits immediately after handling the RPC — the socket may close
+      // before the reply round-trips. Treat that as success.
+    })
+  } finally {
+    client.disconnect()
+  }
+
+  // Why: after `shutdown`, the daemon unlinks its socket itself — but on some
+  // crash paths the file lingers. Clean up defensively so a later opt-in
+  // relaunch can bind cleanly.
+  if (process.platform !== 'win32' && existsSync(socketPath)) {
+    try {
+      unlinkSync(socketPath)
+    } catch {
+      // Best-effort
+    }
+  }
+
+  return { cleaned: true, killedCount }
 }

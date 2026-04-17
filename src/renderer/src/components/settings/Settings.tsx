@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bell,
   Bot,
+  FlaskConical,
   GitBranch,
   Globe,
   Keyboard,
@@ -28,6 +29,7 @@ import { getTerminalPaneSearchEntries } from './terminal-search'
 import { GitPane, GIT_PANE_SEARCH_ENTRIES } from './GitPane'
 import { NotificationsPane, NOTIFICATIONS_PANE_SEARCH_ENTRIES } from './NotificationsPane'
 import { SshPane, SSH_PANE_SEARCH_ENTRIES } from './SshPane'
+import { ExperimentalPane, EXPERIMENTAL_PANE_SEARCH_ENTRIES } from './ExperimentalPane'
 import { AgentsPane, AGENTS_PANE_SEARCH_ENTRIES } from './AgentsPane'
 import { StatsPane, STATS_PANE_SEARCH_ENTRIES } from '../stats/StatsPane'
 import { SettingsSidebar } from './SettingsSidebar'
@@ -44,6 +46,7 @@ type SettingsNavTarget =
   | 'shortcuts'
   | 'stats'
   | 'ssh'
+  | 'experimental'
   | 'agents'
   | 'repo'
 
@@ -302,6 +305,13 @@ function Settings(): React.JSX.Element {
         searchEntries: SSH_PANE_SEARCH_ENTRIES,
         badge: 'Beta'
       },
+      {
+        id: 'experimental',
+        title: 'Experimental',
+        description: 'Features that are still being stabilized. Enable at your own risk.',
+        icon: FlaskConical,
+        searchEntries: EXPERIMENTAL_PANE_SEARCH_ENTRIES
+      },
       ...repos.map((repo) => ({
         id: `repo-${repo.id}`,
         title: repo.displayName,
@@ -541,6 +551,15 @@ function Settings(): React.JSX.Element {
                   searchEntries={SSH_PANE_SEARCH_ENTRIES}
                 >
                   <SshPane />
+                </SettingsSection>
+
+                <SettingsSection
+                  id="experimental"
+                  title="Experimental"
+                  description="Features that are still being stabilized. Enable at your own risk."
+                  searchEntries={EXPERIMENTAL_PANE_SEARCH_ENTRIES}
+                >
+                  <ExperimentalPane settings={settings} updateSettings={updateSettings} />
                 </SettingsSection>
 
                 {repos.map((repo) => {

@@ -627,6 +627,16 @@ export type GlobalSettings = {
    *  'true' = full Meta on both Option keys;
    *  'left' / 'right' = only that Option key acts as Meta, the other composes. */
   terminalMacOptionAsAlt: 'true' | 'false' | 'left' | 'right'
+  /** Experimental: persist terminal sessions across app restarts via an
+   *  out-of-process daemon (src/main/daemon/**). Opt-in because the daemon
+   *  protocol is still stabilizing — some sessions have been observed to go
+   *  unresponsive after internal state drift. Disabled sessions fall back to
+   *  the in-process LocalPtyProvider. Requires an app restart to apply. */
+  experimentalTerminalDaemon: boolean
+  /** One-shot flag for the "persistent sessions are now opt-in" transition
+   *  toast shown to users upgrading from v1.3.0 (where the daemon was on by
+   *  default). Set to true the first time the toast fires so it never repeats. */
+  experimentalTerminalDaemonNoticeShown: boolean
 }
 
 export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 'test'

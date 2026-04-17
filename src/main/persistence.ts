@@ -17,6 +17,7 @@ import {
   getDefaultRepoHookSettings,
   getDefaultWorkspaceSession
 } from '../shared/constants'
+import { parseWorkspaceSession } from '../shared/workspace-session-schema'
 
 // Why: the data-file path must not be a module-level constant. Module-level
 // code runs at import time — before configureDevUserDataPath() redirects the
@@ -101,7 +102,27 @@ export class Store {
               _sortBySmartMigrated: true
             }
           })(),
-          workspaceSession: { ...defaults.workspaceSession, ...parsed.workspaceSession },
+          // Why: the workspace session is the most volatile persisted surface
+          // (schema evolves per release, daemon session IDs embedded in it).
+          // Zod-validate at the read boundary so a field-type flip from an
+          // older build — or a truncated write from a crash — gets rejected
+          // cleanly instead of poisoning Zustand state and crashing the
+          // renderer on mount. On validation failure, fall back to defaults
+          // and log; a corrupt session file shouldn't trap the user out.
+          workspaceSession: (() => {
+            if (parsed.workspaceSession === undefined) {
+              return defaults.workspaceSession
+            }
+            const result = parseWorkspaceSession(parsed.workspaceSession)
+            if (!result.ok) {
+              console.error(
+                '[persistence] Corrupt workspace session, using defaults:',
+                result.error
+              )
+              return defaults.workspaceSession
+            }
+            return { ...defaults.workspaceSession, ...result.value }
+          })(),
           sshTargets: (parsed.sshTargets ?? []).map(normalizeSshTarget)
         }
       }

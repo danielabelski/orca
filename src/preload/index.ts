@@ -159,6 +159,14 @@ document.addEventListener(
 
 // Custom APIs for renderer
 const api = {
+  app: {
+    getRuntimeFlags: (): Promise<{ daemonEnabledAtStartup: boolean }> =>
+      ipcRenderer.invoke('app:getRuntimeFlags'),
+    consumeDaemonTransitionNotice: (): Promise<{ killedCount: number } | null> =>
+      ipcRenderer.invoke('app:consumeDaemonTransitionNotice'),
+    relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch')
+  },
+
   repos: {
     list: (): Promise<unknown[]> => ipcRenderer.invoke('repos:list'),
 
