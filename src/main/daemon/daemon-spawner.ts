@@ -66,3 +66,7 @@ export function getDaemonSocketPath(runtimeDir: string): string {
 export function getDaemonTokenPath(runtimeDir: string): string {
   return join(runtimeDir, `daemon-v${PROTOCOL_VERSION}.token`)
 }
+
+export function getDaemonPidPath(runtimeDir: string): string {
+  return join(runtimeDir, `daemon-v${PROTOCOL_VERSION}.pid`)
+}

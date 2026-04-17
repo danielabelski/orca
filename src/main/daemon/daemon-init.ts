@@ -1,9 +1,9 @@
 import { join } from 'path'
 import { app } from 'electron'
-import { mkdirSync, existsSync, unlinkSync, readFileSync } from 'fs'
+import { mkdirSync, existsSync, unlinkSync, readFileSync, writeFileSync } from 'fs'
 import { fork } from 'child_process'
 import { connect, type Socket } from 'net'
-import { DaemonSpawner, type DaemonLauncher } from './daemon-spawner'
+import { DaemonSpawner, getDaemonPidPath, type DaemonLauncher } from './daemon-spawner'
 import { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { setLocalPtyProvider } from '../ipc/pty'
 import { PROTOCOL_VERSION } from './types'
@@ -127,12 +127,28 @@ function healthCheckDaemon(socketPath: string, tokenPath: string): Promise<boole
   })
 }
 
-// Why: only removes the stale socket file so a new daemon can bind.
-// We intentionally do NOT send a shutdown RPC because DaemonServer.shutdown()
-// unconditionally kills all PTY sessions — sending it would destroy
-// warm-reattach terminals. The orphaned daemon process will exit naturally
-// when its socket is unlinked (new connections fail, existing ones close).
-function cleanupStaleDaemonSocket(socketPath: string): void {
+// Why: kills the stale daemon process (via PID file) and removes the socket
+// so a new daemon can bind. We do NOT send a shutdown RPC because
+// DaemonServer.shutdown() unconditionally kills all PTY sessions — that
+// would destroy warm-reattach terminals. SIGTERM lets the daemon's own
+// signal handler run its cleanup.
+function killStaleDaemon(runtimeDir: string, socketPath: string): void {
+  const pidPath = getDaemonPidPath(runtimeDir)
+  try {
+    const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10)
+    if (!isNaN(pid)) {
+      process.kill(pid, 'SIGTERM')
+    }
+  } catch {
+    // PID file missing or process already dead
+  }
+
+  try {
+    unlinkSync(pidPath)
+  } catch {
+    // Best-effort
+  }
+
   if (process.platform !== 'win32' && existsSync(socketPath)) {
     try {
       unlinkSync(socketPath)
@@ -142,7 +158,7 @@ function cleanupStaleDaemonSocket(socketPath: string): void {
   }
 }
 
-function createOutOfProcessLauncher(): DaemonLauncher {
+function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
   return async (socketPath, tokenPath) => {
     const healthy = await healthCheckDaemon(socketPath, tokenPath)
     if (healthy) {
@@ -152,8 +168,9 @@ function createOutOfProcessLauncher(): DaemonLauncher {
     }
 
     // Why: health check failed — either no daemon, crashed daemon with
-    // stale socket, or alive-but-broken daemon. Clean up before spawning.
-    cleanupStaleDaemonSocket(socketPath)
+    // stale socket, or alive-but-broken daemon. Kill the old process
+    // (via PID file) and remove the socket so a new daemon can bind.
+    killStaleDaemon(runtimeDir, socketPath)
 
     const entryPath = getDaemonEntryPath()
     const child = fork(entryPath, ['--socket', socketPath, '--token', tokenPath], {
@@ -189,6 +206,11 @@ function createOutOfProcessLauncher(): DaemonLauncher {
       child.on('message', (msg: unknown) => {
         if (msg && typeof msg === 'object' && (msg as { type?: string }).type === 'ready') {
           clearTimeout(timer)
+
+          if (child.pid) {
+            writeFileSync(getDaemonPidPath(runtimeDir), String(child.pid), { mode: 0o600 })
+          }
+
           // Why: disconnect IPC channel and unref so Electron can exit
           // without waiting for the daemon. The daemon keeps running.
           child.disconnect()
@@ -225,7 +247,7 @@ export async function initDaemonPtyProvider(): Promise<void> {
 
   const newSpawner = new DaemonSpawner({
     runtimeDir,
-    launcher: createOutOfProcessLauncher()
+    launcher: createOutOfProcessLauncher(runtimeDir)
   })
 
   // Why: assign spawner/adapter only after both succeed. If ensureRunning()
