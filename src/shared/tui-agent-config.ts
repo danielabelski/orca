@@ -151,5 +151,11 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     launchCmd: 'hermes',
     expectedProcess: 'hermes',
     promptInjectionMode: 'stdin-after-start'
+  },
+  copilot: {
+    detectCmd: 'copilot',
+    launchCmd: 'copilot',
+    expectedProcess: 'copilot',
+    promptInjectionMode: 'flag-prompt'
   }
 }

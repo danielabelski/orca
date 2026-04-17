@@ -29,6 +29,13 @@ export const AGENT_CATALOG: AgentCatalogEntry[] = [
     homepageUrl: 'https://github.com/openai/codex'
   },
   {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    cmd: 'copilot',
+    faviconDomain: 'github.com',
+    homepageUrl: 'https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli'
+  },
+  {
     id: 'opencode',
     label: 'OpenCode',
     cmd: 'opencode',

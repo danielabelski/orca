@@ -77,6 +77,21 @@ describe('buildAgentStartupPlan', () => {
     })
   })
 
+  it('passes Copilot prompts with the --prompt flag', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'copilot',
+        prompt: 'Fix the bug',
+        cmdOverrides: {},
+        platform: 'darwin'
+      })
+    ).toEqual({
+      launchCommand: "copilot --prompt 'Fix the bug'",
+      expectedProcess: 'copilot',
+      followupPrompt: null
+    })
+  })
+
   it('returns null when there is no prompt to inject', () => {
     expect(
       buildAgentStartupPlan({
