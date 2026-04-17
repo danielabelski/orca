@@ -10,7 +10,6 @@ import {
   selectBrowserProfile,
   importCookiesFromBrowser
 } from '../browser/browser-cookie-import'
-import type { DetectedBrowser } from '../browser/browser-cookie-import'
 import type {
   BrowserSetGrabModeArgs,
   BrowserSetGrabModeResult,
@@ -314,12 +313,30 @@ export function registerBrowserHandlers(): void {
   ipcMain.removeHandler('browser:session:detectBrowsers')
   ipcMain.removeHandler('browser:session:importFromBrowser')
 
-  ipcMain.handle('browser:session:detectBrowsers', (event): DetectedBrowser[] => {
-    if (!isTrustedBrowserRenderer(event.sender)) {
-      return []
+  ipcMain.handle(
+    'browser:session:detectBrowsers',
+    (
+      event
+    ): {
+      family: string
+      label: string
+      profiles: { name: string; directory: string }[]
+      selectedProfile: string
+    }[] => {
+      if (!isTrustedBrowserRenderer(event.sender)) {
+        return []
+      }
+      // Why: the renderer only needs family/label/profiles for the UI picker.
+      // Strip cookiesPath, keychainService, and keychainAccount to avoid
+      // exposing filesystem paths and credential store identifiers to the renderer.
+      return detectInstalledBrowsers().map((b) => ({
+        family: b.family,
+        label: b.label,
+        profiles: b.profiles,
+        selectedProfile: b.selectedProfile
+      }))
     }
-    return detectInstalledBrowsers()
-  })
+  )
 
   ipcMain.handle(
     'browser:session:importFromBrowser',
@@ -333,6 +350,16 @@ export function registerBrowserHandlers(): void {
       const profile = browserSessionRegistry.getProfile(args.profileId)
       if (!profile) {
         return { ok: false, reason: 'Session profile not found.' }
+      }
+
+      // Why: browserProfile comes from the renderer and is used to construct
+      // a filesystem path. Reject traversal characters to prevent a compromised
+      // renderer from reading arbitrary files via the cookie import pipeline.
+      if (
+        args.browserProfile &&
+        (/[/\\]/.test(args.browserProfile) || args.browserProfile.includes('..'))
+      ) {
+        return { ok: false, reason: 'Invalid browser profile name.' }
       }
 
       const browsers = detectInstalledBrowsers()

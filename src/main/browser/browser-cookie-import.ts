@@ -403,18 +403,38 @@ type ValidatedCookie = {
   expirationDate: number | undefined
 }
 
+// Why: Chromium's SQLite schema uses CookieSameSiteForStorage enum:
+// 0=UNSPECIFIED, 1=NO_RESTRICTION(None), 2=LAX, 3=STRICT.
+// This differs from Firefox (0=None, 1=Lax, 2=Strict).
+function chromiumSameSite(raw: number): 'unspecified' | 'no_restriction' | 'lax' | 'strict' {
+  switch (raw) {
+    case 1:
+      return 'no_restriction'
+    case 2:
+      return 'lax'
+    case 3:
+      return 'strict'
+    default:
+      return 'unspecified'
+  }
+}
+
+function firefoxSameSite(raw: number): 'unspecified' | 'no_restriction' | 'lax' | 'strict' {
+  switch (raw) {
+    case 0:
+      return 'no_restriction'
+    case 1:
+      return 'lax'
+    case 2:
+      return 'strict'
+    default:
+      return 'unspecified'
+  }
+}
+
 function normalizeSameSite(raw: unknown): 'unspecified' | 'no_restriction' | 'lax' | 'strict' {
   if (typeof raw === 'number') {
-    switch (raw) {
-      case 0:
-        return 'no_restriction'
-      case 1:
-        return 'lax'
-      case 2:
-        return 'strict'
-      default:
-        return 'unspecified'
-    }
+    return chromiumSameSite(raw)
   }
   if (typeof raw !== 'string') {
     return 'unspecified'
@@ -529,7 +549,7 @@ async function importValidatedCookies(
         for (let i = 0; i < val.length; i++) {
           const code = val.charCodeAt(i)
           if (code < 0x20 || code > 0x7e) {
-            badInfo = `pos=${i} char=U+${code.toString(16).padStart(4, '0')} context="${val.substring(Math.max(0, i - 5), i + 5)}"`
+            badInfo = `pos=${i} char=U+${code.toString(16).padStart(4, '0')}`
             break
           }
         }
@@ -780,7 +800,7 @@ function getLinuxEncryptionKey(
   } catch {
     // Why: fall back to application-based lookup used by newer Chromium versions.
     try {
-      const app = keychainAccount.toLowerCase().replace(' ', '')
+      const app = keychainAccount.toLowerCase().replaceAll(' ', '')
       keyringPassword = execFileSync('secret-tool', ['lookup', 'application', app], {
         encoding: 'utf-8',
         timeout: 5_000
@@ -948,6 +968,9 @@ function decodeSafariBinaryCookies(buffer: Buffer): ValidatedCookie[] {
 
   const pageCount = buffer.readUInt32BE(4)
   let cursor = 8
+  if (cursor + pageCount * 4 > buffer.length) {
+    return []
+  }
   const pageSizes: number[] = []
   for (let i = 0; i < pageCount; i++) {
     pageSizes.push(buffer.readUInt32BE(cursor))
@@ -972,6 +995,9 @@ function decodeSafariPage(page: Buffer): ValidatedCookie[] {
   }
 
   const cookieCount = page.readUInt32LE(4)
+  if (8 + cookieCount * 4 > page.length) {
+    return []
+  }
   const offsets: number[] = []
   let cursor = 8
   for (let i = 0; i < cookieCount; i++) {
@@ -993,8 +1019,10 @@ function decodeSafariCookie(buf: Buffer): ValidatedCookie | null {
   if (buf.length < 48) {
     return null
   }
-  const size = buf.readUInt32LE(0)
-  if (size < 48 || size > buf.length) {
+  // Why: size is read from the binary file and could be attacker-controlled.
+  // Clamp to buf.length so readCString cannot escape the cookie's subarray.
+  const size = Math.min(buf.readUInt32LE(0), buf.length)
+  if (size < 48) {
     return null
   }
 
@@ -1045,7 +1073,7 @@ function decodeSafariCookie(buf: Buffer): ValidatedCookie | null {
 }
 
 function readCString(buf: Buffer, offset: number, end: number): string | null {
-  if (offset <= 0 || offset >= end) {
+  if (offset < 0 || offset >= end) {
     return null
   }
   let cursor = offset
@@ -1141,7 +1169,7 @@ async function importCookiesFromFirefox(
         path: row.path || '/',
         secure,
         httpOnly: row.isHttpOnly === 1,
-        sameSite: normalizeSameSite(row.sameSite),
+        sameSite: firefoxSameSite(row.sameSite),
         expirationDate: row.expiry > 0 ? row.expiry : undefined
       })
     }
@@ -1156,7 +1184,10 @@ async function importCookiesFromFirefox(
   } catch (err) {
     rmSync(tmpDir, { recursive: true, force: true })
     diag(`  Firefox import failed: ${err}`)
-    return { ok: false, reason: `Could not import cookies from Firefox. ${err}` }
+    return {
+      ok: false,
+      reason: 'Could not import cookies from Firefox. Try closing Firefox first.'
+    }
   }
 }
 
@@ -1186,7 +1217,7 @@ async function importCookiesFromSafari(
           'macOS denied access to Safari cookies. Grant Full Disk Access to Orca in System Settings → Privacy & Security → Full Disk Access.'
       }
     }
-    return { ok: false, reason: `Could not read Safari cookies. ${err}` }
+    return { ok: false, reason: 'Could not read Safari cookies.' }
   }
 
   try {
@@ -1207,7 +1238,7 @@ async function importCookiesFromSafari(
     return importValidatedCookies(valid, cookies.length, targetPartition)
   } catch (err) {
     diag(`  Safari import failed: ${err}`)
-    return { ok: false, reason: `Could not import cookies from Safari. ${err}` }
+    return { ok: false, reason: 'Could not import cookies from Safari.' }
   }
 }
 
@@ -1388,8 +1419,10 @@ export async function importCookiesFromBrowser(
 
     for (const sourceRow of sourceRows) {
       const encRaw = sourceRow.encrypted_value
-      const encBuf =
-        encRaw instanceof Uint8Array ? Buffer.from(encRaw) : encRaw ? Buffer.from([]) : null
+      // Why: node:sqlite returns BLOB columns as Uint8Array. Any other truthy type
+      // means the schema is unexpected — treat it as missing rather than creating
+      // an empty buffer that would silently produce a blank cookie value.
+      const encBuf = encRaw instanceof Uint8Array ? Buffer.from(encRaw) : null
       const plainRaw = sourceRow.value
 
       let decryptedValue: Buffer
@@ -1422,7 +1455,7 @@ export async function importCookiesFromBrowser(
       const path = sourceRow.path as string
       const secure = sourceRow.is_secure === 1n
       const httpOnly = sourceRow.is_httponly === 1n
-      const sameSite = normalizeSameSite(Number(sourceRow.samesite ?? 0))
+      const sameSite = chromiumSameSite(Number(sourceRow.samesite ?? 0))
       const expiresUtc = chromiumTimestampToUnix(sourceRow.expires_utc as bigint)
       // Why: cookie values are raw byte strings, not UTF-8 text. Using latin1
       // (ISO-8859-1) preserves all byte values 0x00–0xFF without replacement
@@ -1566,7 +1599,7 @@ export async function importCookiesFromBrowser(
     diag(`  SQLite import failed: ${err}`)
     return {
       ok: false,
-      reason: `Could not import cookies from ${browser.label}. ${err}`
+      reason: `Could not import cookies from ${browser.label}. Check the diag log for details.`
     }
   }
 }
