@@ -7,6 +7,7 @@ import {
   pickCookieFile,
   importCookiesFromFile,
   detectInstalledBrowsers,
+  selectBrowserProfile,
   importCookiesFromBrowser
 } from '../browser/browser-cookie-import'
 import type { DetectedBrowser } from '../browser/browser-cookie-import'
@@ -324,7 +325,7 @@ export function registerBrowserHandlers(): void {
     'browser:session:importFromBrowser',
     async (
       event,
-      args: { profileId: string; browserFamily: string }
+      args: { profileId: string; browserFamily: string; browserProfile?: string }
     ): Promise<BrowserCookieImportResult> => {
       if (!isTrustedBrowserRenderer(event.sender)) {
         return { ok: false, reason: 'Not authorized' }
@@ -335,16 +336,32 @@ export function registerBrowserHandlers(): void {
       }
 
       const browsers = detectInstalledBrowsers()
-      const browser = browsers.find((b) => b.family === args.browserFamily)
+      let browser = browsers.find((b) => b.family === args.browserFamily)
       if (!browser) {
         return { ok: false, reason: 'Browser not found on this system.' }
       }
 
+      // Why: if the user selected a non-default profile from the picker,
+      // resolve the cookies path for that specific profile.
+      if (args.browserProfile && args.browserProfile !== browser.selectedProfile) {
+        const reselected = selectBrowserProfile(browser, args.browserProfile)
+        if (!reselected) {
+          return {
+            ok: false,
+            reason: `No cookies database found for profile "${args.browserProfile}".`
+          }
+        }
+        browser = reselected
+      }
+
       const result = await importCookiesFromBrowser(browser, profile.partition)
       if (result.ok) {
+        const profileName =
+          browser.profiles.find((p) => p.directory === browser.selectedProfile)?.name ??
+          browser.selectedProfile
         browserSessionRegistry.updateProfileSource(args.profileId, {
           browserFamily: browser.family,
-          profileName: 'Default',
+          profileName,
           importedAt: Date.now()
         })
         return { ...result, profileId: args.profileId }

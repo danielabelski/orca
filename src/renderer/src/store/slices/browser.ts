@@ -85,11 +85,17 @@ export type BrowserSlice = {
   deleteBrowserSessionProfile: (profileId: string) => Promise<boolean>
   importCookiesToProfile: (profileId: string) => Promise<BrowserCookieImportResult>
   clearBrowserSessionImportState: () => void
-  detectedBrowsers: { family: string; label: string }[]
+  detectedBrowsers: {
+    family: string
+    label: string
+    profiles: { name: string; directory: string }[]
+    selectedProfile: string
+  }[]
   fetchDetectedBrowsers: () => Promise<void>
   importCookiesFromBrowser: (
     profileId: string,
-    browserFamily: string
+    browserFamily: string,
+    browserProfile?: string
   ) => Promise<BrowserCookieImportResult>
   clearDefaultSessionCookies: () => Promise<boolean>
   browserUrlHistory: BrowserHistoryEntry[]
@@ -1159,6 +1165,8 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       const browsers = (await window.api.browser.sessionDetectBrowsers()) as {
         family: string
         label: string
+        profiles: { name: string; directory: string }[]
+        selectedProfile: string
       }[]
       set({ detectedBrowsers: browsers })
     } catch {
@@ -1166,7 +1174,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     }
   },
 
-  importCookiesFromBrowser: async (profileId, browserFamily) => {
+  importCookiesFromBrowser: async (profileId, browserFamily, browserProfile?) => {
     set({
       browserSessionImportState: {
         profileId,
@@ -1178,7 +1186,8 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     try {
       const result = (await window.api.browser.sessionImportFromBrowser({
         profileId,
-        browserFamily
+        browserFamily,
+        browserProfile
       })) as BrowserCookieImportResult
       if (result.ok) {
         set({

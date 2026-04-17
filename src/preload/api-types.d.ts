@@ -133,13 +133,21 @@ export type BrowserApi = {
   sessionImportFromBrowser: (args: {
     profileId: string
     browserFamily: string
+    browserProfile?: string
   }) => Promise<BrowserCookieImportResult>
   sessionClearDefaultCookies: () => Promise<boolean>
+}
+
+export type DetectedBrowserProfileInfo = {
+  name: string
+  directory: string
 }
 
 export type DetectedBrowserInfo = {
   family: BrowserSessionProfileSource['browserFamily']
   label: string
+  profiles: DetectedBrowserProfileInfo[]
+  selectedProfile: string
 }
 
 export type PreflightStatus = {
