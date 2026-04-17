@@ -160,17 +160,29 @@ async function killStaleDaemon(socketPath: string, tokenPath: string): Promise<v
           role: 'control'
         }
         sock.write(encodeNdjson(hello))
-        sock.write(
-          encodeNdjson({ id: 'shutdown-1', type: 'shutdown', payload: { killSessions: false } })
-        )
-        // Why: give the daemon a moment to process the shutdown before
-        // tearing down the connection. The daemon calls process.nextTick
-        // on shutdown, so a small delay lets it start cleanup.
-        setTimeout(() => {
-          clearTimeout(timer)
-          sock.destroy()
-          resolve()
-        }, 500)
+
+        // Why: must wait for the hello ack before sending the shutdown RPC.
+        // If both messages arrive in the same TCP chunk, the daemon's pre-auth
+        // parser consumes both lines — the second is rejected as "Expected hello"
+        // and the connection is destroyed without processing shutdown.
+        let buffer = ''
+        sock.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString()
+          if (!buffer.includes('\n')) {
+            return
+          }
+          sock.write(
+            encodeNdjson({ id: 'shutdown-1', type: 'shutdown', payload: { killSessions: false } })
+          )
+          // Why: give the daemon a moment to process the shutdown before
+          // tearing down the connection. The daemon calls process.nextTick
+          // on shutdown, so a small delay lets it start cleanup.
+          setTimeout(() => {
+            clearTimeout(timer)
+            sock.destroy()
+            resolve()
+          }, 500)
+        })
       })
     })
   } catch {
