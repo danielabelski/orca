@@ -3,6 +3,7 @@ import { AlertTriangle, ExternalLink, FolderPlus, GitBranchPlus, Star } from 'lu
 import { cn } from '../lib/utils'
 import { useAppStore } from '../store'
 import { isGitRepoKind } from '../../../shared/repo-kind'
+import { getTaskPresetQuery } from '../lib/new-workspace'
 import { ShortcutKeyCombo } from './ShortcutKeyCombo'
 import logo from '../../../../resources/logo.svg'
 
@@ -151,18 +152,20 @@ export default function Landing(): React.JSX.Element {
   const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
   const openModal = useAppStore((s) => s.openModal)
   const prefetchWorkItems = useAppStore((s) => s.prefetchWorkItems)
+  const defaultTaskViewPreset = useAppStore((s) => s.settings?.defaultTaskViewPreset ?? 'all')
 
   const canCreateWorktree = repos.some((repo) => isGitRepoKind(repo))
 
-  // Why: warm the work-item cache on hover/focus so clicking "Create Worktree"
-  // lands on a list that's already loaded.
+  // Why: warm the exact cache key NewWorkspacePage will read on mount — the
+  // default-preset query must match or the page pays a full round-trip after
+  // click.
   const handlePrefetchNewWorkspace = (): void => {
     if (!canCreateWorktree) {
       return
     }
     const firstGit = repos.find((r) => isGitRepoKind(r))
     if (firstGit?.path) {
-      prefetchWorkItems(firstGit.path)
+      prefetchWorkItems(firstGit.path, 36, getTaskPresetQuery(defaultTaskViewPreset))
     }
   }
 
