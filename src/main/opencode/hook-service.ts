@@ -208,6 +208,16 @@ export class OpenCodeHookService {
     }
 
     const configDir = this.writePluginConfig(ptyId)
+    if (!configDir) {
+      // Why: plugin config is best-effort — return hook vars without
+      // OPENCODE_CONFIG_DIR so the PTY still spawns and manually launched
+      // opencode sessions can still report status via the hook server.
+      return {
+        ORCA_OPENCODE_HOOK_PORT: String(this.port),
+        ORCA_OPENCODE_HOOK_TOKEN: this.token,
+        ORCA_OPENCODE_PTY_ID: ptyId
+      }
+    }
 
     // Why: OpenCode only reads the extra plugin directory at process startup.
     // Inject these vars into every Orca PTY so manually launched `opencode`
@@ -221,11 +231,18 @@ export class OpenCodeHookService {
     }
   }
 
-  private writePluginConfig(ptyId: string): string {
+  private writePluginConfig(ptyId: string): string | null {
     const configDir = join(app.getPath('userData'), 'opencode-hooks', ptyId)
     const pluginsDir = join(configDir, 'plugins')
-    mkdirSync(pluginsDir, { recursive: true })
-    writeFileSync(join(pluginsDir, ORCA_OPENCODE_PLUGIN_FILE), getOpenCodePluginSource())
+    try {
+      mkdirSync(pluginsDir, { recursive: true })
+      writeFileSync(join(pluginsDir, ORCA_OPENCODE_PLUGIN_FILE), getOpenCodePluginSource())
+    } catch {
+      // Why: on Windows, userData directories can be locked by antivirus or
+      // indexers (EPERM/EBUSY). Plugin config is non-critical — the PTY should
+      // still spawn without the OpenCode status plugin.
+      return null
+    }
     return configDir
   }
 }

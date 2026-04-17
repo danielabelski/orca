@@ -142,17 +142,36 @@ export class PiTitlebarExtensionService {
     const sourceAgentDir = existingAgentDir || getDefaultPiAgentDir()
     const overlayDir = this.getOverlayDir(ptyId)
 
-    rmSync(overlayDir, { recursive: true, force: true })
-    mkdirSync(overlayDir, { recursive: true })
-    this.mirrorAgentDir(sourceAgentDir, overlayDir)
+    try {
+      rmSync(overlayDir, { recursive: true, force: true })
+    } catch {
+      // Why: on Windows the overlay directory can be locked by another process
+      // (e.g. antivirus, indexer, or a previous Orca session that didn't clean up).
+      // rmSync with force:true handles ENOENT but not EPERM/EBUSY. If we can't
+      // remove the stale overlay, fall back to the user's own Pi agent dir so the
+      // terminal still spawns — the titlebar spinner is not worth blocking the PTY.
+      return existingAgentDir ? { PI_CODING_AGENT_DIR: existingAgentDir } : {}
+    }
 
-    const extensionsDir = join(overlayDir, 'extensions')
-    mkdirSync(extensionsDir, { recursive: true })
-    // Why: Pi auto-loads global extensions from PI_CODING_AGENT_DIR/extensions.
-    // Add Orca's titlebar extension alongside the user's existing extensions
-    // instead of replacing that directory, otherwise Orca terminals would
-    // silently disable the user's Pi customization inside Orca only.
-    writeFileSync(join(extensionsDir, ORCA_PI_EXTENSION_FILE), getPiTitlebarExtensionSource())
+    try {
+      mkdirSync(overlayDir, { recursive: true })
+      this.mirrorAgentDir(sourceAgentDir, overlayDir)
+
+      const extensionsDir = join(overlayDir, 'extensions')
+      mkdirSync(extensionsDir, { recursive: true })
+      // Why: Pi auto-loads global extensions from PI_CODING_AGENT_DIR/extensions.
+      // Add Orca's titlebar extension alongside the user's existing extensions
+      // instead of replacing that directory, otherwise Orca terminals would
+      // silently disable the user's Pi customization inside Orca only.
+      writeFileSync(join(extensionsDir, ORCA_PI_EXTENSION_FILE), getPiTitlebarExtensionSource())
+    } catch {
+      // Why: overlay creation is best-effort — permission errors (EPERM/EACCES)
+      // on Windows can occur when the userData directory is restricted or when
+      // symlink/junction creation fails without developer mode. Fall back to the
+      // user's Pi agent dir so the terminal spawns without the Orca extension.
+      this.clearPty(ptyId)
+      return existingAgentDir ? { PI_CODING_AGENT_DIR: existingAgentDir } : {}
+    }
 
     return {
       PI_CODING_AGENT_DIR: overlayDir
@@ -160,7 +179,13 @@ export class PiTitlebarExtensionService {
   }
 
   clearPty(ptyId: string): void {
-    rmSync(this.getOverlayDir(ptyId), { recursive: true, force: true })
+    try {
+      rmSync(this.getOverlayDir(ptyId), { recursive: true, force: true })
+    } catch {
+      // Why: on Windows the overlay dir can be locked (EPERM/EBUSY) by antivirus
+      // or indexers. Overlay cleanup is best-effort — a stale directory in userData
+      // is harmless and will be overwritten on the next PTY spawn attempt.
+    }
   }
 }
 
