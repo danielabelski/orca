@@ -150,8 +150,21 @@ export default function Landing(): React.JSX.Element {
   const repos = useAppStore((s) => s.repos)
   const openNewWorkspacePage = useAppStore((s) => s.openNewWorkspacePage)
   const openModal = useAppStore((s) => s.openModal)
+  const prefetchWorkItems = useAppStore((s) => s.prefetchWorkItems)
 
   const canCreateWorktree = repos.some((repo) => isGitRepoKind(repo))
+
+  // Why: warm the work-item cache on hover/focus so clicking "Create Worktree"
+  // lands on a list that's already loaded.
+  const handlePrefetchNewWorkspace = (): void => {
+    if (!canCreateWorktree) {
+      return
+    }
+    const firstGit = repos.find((r) => isGitRepoKind(r))
+    if (firstGit?.path) {
+      prefetchWorkItems(firstGit.path)
+    }
+  }
 
   const [preflightIssues, setPreflightIssues] = useState<PreflightIssue[]>([])
 
@@ -249,6 +262,8 @@ export default function Landing(): React.JSX.Element {
               disabled={!canCreateWorktree}
               title={!canCreateWorktree ? 'Add a Git repo first' : undefined}
               onClick={() => openNewWorkspacePage()}
+              onPointerEnter={handlePrefetchNewWorkspace}
+              onFocus={handlePrefetchNewWorkspace}
             >
               <GitBranchPlus className="size-3.5" />
               Create Worktree
