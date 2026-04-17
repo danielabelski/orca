@@ -23,7 +23,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
 
       - name: Setup pnpm via corepack
         run: |
@@ -31,29 +30,35 @@ jobs:
           corepack prepare pnpm@10.24.0 --activate
           pnpm --version
 
-      - name: Normalize node-gyp launcher perms
-        # pnpm's bundled node-gyp/gyp/gyp_main.py may lack +x, which causes
-        # make's "Regenerating Makefile" action to fail with Permission denied
-        # when concurrent native builds (node-pty, cpu-features) race on the
-        # shared header cache and trigger Makefile re-generation.
+      - name: Install dependencies
+        # Why: the flaky failure happens while pnpm is materializing its own
+        # bundled node-gyp launcher for this job. Normalizing execute bits only
+        # on pre-existing cache entries can miss the file that the failing run
+        # actually uses, so retry once after chmod'ing the launcher paths that
+        # now exist in this workspace.
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t GYP_MAIN_FILES < <(
-            find "$HOME/.cache" "$HOME/.local/share" -path '*/node-gyp/gyp/gyp_main.py' -type f 2>/dev/null
-          )
-          if [ "${#GYP_MAIN_FILES[@]}" -eq 0 ]; then
-            echo "No cached gyp_main.py found before install; continuing"
+          if pnpm install --frozen-lockfile; then
             exit 0
           fi
-          for gyp_main in "${GYP_MAIN_FILES[@]}"; do
-            ls -l "$gyp_main"
-            chmod +x "$gyp_main"
-            ls -l "$gyp_main"
-          done
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          echo "pnpm install failed; normalizing gyp_main.py permissions before one retry"
+          mapfile -t GYP_MAIN_FILES < <(
+            find "$GITHUB_WORKSPACE/node_modules" "$HOME/.cache" "$HOME/.local/share" \
+              -path '*/node-gyp/gyp/gyp_main.py' -type f 2>/dev/null
+          )
+          if [ "${#GYP_MAIN_FILES[@]}" -eq 0 ]; then
+            echo "No gyp_main.py files found after failed install"
+          else
+            for gyp_main in "${GYP_MAIN_FILES[@]}"; do
+              ls -l "$gyp_main"
+              chmod +x "$gyp_main"
+              ls -l "$gyp_main"
+            done
+          fi
+
+          pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm exec oxlint --format github
