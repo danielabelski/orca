@@ -139,12 +139,15 @@ function isDaemonProcess(pid: number): boolean {
   }
 
   if (process.platform === 'win32') {
-    // Why: Windows named pipe ownership already gates whether the new
-    // daemon can bind. If the old process isn't our daemon, the pipe
-    // name won't conflict and no kill is needed. If it IS our daemon,
-    // the pipe name matches and we need to kill it. WMIC/tasklist
-    // checks are fragile and slow — accept the small risk.
-    return true
+    try {
+      const output = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf-8',
+        timeout: 3000
+      })
+      return output.includes('node') || output.includes('Electron') || output.includes('orca')
+    } catch {
+      return false
+    }
   }
 
   try {
