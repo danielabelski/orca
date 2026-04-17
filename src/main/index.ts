@@ -155,7 +155,12 @@ app.whenReady().then(async () => {
   // Why: daemon must start before openMainWindow because registerPtyHandlers
   // (called inside) relies on the provider already being set. Starting it
   // alongside the other parallel servers keeps cold-start latency flat.
-  await initDaemonPtyProvider()
+  // Why: catch so the app still opens even if the daemon fails. The local
+  // PTY provider remains as the fallback — terminals will still work, just
+  // without cross-restart persistence.
+  await initDaemonPtyProvider().catch((error) => {
+    console.error('[daemon] Failed to start daemon PTY provider, falling back to local:', error)
+  })
 
   // Why: both server binds are independent and neither blocks window creation.
   // Parallelizing them with the window open shaves ~100-200ms off cold start.
