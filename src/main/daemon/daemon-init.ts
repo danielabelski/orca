@@ -8,7 +8,7 @@ import { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { setLocalPtyProvider } from '../ipc/pty'
 import { PROTOCOL_VERSION } from './types'
 import { encodeNdjson } from './ndjson'
-import type { HelloMessage, HelloResponse, RpcResponse } from './types'
+import type { HelloMessage, HelloResponse } from './types'
 
 let spawner: DaemonSpawner | null = null
 let adapter: DaemonPtyAdapter | null = null
@@ -112,7 +112,10 @@ function healthCheckDaemon(socketPath: string, tokenPath: string): Promise<boole
           if (msg.id === 'health-1') {
             clearTimeout(timer)
             sock.destroy()
-            resolve((msg as RpcResponse).ok === true)
+            // Why: treat any coherent RPC response as healthy, even
+            // { ok: false } from an older daemon that doesn't know "ping".
+            // The daemon parsed, routed, and replied — it's alive.
+            resolve(msg.id !== undefined)
             return
           }
         }
@@ -121,34 +124,63 @@ function healthCheckDaemon(socketPath: string, tokenPath: string): Promise<boole
   })
 }
 
-// Why: sends SIGTERM to whatever process is listening on the socket, then
-// removes the stale socket file. Used when the health check detects a
-// broken daemon that needs to be replaced.
-async function killStaleDaemon(socketPath: string): Promise<void> {
+// Why: asks the stale daemon to shut down gracefully via an authenticated
+// shutdown RPC, then removes the socket file. If the daemon is unresponsive
+// (the reason we're killing it), the timeout ensures we don't block forever
+// and the socket removal lets a new daemon bind regardless.
+async function killStaleDaemon(socketPath: string, tokenPath: string): Promise<void> {
   try {
-    // Why: connect and send a shutdown request so the daemon cleans up
-    // gracefully. If this fails, the socket removal below still lets a
-    // new daemon bind.
+    let token: string
+    try {
+      token = readFileSync(tokenPath, 'utf-8').trim()
+    } catch {
+      // No token file — daemon can't be authenticated, just clean socket
+      removeStaleDaemonSocket(socketPath)
+      return
+    }
+
     const sock = connect({ path: socketPath })
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         sock.destroy()
         resolve()
-      }, 1000)
-      sock.on('connect', () => {
-        sock.destroy()
-        clearTimeout(timer)
-        resolve()
-      })
+      }, 2000)
+
       sock.on('error', () => {
         clearTimeout(timer)
         resolve()
+      })
+
+      sock.on('connect', () => {
+        const hello: HelloMessage = {
+          type: 'hello',
+          version: PROTOCOL_VERSION,
+          token,
+          clientId: 'shutdown-probe',
+          role: 'control'
+        }
+        sock.write(encodeNdjson(hello))
+        sock.write(
+          encodeNdjson({ id: 'shutdown-1', type: 'shutdown', payload: { killSessions: false } })
+        )
+        // Why: give the daemon a moment to process the shutdown before
+        // tearing down the connection. The daemon calls process.nextTick
+        // on shutdown, so a small delay lets it start cleanup.
+        setTimeout(() => {
+          clearTimeout(timer)
+          sock.destroy()
+          resolve()
+        }, 500)
       })
     })
   } catch {
     // Best-effort
   }
 
+  removeStaleDaemonSocket(socketPath)
+}
+
+function removeStaleDaemonSocket(socketPath: string): void {
   if (process.platform !== 'win32' && existsSync(socketPath)) {
     try {
       unlinkSync(socketPath)
@@ -169,7 +201,7 @@ function createOutOfProcessLauncher(): DaemonLauncher {
 
     // Why: health check failed — either no daemon, crashed daemon with
     // stale socket, or alive-but-broken daemon. Clean up before spawning.
-    await killStaleDaemon(socketPath)
+    await killStaleDaemon(socketPath, tokenPath)
 
     const entryPath = getDaemonEntryPath()
     const child = fork(entryPath, ['--socket', socketPath, '--token', tokenPath], {
