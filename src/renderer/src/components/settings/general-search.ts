@@ -77,7 +77,17 @@ export const GENERAL_AGENT_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   {
     title: 'Default Agent',
     description: 'Pre-select an AI coding agent in the new-workspace composer.',
-    keywords: ['agent', 'default', 'claude', 'codex', 'opencode', 'pi', 'gemini', 'aider']
+    keywords: [
+      'agent',
+      'default',
+      'claude',
+      'codex',
+      'copilot',
+      'opencode',
+      'pi',
+      'gemini',
+      'aider'
+    ]
   }
 ]
 

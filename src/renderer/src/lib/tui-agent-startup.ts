@@ -55,6 +55,14 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
+  if (config.promptInjectionMode === 'flag-interactive') {
+    return {
+      launchCommand: `${baseCommand} -i ${quotedPrompt}`,
+      expectedProcess: config.expectedProcess,
+      followupPrompt: null
+    }
+  }
+
   return {
     launchCommand: baseCommand,
     expectedProcess: config.expectedProcess,

@@ -77,7 +77,7 @@ describe('buildAgentStartupPlan', () => {
     })
   })
 
-  it('passes Copilot prompts with the --prompt flag', () => {
+  it('launches Copilot in interactive mode so the TUI stays alive', () => {
     expect(
       buildAgentStartupPlan({
         agent: 'copilot',
@@ -86,7 +86,7 @@ describe('buildAgentStartupPlan', () => {
         platform: 'darwin'
       })
     ).toEqual({
-      launchCommand: "copilot --prompt 'Fix the bug'",
+      launchCommand: "copilot -i 'Fix the bug'",
       expectedProcess: 'copilot',
       followupPrompt: null
     })

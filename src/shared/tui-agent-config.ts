@@ -4,6 +4,7 @@ export type AgentPromptInjectionMode =
   | 'argv'
   | 'flag-prompt'
   | 'flag-prompt-interactive'
+  | 'flag-interactive'
   | 'stdin-after-start'
 
 export type TuiAgentConfig = {
@@ -156,6 +157,10 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     detectCmd: 'copilot',
     launchCmd: 'copilot',
     expectedProcess: 'copilot',
-    promptInjectionMode: 'flag-prompt'
+    // Why: `copilot --prompt <text>` runs non-interactively and exits on
+    // completion, which would kill the TUI session Orca is hosting. The
+    // `-i/--interactive <prompt>` flag starts an interactive session with the
+    // initial prompt pre-executed — the behavior Orca needs.
+    promptInjectionMode: 'flag-interactive'
   }
 }
