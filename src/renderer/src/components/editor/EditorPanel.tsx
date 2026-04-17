@@ -215,9 +215,25 @@ function EditorPanelInner({
     async (filePath: string, id: string, worktreeId?: string): Promise<void> => {
       try {
         const connectionId = getConnectionId(worktreeId ?? null) ?? undefined
+        console.log('[ext-fs] loadFileContent start', { id, filePath })
         const result = (await window.api.fs.readFile({ filePath, connectionId })) as FileContent
-        setFileContents((prev) => ({ ...prev, [id]: result }))
+        console.log('[ext-fs] loadFileContent result', {
+          id,
+          filePath,
+          isBinary: result.isBinary,
+          contentLength: typeof result.content === 'string' ? result.content.length : 'non-string',
+          contentPreview:
+            typeof result.content === 'string' ? result.content.slice(0, 80) : '<non-string>'
+        })
+        setFileContents((prev) => {
+          const prevLen =
+            typeof prev[id]?.content === 'string' ? (prev[id]!.content as string).length : 'none'
+          const nextLen = typeof result.content === 'string' ? result.content.length : 'non-string'
+          console.log('[ext-fs] setFileContents applying', { id, prevLen, nextLen })
+          return { ...prev, [id]: result }
+        })
       } catch (err) {
+        console.log('[ext-fs] loadFileContent error', { id, filePath, err: String(err) })
         setFileContents((prev) => ({
           ...prev,
           [id]: { content: `Error loading file: ${err}`, isBinary: false }
@@ -363,11 +379,28 @@ function EditorPanelInner({
   useEffect(() => {
     const handler = (event: Event): void => {
       const detail = (event as CustomEvent<EditorPathMutationTarget>).detail
+      console.log('[ext-fs] EditorPanel received EXTERNAL_FILE_CHANGE event', detail)
       if (!detail) {
         return
       }
 
       const matchingFiles = getOpenFilesForExternalFileChange(openFilesRef.current, detail)
+      console.log('[ext-fs] EditorPanel matchingFiles', {
+        detail,
+        matchingFiles: matchingFiles.map((f) => ({
+          id: f.id,
+          mode: f.mode,
+          filePath: 'filePath' in f ? f.filePath : undefined,
+          relativePath: f.relativePath
+        })),
+        allOpenFiles: openFilesRef.current.map((f) => ({
+          id: f.id,
+          mode: f.mode,
+          worktreeId: f.worktreeId,
+          filePath: 'filePath' in f ? f.filePath : undefined,
+          relativePath: f.relativePath
+        }))
+      })
       if (matchingFiles.length === 0) {
         return
       }
@@ -392,12 +425,20 @@ function EditorPanelInner({
 
       for (const file of matchingFiles) {
         if (file.mode === 'edit') {
+          console.log('[ext-fs] EditorPanel reloading edit file', {
+            id: file.id,
+            filePath: file.filePath
+          })
           void loadFileContent(file.filePath, file.id, file.worktreeId)
         } else if (
           file.mode === 'diff' &&
           file.diffSource !== 'combined-uncommitted' &&
           file.diffSource !== 'combined-branch'
         ) {
+          console.log('[ext-fs] EditorPanel reloading diff file', {
+            id: file.id,
+            relativePath: file.relativePath
+          })
           void loadDiffContent(file)
         }
       }

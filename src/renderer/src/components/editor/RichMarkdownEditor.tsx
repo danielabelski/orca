@@ -490,7 +490,11 @@ export default function RichMarkdownEditor({
     normalizeSoftBreaks(editor)
     lastCommittedMarkdownRef.current = content
     syncSlashMenu(editor, rootRef.current, setSlashMenu)
-  }, [content, editor])
+    // Why: fileId is part of the dep array so switching between files (where
+    // content can coincidentally match what was last committed for the prior
+    // file) still triggers the content-sync path and prevents cross-file
+    // drift from the renderer's draft cache.
+  }, [content, editor, fileId])
 
   return (
     <div

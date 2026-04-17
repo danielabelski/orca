@@ -27,6 +27,7 @@ import { UpdateCard } from './components/UpdateCard'
 import { ZoomOverlay } from './components/ZoomOverlay'
 import { SshPassphraseDialog } from './components/settings/SshPassphraseDialog'
 import { useGitStatusPolling } from './components/right-sidebar/useGitStatusPolling'
+import { useEditorExternalWatch } from './hooks/useEditorExternalWatch'
 import {
   setRuntimeGraphStoreStateGetter,
   setRuntimeGraphSyncEnabled
@@ -137,6 +138,13 @@ function App(): React.JSX.Element {
   // sidebar is closed, which leaves stale "Rebasing"/"Merging" badges behind
   // until some unrelated view remount happens to refresh them.
   useGitStatusPolling()
+  // Why: the editor must hear external filesystem changes regardless of
+  // which right-sidebar panel is visible (Explorer unmounts when the user
+  // switches to Source Control or Checks). Wiring this at App level mirrors
+  // VSCode's workbench-scoped `TextFileEditorModelManager`, which reloads
+  // clean models from a single always-on file-change subscription instead
+  // of tying reloads to the Explorer UI lifecycle.
+  useEditorExternalWatch()
   useGlobalFileDrop()
 
   // Fetch initial data + hydrate GitHub cache from disk

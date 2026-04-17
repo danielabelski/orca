@@ -6,12 +6,6 @@ import type { InlineInput } from './FileExplorerRow'
 import { normalizeRelativePath } from '@/lib/path'
 import { normalizeAbsolutePath } from './file-explorer-paths'
 import { dirname } from '@/lib/path'
-import { getConnectionId } from '@/lib/connection-context'
-import { useAppStore } from '@/store'
-import {
-  getOpenFilesForExternalFileChange,
-  notifyEditorExternalFileChange
-} from '../editor/editor-autosave'
 import {
   purgeDirCacheSubtree,
   purgeExpandedDirsSubtree,
@@ -63,11 +57,14 @@ export function getExternalFileChangeRelativePath(
 }
 
 /**
- * Subscribes to filesystem watcher events for the active worktree and
- * reconciles File Explorer state on external changes.
+ * Reconciles File Explorer state on filesystem events for the active worktree.
  *
- * Why: the renderer must explicitly tell main which worktree to watch
- * because activeWorktreeId is renderer-local Zustand state (design §4.2).
+ * Why: `useEditorExternalWatch` (invoked once from App.tsx) owns the
+ * `watchWorktree` / `unwatchWorktree` IPC lifecycle so editor reloads keep
+ * firing even when the Explorer panel is unmounted (user switched to Source
+ * Control, Checks, or Search). This hook just subscribes to the shared
+ * `fs:changed` stream and filters to the active worktree for tree-cache
+ * reconciliation.
  */
 export function useFileExplorerWatch({
   worktreePath,
@@ -113,10 +110,10 @@ export function useFileExplorerWatch({
   const deferredRef = useRef<FsChangedPayload[]>([])
 
   // Why: the flush effect (below) lives outside the subscribe effect that
-  // owns `processPayload`, but it still needs to replay deferred payloads to
-  // preserve `notifyEditorExternalFileChange` semantics (design §6.2). A ref
-  // bridges the two effects without tearing the subscription down on every
-  // render.
+  // owns `processPayload`, but it needs to replay deferred payloads so the
+  // tree-cache reconciliation (design §6.2) converges on disk reality even
+  // when events arrived during inline input or drag. A ref bridges the two
+  // effects without tearing the subscription down on every render.
   const processPayloadRef = useRef<((payload: FsChangedPayload) => void) | null>(null)
 
   // ── Subscribe, process events, and unsubscribe in one atomic effect ──
@@ -132,9 +129,6 @@ export function useFileExplorerWatch({
     }
 
     const currentWorktreePath = worktreePath
-
-    const connectionId = getConnectionId(activeWorktreeId ?? null) ?? undefined
-    void window.api.fs.watchWorktree({ worktreePath, connectionId })
 
     function processPayload(payload: FsChangedPayload): void {
       // Why: during rapid worktree switches, in-flight batched events from
@@ -156,16 +150,10 @@ export function useFileExplorerWatch({
 
       // Collect directories that need refreshing
       const dirsToRefresh = new Set<string>()
-      const changedFiles = new Set<string>()
       let needsFullRefresh = false
 
       for (const evt of payload.events) {
         const normalizedPath = normalizeAbsolutePath(evt.absolutePath)
-        const externalFileChangeRelativePath = getExternalFileChangeRelativePath(
-          currentWorktreePath,
-          normalizedPath,
-          evt.isDirectory
-        )
 
         if (evt.kind === 'overflow') {
           needsFullRefresh = true
@@ -207,22 +195,11 @@ export function useFileExplorerWatch({
           if (parent in cache) {
             dirsToRefresh.add(parent)
           }
-          // Why: watcher delete events arrive with `isDirectory=undefined`
-          // because the path is gone, so `getExternalFileChangeRelativePath`
-          // cannot filter out directory deletes on its own. Use the dirCache-
-          // inferred `wasDirectory` signal here to avoid notifying the editor
-          // about directory deletions, which are not file changes.
-          if (!wasDirectory && externalFileChangeRelativePath) {
-            changedFiles.add(externalFileChangeRelativePath)
-          }
         } else if (evt.kind === 'create') {
           // Invalidate the parent directory
           const parent = normalizeAbsolutePath(dirname(normalizedPath))
           if (parent in cache) {
             dirsToRefresh.add(parent)
-          }
-          if (externalFileChangeRelativePath) {
-            changedFiles.add(externalFileChangeRelativePath)
           }
         } else if (evt.kind === 'update') {
           // Why: directory update events invalidate that directory. File-content
@@ -231,8 +208,6 @@ export function useFileExplorerWatch({
             if (normalizedPath in cache) {
               dirsToRefresh.add(normalizedPath)
             }
-          } else if (externalFileChangeRelativePath) {
-            changedFiles.add(externalFileChangeRelativePath)
           }
         }
         // 'rename' is deferred to v2 (design §5.3)
@@ -241,29 +216,6 @@ export function useFileExplorerWatch({
       if (needsFullRefresh) {
         void refreshTreeRef.current()
         return
-      }
-
-      // Why: the autosave controller responds to this event by clearing
-      // drafts and marking matching tabs clean. If any matching tab has
-      // unsaved edits, emitting here would silently destroy the user's
-      // work when an external process (terminal edit, formatter, watcher
-      // replay) rewrites the file on disk. Skip the notification for any
-      // path whose open tab is dirty so unsaved edits are preserved —
-      // mirroring the explicit `!existingOpenFile.isDirty` guard in
-      // `useFileExplorerHandlers`. Reading `openFiles` once before the
-      // loop avoids N separate store reads for large batched payloads.
-      const openFiles = useAppStore.getState().openFiles
-      for (const relativePath of changedFiles) {
-        const target = {
-          worktreeId: wtId,
-          worktreePath: currentWorktreePath,
-          relativePath
-        }
-        const matchingFiles = getOpenFilesForExternalFileChange(openFiles, target)
-        if (matchingFiles.some((file) => file.isDirty)) {
-          continue
-        }
-        notifyEditorExternalFileChange(target)
       }
 
       // Only refresh directories that are already loaded (in cache) and are
@@ -300,7 +252,6 @@ export function useFileExplorerWatch({
 
     return () => {
       unsubscribeListener()
-      void window.api.fs.unwatchWorktree({ worktreePath, connectionId })
       deferredRef.current = []
       processPayloadRef.current = null
     }
@@ -310,11 +261,11 @@ export function useFileExplorerWatch({
   useEffect(() => {
     if (inlineInput === null && dragSourcePath === null && deferredRef.current.length > 0) {
       const deferred = deferredRef.current.splice(0)
-      // Why: replay every deferred payload through `processPayload` so that
-      // `notifyEditorExternalFileChange` still fires for external edits that
-      // landed during inline input or drag (design §6.2). Simply refreshing
-      // the tree would re-read directory entries but leave open editor tabs
-      // showing stale content — defeating the entire point of deferring.
+      // Why: replay every deferred payload through `processPayload` so the
+      // tree cache reconciles to disk state after inline input or drag ends
+      // (design §6.2). Editor-tab reloads are handled independently by
+      // `useEditorExternalWatch`, which listens to the same fs:changed
+      // stream at App-level and is not affected by Explorer deferral.
       if (processPayloadRef.current) {
         for (const payload of deferred) {
           processPayloadRef.current(payload)
