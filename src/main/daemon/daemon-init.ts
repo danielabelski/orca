@@ -1,7 +1,7 @@
 import { join } from 'path'
 import { app } from 'electron'
 import { mkdirSync, existsSync, unlinkSync, readFileSync, writeFileSync } from 'fs'
-import { fork } from 'child_process'
+import { fork, execFileSync } from 'child_process'
 import { connect, type Socket } from 'net'
 import { DaemonSpawner, getDaemonPidPath, type DaemonLauncher } from './daemon-spawner'
 import { DaemonPtyAdapter } from './daemon-pty-adapter'
@@ -133,29 +133,36 @@ function healthCheckDaemon(socketPath: string, tokenPath: string): Promise<boole
 // that reused the PID.
 function isDaemonProcess(pid: number): boolean {
   try {
-    // Why: process.kill(pid, 0) throws if the process doesn't exist,
-    // but doesn't actually send a signal. If it succeeds, the process
-    // is alive — but could be unrelated. On macOS/Linux we can check
-    // the command line; on Windows we can't easily, so we accept the
-    // risk since named pipe ownership already gates correctness.
     process.kill(pid, 0)
   } catch {
     return false
   }
 
   if (process.platform === 'win32') {
+    // Why: Windows named pipe ownership already gates whether the new
+    // daemon can bind. If the old process isn't our daemon, the pipe
+    // name won't conflict and no kill is needed. If it IS our daemon,
+    // the pipe name matches and we need to kill it. WMIC/tasklist
+    // checks are fragile and slow — accept the small risk.
     return true
   }
 
   try {
+    // Why: /proc exists on Linux but not macOS. Check command line
+    // to confirm this PID is actually running daemon-entry.
     const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
     return cmdline.includes('daemon-entry')
   } catch {
-    // Why: macOS doesn't have /proc. Fall back to checking if the socket
-    // is still owned by a listening process — if the PID file exists and
-    // the process is alive, it's likely our daemon since PIDs are recycled
-    // slowly on macOS.
-    return true
+    // macOS: use ps to check the process command
+    try {
+      const output = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+        encoding: 'utf-8',
+        timeout: 2000
+      })
+      return output.includes('daemon-entry')
+    } catch {
+      return false
+    }
   }
 }
 
@@ -330,4 +337,10 @@ export async function shutdownDaemon(): Promise<void> {
   adapter = null
   await spawner?.shutdown()
   spawner = null
+
+  try {
+    unlinkSync(getDaemonPidPath(getRuntimeDir()))
+  } catch {
+    // Best-effort — PID file may not exist
+  }
 }
