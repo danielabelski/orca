@@ -242,7 +242,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   const [issueCommandTemplate, setIssueCommandTemplate] = useState('')
   const [hasLoadedIssueCommand, setHasLoadedIssueCommand] = useState(false)
   const [setupDecision, setSetupDecision] = useState<'run' | 'skip' | null>(null)
-  const [runIssueAutomation, setRunIssueAutomation] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(
@@ -277,7 +276,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   const setupPolicy: SetupRunPolicy = selectedRepo?.hookSettings?.setupRunPolicy ?? 'run-by-default'
   const hasIssueAutomationConfig = issueCommandTemplate.length > 0
   const canOfferIssueAutomation = parsedLinkedIssueNumber !== null && hasIssueAutomationConfig
-  const shouldRunIssueAutomation = canOfferIssueAutomation && runIssueAutomation
+  const shouldRunIssueAutomation = canOfferIssueAutomation
   const shouldWaitForIssueAutomationCheck =
     parsedLinkedIssueNumber !== null && !hasLoadedIssueCommand
   const requiresExplicitSetupChoice = Boolean(setupConfig) && setupPolicy === 'ask'
@@ -491,14 +490,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     }
     setSetupDecision(setupPolicy === 'run-by-default' ? 'run' : 'skip')
   }, [setupConfig, setupPolicy, shouldWaitForSetupCheck])
-
-  useEffect(() => {
-    if (!canOfferIssueAutomation) {
-      setRunIssueAutomation(false)
-      return
-    }
-    setRunIssueAutomation(true)
-  }, [canOfferIssueAutomation])
 
   // Link popover: debounce + load recent items + resolve direct number.
   useEffect(() => {
