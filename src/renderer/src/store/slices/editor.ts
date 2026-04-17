@@ -894,13 +894,28 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     }),
 
   markFileDirty: (fileId, dirty) =>
-    set((s) => ({
-      openFiles: s.openFiles.map((f) =>
-        f.id === fileId
-          ? { ...f, isDirty: dirty, ...(dirty && f.isPreview ? { isPreview: undefined } : {}) }
-          : f
-      )
-    })),
+    set((s) => {
+      // Why: typing fires this on every keystroke. Rebuilding openFiles
+      // unconditionally thrashes every subscriber (EditorPanel → EditorContent
+      // → MonacoEditor re-renders) and produced visible typing lag. Bail out
+      // when the dirty bit is already the target value and the preview-promote
+      // side effect is a no-op.
+      const file = s.openFiles.find((f) => f.id === fileId)
+      if (!file) {
+        return s
+      }
+      const needsPreviewClear = dirty && file.isPreview
+      if (file.isDirty === dirty && !needsPreviewClear) {
+        return s
+      }
+      return {
+        openFiles: s.openFiles.map((f) =>
+          f.id === fileId
+            ? { ...f, isDirty: dirty, ...(needsPreviewClear ? { isPreview: undefined } : {}) }
+            : f
+        )
+      }
+    }),
 
   clearUntitled: (fileId) =>
     set((s) => ({
