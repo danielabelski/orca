@@ -1,11 +1,14 @@
 import { join } from 'path'
 import { app } from 'electron'
-import { mkdirSync, existsSync, unlinkSync } from 'fs'
+import { mkdirSync, existsSync, unlinkSync, readFileSync } from 'fs'
 import { fork } from 'child_process'
-import { connect } from 'net'
+import { connect, type Socket } from 'net'
 import { DaemonSpawner, type DaemonLauncher } from './daemon-spawner'
 import { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { setLocalPtyProvider } from '../ipc/pty'
+import { PROTOCOL_VERSION } from './types'
+import { encodeNdjson } from './ndjson'
+import type { HelloMessage, HelloResponse, RpcResponse } from './types'
 
 let spawner: DaemonSpawner | null = null
 let adapter: DaemonPtyAdapter | null = null
@@ -31,46 +34,142 @@ function getDaemonEntryPath(): string {
   return join(basePath, 'out', 'main', 'daemon-entry.js')
 }
 
-// Why: before spawning a new daemon, check if an existing one is alive by
-// attempting a TCP connection to the socket. If it connects, the daemon
-// survived from a previous app session — reuse it instead of spawning.
-function probeSocket(socketPath: string): Promise<boolean> {
+const HEALTH_CHECK_TIMEOUT_MS = 3000
+
+// Why: a raw TCP connect (the old probeSocket) only proves the socket is
+// listening — it cannot detect a daemon that accepted connections but is
+// otherwise broken (hung, corrupt state, stale binary). A full protocol-level
+// health check (connect → hello → ping RPC) confirms the daemon can actually
+// process requests. If it fails, the caller kills and respawns rather than
+// handing a broken daemon to the rest of the app.
+function healthCheckDaemon(socketPath: string, tokenPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     if (process.platform !== 'win32' && !existsSync(socketPath)) {
       resolve(false)
       return
     }
-    const sock = connect({ path: socketPath })
+
+    let token: string
+    try {
+      token = readFileSync(tokenPath, 'utf-8').trim()
+    } catch {
+      resolve(false)
+      return
+    }
+
     const timer = setTimeout(() => {
       sock.destroy()
       resolve(false)
-    }, 1000)
-    sock.on('connect', () => {
+    }, HEALTH_CHECK_TIMEOUT_MS)
+
+    const fail = (): void => {
       clearTimeout(timer)
       sock.destroy()
-      resolve(true)
-    })
-    sock.on('error', () => {
-      clearTimeout(timer)
       resolve(false)
+    }
+
+    const sock: Socket = connect({ path: socketPath })
+    sock.on('error', fail)
+
+    sock.on('connect', () => {
+      const hello: HelloMessage = {
+        type: 'hello',
+        version: PROTOCOL_VERSION,
+        token,
+        clientId: 'health-check',
+        role: 'control'
+      }
+      sock.write(encodeNdjson(hello))
+
+      let buffer = ''
+      sock.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString()
+        let newlineIdx: number
+        while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIdx)
+          buffer = buffer.slice(newlineIdx + 1)
+          if (line.length === 0) {
+            continue
+          }
+
+          let msg: Record<string, unknown>
+          try {
+            msg = JSON.parse(line) as Record<string, unknown>
+          } catch {
+            fail()
+            return
+          }
+
+          if (msg.type === 'hello') {
+            if (!(msg as HelloResponse).ok) {
+              fail()
+              return
+            }
+            sock.write(encodeNdjson({ id: 'health-1', type: 'ping' }))
+            continue
+          }
+
+          if (msg.id === 'health-1') {
+            clearTimeout(timer)
+            sock.destroy()
+            resolve((msg as RpcResponse).ok === true)
+            return
+          }
+        }
+      })
     })
   })
 }
 
+// Why: sends SIGTERM to whatever process is listening on the socket, then
+// removes the stale socket file. Used when the health check detects a
+// broken daemon that needs to be replaced.
+async function killStaleDaemon(socketPath: string): Promise<void> {
+  try {
+    // Why: connect and send a shutdown request so the daemon cleans up
+    // gracefully. If this fails, the socket removal below still lets a
+    // new daemon bind.
+    const sock = connect({ path: socketPath })
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        sock.destroy()
+        resolve()
+      }, 1000)
+      sock.on('connect', () => {
+        sock.destroy()
+        clearTimeout(timer)
+        resolve()
+      })
+      sock.on('error', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  } catch {
+    // Best-effort
+  }
+
+  if (process.platform !== 'win32' && existsSync(socketPath)) {
+    try {
+      unlinkSync(socketPath)
+    } catch {
+      // Best-effort
+    }
+  }
+}
+
 function createOutOfProcessLauncher(): DaemonLauncher {
   return async (socketPath, tokenPath) => {
-    const alive = await probeSocket(socketPath)
-    if (alive) {
-      // Why: daemon is already running from a previous app session.
-      // No new process to manage — return a no-op shutdown handle.
+    const healthy = await healthCheckDaemon(socketPath, tokenPath)
+    if (healthy) {
+      // Why: daemon is already running from a previous app session and
+      // responded to a full protocol-level ping. Safe to reuse.
       return { shutdown: async () => {} }
     }
 
-    // Why: stale socket file from a crashed daemon blocks the new server
-    // from binding. Remove it before spawning.
-    if (process.platform !== 'win32' && existsSync(socketPath)) {
-      unlinkSync(socketPath)
-    }
+    // Why: health check failed — either no daemon, crashed daemon with
+    // stale socket, or alive-but-broken daemon. Clean up before spawning.
+    await killStaleDaemon(socketPath)
 
     const entryPath = getDaemonEntryPath()
     const child = fork(entryPath, ['--socket', socketPath, '--token', tokenPath], {

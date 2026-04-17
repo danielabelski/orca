@@ -141,6 +141,11 @@ export type ShutdownRequest = {
   }
 }
 
+export type PingRequest = {
+  id: string
+  type: 'ping'
+}
+
 export type DaemonRequest =
   | CreateOrAttachRequest
   | CancelCreateOrAttachRequest
@@ -153,6 +158,7 @@ export type DaemonRequest =
   | GetCwdRequest
   | ClearScrollbackRequest
   | ShutdownRequest
+  | PingRequest
 
 // ─── RPC Responses (Daemon → Client, on control socket) ────────────
 
