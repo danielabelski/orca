@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- test suite covers config sync, login seeding, and fallback scenarios */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -118,6 +118,7 @@ function createManagedHome(rootDir: string, accountId: string, config = '', auth
 
 describe('CodexAccountService config sync', () => {
   beforeEach(() => {
+    vi.resetModules()
     vi.clearAllMocks()
     testState.userDataDir = mkdtempSync(join(tmpdir(), 'orca-codex-accounts-'))
     testState.fakeHomeDir = mkdtempSync(join(tmpdir(), 'orca-codex-home-'))
@@ -367,5 +368,189 @@ describe('CodexAccountService config sync', () => {
 
     expect(spawnMock).toHaveBeenCalledTimes(1)
     expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalledTimes(1)
+  })
+
+  it('deselects active account via selectAccount(null)', async () => {
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      '',
+      '{"account":"managed"}\n'
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'user@example.com',
+          managedHomePath,
+          providerAccountId: null,
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeCodexManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+    const rateLimits = createRateLimits()
+    const runtimeHome = createRuntimeHome()
+
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    const result = await service.selectAccount(null)
+
+    expect(result.activeAccountId).toBe(null)
+    expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalled()
+    expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalled()
+  })
+
+  it('removes an account and cleans up managed home', async () => {
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      '',
+      '{"account":"managed"}\n'
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'user@example.com',
+          managedHomePath,
+          providerAccountId: null,
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeCodexManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+    const rateLimits = createRateLimits()
+    const runtimeHome = createRuntimeHome()
+
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    const result = await service.removeAccount('account-1')
+
+    expect(result.accounts).toHaveLength(0)
+    expect(result.activeAccountId).toBe(null)
+    expect(existsSync(managedHomePath)).toBe(false)
+    expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalled()
+  })
+
+  it('lists accounts with normalizeActiveSelection', async () => {
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      '',
+      '{"account":"managed"}\n'
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'user@example.com',
+          managedHomePath,
+          providerAccountId: null,
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeCodexManagedAccountId: 'nonexistent-id'
+    })
+    const store = createStore(settings)
+    const rateLimits = createRateLimits()
+    const runtimeHome = createRuntimeHome()
+
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    const result = service.listAccounts()
+
+    expect(result.accounts).toHaveLength(1)
+    expect(result.activeAccountId).toBe(null)
+  })
+
+  it('rejects paths that escape the managed accounts root', async () => {
+    const settings = createSettings()
+    const store = createStore(settings)
+    const rateLimits = createRateLimits()
+    const runtimeHome = createRuntimeHome()
+
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    await expect(service.removeAccount('nonexistent')).rejects.toThrow('no longer exists')
+  })
+
+  it('serializes concurrent mutations', async () => {
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      '',
+      '{"account":"managed"}\n'
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'user@example.com',
+          managedHomePath,
+          providerAccountId: null,
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ]
+    })
+    const store = createStore(settings)
+    const callOrder: string[] = []
+    const rateLimits = {
+      refreshForCodexAccountChange: vi.fn(async () => {
+        callOrder.push('refresh')
+      })
+    }
+    const runtimeHome = createRuntimeHome()
+
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    const p1 = service.selectAccount('account-1')
+    const p2 = service.selectAccount(null)
+    await Promise.all([p1, p2])
+
+    expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalledTimes(2)
   })
 })

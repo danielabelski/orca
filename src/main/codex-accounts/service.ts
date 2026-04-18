@@ -3,15 +3,7 @@ account lifecycle, path safety, login, and identity parsing in one audited
 main-process module so the managed-account boundary stays explicit. */
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { app } from 'electron'
@@ -21,6 +13,7 @@ import type {
   CodexRateLimitAccountsState
 } from '../../shared/types'
 import type { CodexRuntimeHomeService } from './runtime-home-service'
+import { writeFileAtomically } from './fs-utils'
 import { resolveCodexCommand } from '../codex-cli/command'
 import type { Store } from '../persistence'
 import type { RateLimitService } from '../rate-limits/service'
@@ -41,6 +34,11 @@ type ResolvedCodexIdentity = {
 }
 
 export class CodexAccountService {
+  // Why: account mutations read settings, do async work (login, rate-limit
+  // refresh), then write settings. Without serialization, overlapping calls
+  // (e.g. double-click "Add Account") can cause lost updates.
+  private mutationQueue: Promise<unknown> = Promise.resolve()
+
   constructor(
     private readonly store: Store,
     private readonly rateLimits: RateLimitService,
@@ -49,12 +47,34 @@ export class CodexAccountService {
     this.safeSyncCanonicalConfigToManagedHomes()
   }
 
+  private serializeMutation<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutationQueue.then(fn, fn)
+    this.mutationQueue = next.catch(() => {})
+    return next
+  }
+
   listAccounts(): CodexRateLimitAccountsState {
     this.normalizeActiveSelection()
     return this.getSnapshot()
   }
 
   async addAccount(): Promise<CodexRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doAddAccount())
+  }
+
+  async reauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doReauthenticateAccount(accountId))
+  }
+
+  async removeAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doRemoveAccount(accountId))
+  }
+
+  async selectAccount(accountId: string | null): Promise<CodexRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doSelectAccount(accountId))
+  }
+
+  private async doAddAccount(): Promise<CodexRateLimitAccountsState> {
     const accountId = randomUUID()
     const managedHomePath = this.createManagedHome(accountId)
 
@@ -95,7 +115,7 @@ export class CodexAccountService {
     }
   }
 
-  async reauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
+  private async doReauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
     const account = this.requireAccount(accountId)
     const managedHomePath = this.assertManagedHomePath(account.managedHomePath)
 
@@ -134,7 +154,7 @@ export class CodexAccountService {
     return this.getSnapshot()
   }
 
-  async removeAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
+  private async doRemoveAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
     const account = this.requireAccount(accountId)
     const settings = this.store.getSettings()
     const nextAccounts = settings.codexManagedAccounts.filter((entry) => entry.id !== accountId)
@@ -154,7 +174,7 @@ export class CodexAccountService {
     return this.getSnapshot()
   }
 
-  async selectAccount(accountId: string | null): Promise<CodexRateLimitAccountsState> {
+  private async doSelectAccount(accountId: string | null): Promise<CodexRateLimitAccountsState> {
     if (accountId !== null) {
       this.requireAccount(accountId)
     }
@@ -287,39 +307,7 @@ export class CodexAccountService {
   }
 
   private writeManagedConfig(managedHomePath: string, contents: string): void {
-    const configPath = join(managedHomePath, 'config.toml')
-    const tmpPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
-    try {
-      writeFileSync(tmpPath, contents, 'utf-8')
-      this.renameWithRetry(tmpPath, configPath)
-    } catch (error) {
-      rmSync(tmpPath, { force: true })
-      throw error
-    }
-  }
-
-  // Why: on Windows, renameSync can fail with EPERM/EACCES if another process
-  // (antivirus, Codex CLI) holds the target file open. A short retry avoids
-  // transient failures without masking real permission errors.
-  private renameWithRetry(source: string, target: string): void {
-    const maxAttempts = process.platform === 'win32' ? 3 : 1
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        renameSync(source, target)
-        return
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (attempt < maxAttempts && (code === 'EPERM' || code === 'EACCES')) {
-          const delayMs = attempt * 50
-          const until = Date.now() + delayMs
-          while (Date.now() < until) {
-            /* busy-wait: setTimeout is async and this method must stay sync */
-          }
-          continue
-        }
-        throw error
-      }
-    }
+    writeFileAtomically(join(managedHomePath, 'config.toml'), contents)
   }
 
   private getManagedAccountsRoot(): string {
@@ -340,10 +328,7 @@ export class CodexAccountService {
     const canonicalRoot = realpathSync(resolvedRoot)
     const relativePath = relative(canonicalRoot, canonicalCandidate)
     const escaped =
-      relativePath === '' ||
-      relativePath === '.' ||
-      relativePath.startsWith('..') ||
-      relativePath.includes(`..${sep}`)
+      relativePath === '' || relativePath.startsWith('..') || relativePath.includes(`..${sep}`)
 
     if (escaped) {
       throw new Error('Managed Codex home escaped Orca account storage.')
@@ -366,6 +351,18 @@ export class CodexAccountService {
     }
 
     rmSync(managedHomePath, { recursive: true, force: true })
+
+    // Why: managed homes live at <accounts-root>/<uuid>/home. Removing
+    // just the home/ leaf leaves an empty <uuid>/ directory behind.
+    try {
+      const parentDir = resolve(managedHomePath, '..')
+      const root = this.getManagedAccountsRoot()
+      if (parentDir.startsWith(root) && parentDir !== root) {
+        rmSync(parentDir, { recursive: true, force: true })
+      }
+    } catch {
+      // Best-effort cleanup
+    }
   }
 
   private async runCodexLogin(managedHomePath: string): Promise<void> {

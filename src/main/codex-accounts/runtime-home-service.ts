@@ -8,16 +8,15 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
-  statSync,
-  writeFileSync
+  statSync
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, extname, join, parse, relative } from 'node:path'
 import { app } from 'electron'
 import type { CodexManagedAccount } from '../../shared/types'
 import type { Store } from '../persistence'
+import { writeFileAtomically } from './fs-utils'
 
 export class CodexRuntimeHomeService {
   constructor(private readonly store: Store) {
@@ -139,7 +138,7 @@ export class CodexRuntimeHomeService {
     // Why: migration is intentionally one-shot. Re-importing every startup
     // would keep replaying stale managed-home state back into ~/.codex and
     // make the shared runtime feel nondeterministic.
-    this.writeFileAtomically(
+    writeFileAtomically(
       this.getMigrationMarkerPath(),
       `${JSON.stringify({ completedAt: Date.now(), migratedHomeCount: managedHomes.length })}\n`
     )
@@ -188,7 +187,7 @@ export class CodexRuntimeHomeService {
     if (mergedLines.length === 0) {
       return
     }
-    this.writeFileAtomically(runtimeHistoryPath, `${mergedLines.join('\n')}\n`)
+    writeFileAtomically(runtimeHistoryPath, `${mergedLines.join('\n')}\n`)
   }
 
   private migrateLegacySessions(managedHomePath: string, accountId: string): void {
@@ -256,7 +255,7 @@ export class CodexRuntimeHomeService {
     const existingContents = existsSync(diagnosticsPath)
       ? readFileSync(diagnosticsPath, 'utf-8')
       : ''
-    this.writeFileAtomically(diagnosticsPath, `${existingContents}${JSON.stringify(record)}\n`)
+    writeFileAtomically(diagnosticsPath, `${existingContents}${JSON.stringify(record)}\n`)
   }
 
   private captureSystemDefaultSnapshotIfNeeded(): void {
@@ -270,7 +269,7 @@ export class CodexRuntimeHomeService {
       return
     }
 
-    this.writeFileAtomically(snapshotPath, readFileSync(runtimeAuthPath, 'utf-8'))
+    writeFileAtomically(snapshotPath, readFileSync(runtimeAuthPath, 'utf-8'))
   }
 
   private restoreSystemDefaultSnapshot(): void {
@@ -285,46 +284,7 @@ export class CodexRuntimeHomeService {
   private writeRuntimeAuth(contents: string): void {
     // Why: auth.json contains sensitive credentials. Restrict to owner-only
     // so other users on a shared Linux/macOS machine cannot read it.
-    this.writeFileAtomically(this.getRuntimeAuthPath(), contents, { mode: 0o600 })
-  }
-
-  private writeFileAtomically(
-    targetPath: string,
-    contents: string,
-    options?: { mode?: number }
-  ): void {
-    const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`
-    try {
-      writeFileSync(tmpPath, contents, { encoding: 'utf-8', mode: options?.mode })
-      this.renameWithRetry(tmpPath, targetPath)
-    } catch (error) {
-      rmSync(tmpPath, { force: true })
-      throw error
-    }
-  }
-
-  // Why: on Windows, renameSync can fail with EPERM/EACCES if another process
-  // (antivirus, Codex CLI) holds the target file open. A short retry avoids
-  // transient failures without masking real permission errors.
-  private renameWithRetry(source: string, target: string): void {
-    const maxAttempts = process.platform === 'win32' ? 3 : 1
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        renameSync(source, target)
-        return
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (attempt < maxAttempts && (code === 'EPERM' || code === 'EACCES')) {
-          const delayMs = attempt * 50
-          const until = Date.now() + delayMs
-          while (Date.now() < until) {
-            /* busy-wait: setTimeout is async and this method must stay sync */
-          }
-          continue
-        }
-        throw error
-      }
-    }
+    writeFileAtomically(this.getRuntimeAuthPath(), contents, { mode: 0o600 })
   }
 
   clearSystemDefaultSnapshot(): void {
