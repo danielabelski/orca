@@ -529,6 +529,27 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // side-effects limited to unread clearing; true activity signals such as
       // PTY lifecycle and explicit edits still flow through bumpWorktreeActivity.
       const metaUpdates: Partial<WorktreeMeta> = shouldClearUnread ? { isUnread: false } : {}
+
+      // Why: the generation bump for dead-PTY tabs MUST happen in the same
+      // set() as the activation. Two separate set() calls let React/Zustand
+      // render the old (dead-transport) TerminalPane as visible for one frame
+      // before the generation bump unmounts it — that intermediate render
+      // resumes the pane with a transport stuck at connected=false/ptyId=null,
+      // and user input is silently dropped.
+      const tabs = s.tabsByWorktree[worktreeId ?? ''] ?? []
+      const allDead = worktreeId && tabs.length > 0 && tabs.every((tab) => !tab.ptyId)
+      const tabsByWorktreeUpdate = allDead
+        ? {
+            tabsByWorktree: {
+              ...s.tabsByWorktree,
+              [worktreeId!]: tabs.map((tab) => ({
+                ...tab,
+                generation: (tab.generation ?? 0) + 1
+              }))
+            }
+          }
+        : {}
+
       return {
         activeWorktreeId: worktreeId,
         activeFileId,
@@ -538,27 +559,10 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         activeTabId,
         ...(shouldClearUnread
           ? { worktreesByRepo: applyWorktreeUpdates(s.worktreesByRepo, worktreeId, metaUpdates) }
-          : {})
+          : {}),
+        ...tabsByWorktreeUpdate
       }
     })
-
-    // If the worktree has tabs but all PTYs are dead (e.g. after shutdown),
-    // bump generation so TerminalPanes remount with fresh PTY connections.
-    if (worktreeId) {
-      const tabs = get().tabsByWorktree[worktreeId] ?? []
-      const allDead = tabs.length > 0 && tabs.every((tab) => !tab.ptyId)
-      if (allDead) {
-        set((s) => ({
-          tabsByWorktree: {
-            ...s.tabsByWorktree,
-            [worktreeId]: (s.tabsByWorktree[worktreeId] ?? []).map((tab) => ({
-              ...tab,
-              generation: (tab.generation ?? 0) + 1
-            }))
-          }
-        }))
-      }
-    }
 
     // Why: force-refreshing GitHub data on every switch burned API rate limit
     // quota and added 200-800ms latency. Only refresh when cache is actually

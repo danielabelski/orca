@@ -34,7 +34,14 @@ export function useTerminalPaneGlobalEffects({
   isVisibleRef,
   toggleExpandPane
 }: UseTerminalPaneGlobalEffectsArgs): void {
-  const wasVisibleRef = useRef(false)
+  // Why: starts as `true` so the first render with isVisible=false triggers
+  // suspendRendering(). Without this, background worktrees that mount hidden
+  // (isVisible=false from the start) never suspend their WebGL contexts —
+  // openTerminal() unconditionally creates a WebGL addon, but this effect
+  // only suspends on true→false transitions. The leaked contexts exhaust
+  // Chromium's ~8-context budget, causing "webglcontextlost" on visible
+  // terminals and making them unresponsive.
+  const wasVisibleRef = useRef(true)
 
   // Why: tracks any in-progress chunked pending-write flush so the cleanup
   // function can cancel it if the pane deactivates mid-flush.
