@@ -615,7 +615,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
             // paths. In split panes, later pane spawns must not steal that
             // primary binding from the original pane or remount/close flows can
             // reattach the tab to the wrong PTY and appear to "reset" panes.
-            ptyId: t.ptyId ?? nextPtyIds[0] ?? null
+            // Replace the 'pending-reconnect' sentinel with the real ID so
+            // it doesn't leak into persisted session data or daemon reattach.
+            ptyId: t.ptyId && t.ptyId !== 'pending-reconnect' ? t.ptyId : (nextPtyIds[0] ?? null)
           }
         })
       }
