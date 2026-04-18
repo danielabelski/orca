@@ -98,7 +98,7 @@ export type OpenFile = {
   conflictReview?: ConflictReviewState
   isPreview?: boolean // preview tabs are replaced when another file is single-clicked
   isUntitled?: boolean // true for files created via "New Markdown" that haven't been renamed yet
-  mode: 'edit' | 'diff' | 'conflict-review'
+  mode: 'edit' | 'diff' | 'conflict-review' | 'diff-comments'
 }
 
 export type RightSidebarTab = 'explorer' | 'search' | 'source-control' | 'checks'
@@ -207,6 +207,7 @@ export type EditorSlice = {
     compare: GitBranchCompareSummary,
     alternate?: CombinedDiffAlternate
   ) => void
+  openDiffCommentsTab: (worktreeId: string, worktreePath: string) => void
 
   // Cursor line tracking per file
   editorCursorLine: Record<string, number>
@@ -1096,6 +1097,44 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       }
     })
     void openWorkspaceEditorItem(get(), id, worktreeId, label, 'diff')
+  },
+
+  openDiffCommentsTab: (worktreeId, worktreePath) => {
+    const id = `${worktreeId}::diff-comments`
+    const label = 'Diff Comments'
+    set((s) => {
+      const existing = s.openFiles.find((f) => f.id === id)
+      if (existing) {
+        return {
+          activeFileId: id,
+          activeTabType: 'editor',
+          activeFileIdByWorktree: { ...s.activeFileIdByWorktree, [worktreeId]: id },
+          activeTabTypeByWorktree: { ...s.activeTabTypeByWorktree, [worktreeId]: 'editor' }
+        }
+      }
+      // Why: the Diff Comments tab is a virtual editor surface, not a file on
+      // disk. `filePath` holds the worktree root (so code that resolves the
+      // containing worktree still works) and `relativePath` is used only as a
+      // human-readable tab label. Anything that would join these with a
+      // filesystem helper must branch on `mode === 'diff-comments'` first.
+      const newFile: OpenFile = {
+        id,
+        filePath: worktreePath,
+        relativePath: label,
+        worktreeId,
+        language: 'plaintext',
+        isDirty: false,
+        mode: 'diff-comments'
+      }
+      return {
+        openFiles: [...s.openFiles, newFile],
+        activeFileId: id,
+        activeTabType: 'editor',
+        activeFileIdByWorktree: { ...s.activeFileIdByWorktree, [worktreeId]: id },
+        activeTabTypeByWorktree: { ...s.activeTabTypeByWorktree, [worktreeId]: 'editor' }
+      }
+    })
+    void openWorkspaceEditorItem(get(), id, worktreeId, label, 'editor')
   },
 
   openConflictFile: (worktreeId, worktreePath, entry, language) => {

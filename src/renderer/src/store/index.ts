@@ -14,6 +14,7 @@ import { createCodexUsageSlice } from './slices/codex-usage'
 import { createBrowserSlice } from './slices/browser'
 import { createRateLimitSlice } from './slices/rate-limits'
 import { createSshSlice } from './slices/ssh'
+import { createDiffCommentsSlice } from './slices/diffComments'
 
 export const useAppStore = create<AppState>()((...a) => ({
   ...createRepoSlice(...a),
@@ -29,7 +30,8 @@ export const useAppStore = create<AppState>()((...a) => ({
   ...createCodexUsageSlice(...a),
   ...createBrowserSlice(...a),
   ...createRateLimitSlice(...a),
-  ...createSshSlice(...a)
+  ...createSshSlice(...a),
+  ...createDiffCommentsSlice(...a)
 }))
 
 export type { AppState } from './types'
