@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { renameSync, rmSync, writeFileSync } from 'node:fs'
 
 export function writeFileAtomically(
@@ -5,7 +6,7 @@ export function writeFileAtomically(
   contents: string,
   options?: { mode?: number }
 ): void {
-  const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`
+  const tmpPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`
   try {
     writeFileSync(tmpPath, contents, { encoding: 'utf-8', mode: options?.mode })
     renameWithRetry(tmpPath, targetPath)

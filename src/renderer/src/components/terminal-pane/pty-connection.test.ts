@@ -268,6 +268,41 @@ describe('connectPanePty', () => {
     expect(transport.sendInput).not.toHaveBeenCalled()
   })
 
+  it('blocks input when tab-level ptyId is stale even if panePtyId is null', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+
+    const transport = createMockTransport(null)
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'tab-level-pty' }]
+      },
+      codexRestartNoticeByPtyId: {
+        'tab-level-pty': { previousAccountLabel: 'A', nextAccountLabel: 'B' }
+      }
+    }
+
+    const pane = createPane(1)
+    let onDataHandler: ((data: string) => void) | null = null
+    pane.terminal.onData = vi.fn(((handler: (data: string) => void) => {
+      onDataHandler = handler
+      return { dispose: vi.fn() }
+    }) as typeof pane.terminal.onData)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    expect(onDataHandler).toBeDefined()
+    if (!onDataHandler) {
+      throw new Error('expected onData handler to be registered')
+    }
+    ;(onDataHandler as (data: string) => void)('hello')
+
+    expect(transport.sendInput).not.toHaveBeenCalled()
+  })
+
   it('sends startup command via sendInput for SSH connections (relay has no shell-ready mechanism)', async () => {
     // Capture the setTimeout callback directly so we can fire it without
     // vi.useFakeTimers() (which would also replace the rAF mock from beforeEach).

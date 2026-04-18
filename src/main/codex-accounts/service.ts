@@ -475,6 +475,10 @@ export class CodexAccountService {
     const authFilePath = join(this.assertManagedHomePath(managedHomePath), 'auth.json')
     const raw = JSON.parse(readFileSync(authFilePath, 'utf-8')) as Record<string, unknown>
 
+    // Why: API-key-based auth files have no OAuth tokens or JWT identity
+    // claims. Returning nulls causes the caller to fail with a clear
+    // "could not resolve the account email" error rather than crashing
+    // on missing nested token fields.
     if (typeof raw.OPENAI_API_KEY === 'string' && raw.OPENAI_API_KEY.trim() !== '') {
       return {
         idToken: null,
