@@ -13,15 +13,12 @@ afterEach(() => {
 describe('shouldIgnoreMonacoContentChange', () => {
   it('ignores echoed shared-model changes in the sibling split pane', () => {
     const filePath = '/repo/seed.spec.ts'
-    const syncedContent = 'const answer = 42\n'
 
     beginProgrammaticContentSync(filePath)
     try {
       expect(
         shouldIgnoreMonacoContentChange({
           filePath,
-          value: syncedContent,
-          propContent: syncedContent,
           isApplyingProgrammaticContent: false
         })
       ).toBe(true)
@@ -34,8 +31,6 @@ describe('shouldIgnoreMonacoContentChange', () => {
     expect(
       shouldIgnoreMonacoContentChange({
         filePath: '/repo/seed.spec.ts',
-        value: 'updated\n',
-        propContent: 'updated\n',
         isApplyingProgrammaticContent: true
       })
     ).toBe(true)
@@ -45,8 +40,15 @@ describe('shouldIgnoreMonacoContentChange', () => {
     expect(
       shouldIgnoreMonacoContentChange({
         filePath: '/repo/seed.spec.ts',
-        value: 'user edit\n',
-        propContent: 'saved\n',
+        isApplyingProgrammaticContent: false
+      })
+    ).toBe(false)
+  })
+
+  it('does not ignore a user edit that happens to match the saved prop content', () => {
+    expect(
+      shouldIgnoreMonacoContentChange({
+        filePath: '/repo/seed.spec.ts',
         isApplyingProgrammaticContent: false
       })
     ).toBe(false)

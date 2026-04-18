@@ -17,6 +17,12 @@ type WatchedTarget = {
   connectionId: string | undefined
 }
 
+type ExternalWatchNotification = {
+  worktreeId: string
+  worktreePath: string
+  relativePath: string
+}
+
 /**
  * Subscribes to filesystem watcher events for every worktree that currently
  * has an editor tab open, and notifies the editor to reload clean tabs when
@@ -70,17 +76,20 @@ export function useEditorExternalWatch(): void {
   }, [openFiles, worktreesByRepo, activeWorktreeId])
 
   const targetsRef = useRef<WatchedTarget[]>([])
+  const latestTargetsRef = useRef<WatchedTarget[]>(targets)
+  latestTargetsRef.current = targets
 
   // Why: diff previous vs next targets so unchanged worktrees keep their
   // existing subscription. Tearing down every subscription on each targetsKey
   // change (e.g. opening/closing a tab in an already-watched worktree) causes
   // a watcher churn that can drop events emitted during the gap.
   useEffect(() => {
+    const nextTargets = latestTargetsRef.current
     const prev = targetsRef.current
     const prevIds = new Set(prev.map((t) => t.worktreeId))
-    const nextIds = new Set(targets.map((t) => t.worktreeId))
+    const nextIds = new Set(nextTargets.map((t) => t.worktreeId))
     const removed = prev.filter((t) => !nextIds.has(t.worktreeId))
-    const added = targets.filter((t) => !prevIds.has(t.worktreeId))
+    const added = nextTargets.filter((t) => !prevIds.has(t.worktreeId))
 
     for (const target of removed) {
       void window.api.fs.unwatchWorktree({
@@ -94,11 +103,11 @@ export function useEditorExternalWatch(): void {
         connectionId: target.connectionId
       })
     }
-    targetsRef.current = targets
+    targetsRef.current = nextTargets
     // Why: this effect is intentionally differential — it does not unwatch on
     // cleanup. Final unmount unwatching lives in the separate [] effect below
     // so that re-running on targetsKey changes doesn't tear down everything.
-  }, [targetsKey, targets])
+  }, [targetsKey])
 
   // Why: the fs:changed subscription and the final unmount unwatch are
   // independent of which worktrees are currently watched. Keeping them in a
@@ -165,27 +174,13 @@ export function useEditorExternalWatch(): void {
       const changedFiles = new Set<string>()
       for (const evt of payload.events) {
         if (evt.kind === 'overflow') {
-          // Why: on overflow the watcher can't tell us which paths changed, so
-          // conservatively reload every clean open file for this worktree.
-          // Bypassing `getExternalFileChangeRelativePath` because we don't
-          // have individual paths — iterate openFiles directly below. Skip
-          // files whose `externalMutation` is already set (tombstoned): the
-          // underlying path may no longer exist on disk and a readFile would
-          // replace the in-memory content with "Error loading file..." and
-          // clobber the tab.
-          const openFilesNow = useAppStore.getState().openFiles
-          for (const file of openFilesNow) {
-            if (file.worktreeId !== target.worktreeId || file.mode !== 'edit' || file.isDirty) {
-              continue
-            }
-            if (file.externalMutation) {
-              continue
-            }
-            notifyEditorExternalFileChange({
-              worktreeId: target.worktreeId,
-              worktreePath: target.worktreePath,
-              relativePath: file.relativePath
-            })
+          // Why: overflow payloads omit per-path create/update info, so any
+          // stale tombstone must be cleared conservatively before we decide
+          // which clean tabs to reload. Otherwise a file that reappeared on
+          // disk during the overrun stays struck through until some later
+          // path-specific event happens to clear it.
+          for (const notification of getOverflowExternalReloadTargets(target)) {
+            notifyEditorExternalFileChange(notification)
           }
           // Why: `break` (not `return`) — the remaining code early-returns
           // when changedFiles is empty, so breaking out is semantically
@@ -257,6 +252,34 @@ export function useEditorExternalWatch(): void {
       targetsRef.current = []
     }
   }, [])
+}
+
+export function getOverflowExternalReloadTargets(
+  target: Pick<WatchedTarget, 'worktreeId' | 'worktreePath'>
+): ExternalWatchNotification[] {
+  const state = useAppStore.getState()
+  const notifications: ExternalWatchNotification[] = []
+
+  for (const file of state.openFiles) {
+    if (file.worktreeId !== target.worktreeId || file.mode !== 'edit' || file.isDirty) {
+      continue
+    }
+    if (file.externalMutation) {
+      // Why: overflow gives no per-path resurrection signal, so fall back to
+      // "assume it may exist again" and clear the tombstone before reloading.
+      // If the file is still gone, EditorPanel will preserve the current in-
+      // memory view by showing the read failure instead of leaving a permanent
+      // stale "deleted" badge with no path to recovery.
+      state.setExternalMutation(file.id, null)
+    }
+    notifications.push({
+      worktreeId: target.worktreeId,
+      worktreePath: target.worktreePath,
+      relativePath: file.relativePath
+    })
+  }
+
+  return notifications
 }
 
 function collectDeletedOpenEditorIds(payload: FsChangedPayload, worktreeId: string): string[] {

@@ -22,20 +22,14 @@ export function isProgrammaticContentSyncInFlight(filePath: string): boolean {
 
 export function shouldIgnoreMonacoContentChange(args: {
   filePath: string
-  value: string
-  propContent: string
   isApplyingProgrammaticContent: boolean
 }): boolean {
-  const { filePath, value, propContent, isApplyingProgrammaticContent } = args
+  const { filePath, isApplyingProgrammaticContent } = args
 
   // Why: split panes can share one retained Monaco model by file path. If any
   // pane is currently reconciling prop content into that shared model, every
   // pane sees the echoed change event and must treat it as programmatic.
-  return (
-    isApplyingProgrammaticContent ||
-    isProgrammaticContentSyncInFlight(filePath) ||
-    value === propContent
-  )
+  return isApplyingProgrammaticContent || isProgrammaticContentSyncInFlight(filePath)
 }
 
 export function resetProgrammaticContentSyncForTests(): void {

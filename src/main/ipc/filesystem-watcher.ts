@@ -429,6 +429,18 @@ function unsubscribe(worktreePath: string, senderId: number): void {
 // Key: `${connectionId}:${worktreePath}`, Value: unwatch function
 const remoteWatchers = new Map<string, () => void>()
 
+function replaceRemoteWatcher(key: string, unwatch: () => void): void {
+  const previous = remoteWatchers.get(key)
+  if (previous) {
+    // Why: SSH reconnect swaps in a fresh filesystem provider, but the
+    // renderer keeps watching the same worktree path. Replacing the existing
+    // unwatch callback here ensures a post-reconnect watch request rebinds to
+    // the new provider instead of early-returning forever on stale state.
+    previous()
+  }
+  remoteWatchers.set(key, unwatch)
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 export function registerFilesystemWatcherHandlers(): void {
@@ -441,9 +453,6 @@ export function registerFilesystemWatcherHandlers(): void {
           throw new Error(`No filesystem provider for connection "${args.connectionId}"`)
         }
         const key = `${args.connectionId}:${args.worktreePath}`
-        if (remoteWatchers.has(key)) {
-          return
-        }
 
         const unwatch = await provider.watch(args.worktreePath, (events) => {
           if (!event.sender.isDestroyed()) {
@@ -453,7 +462,7 @@ export function registerFilesystemWatcherHandlers(): void {
             } satisfies FsChangedPayload)
           }
         })
-        remoteWatchers.set(key, unwatch)
+        replaceRemoteWatcher(key, unwatch)
 
         event.sender.once('destroyed', () => {
           const unwatchFn = remoteWatchers.get(key)

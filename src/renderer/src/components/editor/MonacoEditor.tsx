@@ -275,8 +275,6 @@ export default function MonacoEditor({
         if (
           shouldIgnoreMonacoContentChange({
             filePath,
-            value,
-            propContent: contentRef.current,
             isApplyingProgrammaticContent: isApplyingProgrammaticContentRef.current
           })
         ) {
