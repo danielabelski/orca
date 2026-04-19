@@ -13,10 +13,11 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
   type DragOverEvent,
-  type DragStartEvent
+  type DragStartEvent,
+  type UniqueIdentifier
 } from '@dnd-kit/core'
 import { FileCode, Globe, TerminalSquare } from 'lucide-react'
-import type { Tab } from '../../../../shared/types'
+import type { Tab, TabGroup } from '../../../../shared/types'
 import { useAppStore } from '../../store'
 import {
   buildSharedSortableId,
@@ -32,6 +33,11 @@ type GroupVisibleTab = {
   unifiedTabId: string
   visibleId: string
 }
+
+// Why: referential stability for useAppStore selector defaults — avoids a fresh
+// `[]` on every render, which would invalidate downstream `useMemo` deps.
+const EMPTY_GROUPS: TabGroup[] = []
+const EMPTY_TABS: Tab[] = []
 
 function pointInRect(point: { x: number; y: number }, rect?: ClientRect | null): boolean {
   if (!rect) {
@@ -78,8 +84,9 @@ function computeInsertionIndex(
 function computeInsertionFromPointer(
   orderedTabs: GroupVisibleTab[],
   pointer: { x: number; y: number } | null,
-  rects: Map<string, ClientRect | undefined>,
-  groupId: string
+  rects: Map<UniqueIdentifier, ClientRect>,
+  groupId: string,
+  activeVisibleId?: string
 ): number | null {
   if (!pointer || orderedTabs.length === 0) {
     return null
@@ -89,7 +96,14 @@ function computeInsertionFromPointer(
   let bestDistance = Infinity
 
   for (let i = 0; i < orderedTabs.length; i++) {
-    const sortableId = buildSharedSortableId(groupId, orderedTabs[i]!.visibleId)
+    const item = orderedTabs[i]!
+    // Why: skip the dragged tab's own rect so nearest-neighbor picks an actual
+    // target instead of the stale self-rect (which sits at the original position
+    // while the overlay floats under the cursor).
+    if (activeVisibleId && item.visibleId === activeVisibleId) {
+      continue
+    }
+    const sortableId = buildSharedSortableId(groupId, item.visibleId)
     const rect = rects.get(sortableId)
     if (!rect) {
       continue
@@ -155,13 +169,13 @@ export default function TabGroupDndContext({
   const reorderUnifiedTabs = useAppStore((state) => state.reorderUnifiedTabs)
   const moveUnifiedTabToGroup = useAppStore((state) => state.moveUnifiedTabToGroup)
   const closeEmptyGroup = useAppStore((state) => state.closeEmptyGroup)
-  const groups = useAppStore((state) => state.groupsByWorktree[worktreeId] ?? [])
-  const unifiedTabs = useAppStore((state) => state.unifiedTabsByWorktree[worktreeId] ?? [])
+  const groups = useAppStore((state) => state.groupsByWorktree[worktreeId] ?? EMPTY_GROUPS)
+  const unifiedTabs = useAppStore((state) => state.unifiedTabsByWorktree[worktreeId] ?? EMPTY_TABS)
   const [dragState, setDragState] = useState<CrossGroupDragState>(EMPTY_DRAG_STATE)
   const dragStateRef = useRef(dragState)
   dragStateRef.current = dragState
   const pointerRef = useRef<{ x: number; y: number } | null>(null)
-  const droppableRectsRef = useRef<Map<string, ClientRect | undefined>>(new Map())
+  const droppableRectsRef = useRef<Map<UniqueIdentifier, ClientRect>>(new Map())
 
   const groupVisibleOrder = useMemo(() => {
     const tabsById = new Map(unifiedTabs.map((tab) => [tab.id, tab]))
@@ -203,20 +217,14 @@ export default function TabGroupDndContext({
       if (args.pointerCoordinates) {
         pointerRef.current = args.pointerCoordinates
       }
-      droppableRectsRef.current = new Map(
-        args.droppableContainers.map((container) => [
-          String(container.id),
-          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-        ])
-      )
+      droppableRectsRef.current = args.droppableRects
 
       if (!args.pointerCoordinates) {
         return closestCenter(args)
       }
 
       const pointer = args.pointerCoordinates
-      const getRect = (id: string | number) =>
-        args.droppableRects.get(id) ?? args.droppableRects.get(String(id))
+      const getRect = (id: string | number) => args.droppableRects.get(id)
 
       // 1. Check if pointer is directly over a sortable tab element
       const sortableHit = args.droppableContainers.find((container) => {
@@ -272,19 +280,18 @@ export default function TabGroupDndContext({
   // change the over element. Recomputing on every move keeps the indicator
   // tracking the cursor in real time.
   const handleDragMove = useCallback(
-    (event: DragMoveEvent) => {
-      const translatedRect = event.active.rect.current.translated
-      if (!translatedRect) {
-        return
-      }
-      const pointer = {
-        x: translatedRect.left + translatedRect.width / 2,
-        y: translatedRect.top + translatedRect.height / 2
-      }
-      pointerRef.current = pointer
-
+    (_event: DragMoveEvent) => {
       setDragState((current) => {
         if (!current.activeTab || !current.overGroupId) {
+          return current
+        }
+        // Why: pointerRef is already kept fresh with the true cursor by
+        // collisionDetection (which runs on every pointermove). Reading it here
+        // avoids corrupting it with the overlay rect center (offset by the
+        // user's grip position). If it's null we haven't seen a pointer event
+        // yet — bail out without changing state.
+        const pointer = pointerRef.current
+        if (!pointer) {
           return current
         }
         const orderedTabs = groupVisibleOrder.get(current.overGroupId) ?? []
@@ -293,7 +300,8 @@ export default function TabGroupDndContext({
             orderedTabs,
             pointer,
             droppableRectsRef.current,
-            current.overGroupId
+            current.overGroupId,
+            current.activeTab.visibleId
           ) ?? orderedTabs.length
         if (newIndex === current.overTabBarIndex) {
           return current
@@ -345,7 +353,8 @@ export default function TabGroupDndContext({
           orderedTabs,
           pointerRef.current,
           droppableRectsRef.current,
-          groupDropTarget.groupId
+          groupDropTarget.groupId,
+          activeTab.visibleId
         )
         setDragState({
           activeTab,
@@ -355,9 +364,17 @@ export default function TabGroupDndContext({
         return
       }
 
-      clearDragState()
+      // Why: non-destructive fallback — keep `activeTab` (and pointerRef, which
+      // is maintained by collisionDetection) so handleDragMove can keep running
+      // and the overlay tracks the cursor. Clearing activeTab here would freeze
+      // the overlay until drop.
+      setDragState((current) =>
+        current.activeTab
+          ? { activeTab: current.activeTab, overGroupId: null, overTabBarIndex: null }
+          : EMPTY_DRAG_STATE
+      )
     },
-    [clearDragState, groupVisibleOrder]
+    [groupVisibleOrder]
   )
 
   const handleDragCancel = useCallback(
@@ -381,8 +398,15 @@ export default function TabGroupDndContext({
 
       if (currentDragState.overTabBarIndex !== null) {
         if (activeTab.sourceGroupId === targetGroupId) {
-          const currentOrder =
-            groupVisibleOrder.get(targetGroupId)?.map((item) => item.unifiedTabId) ?? []
+          // Why: read the live store state here rather than the `groupVisibleOrder`
+          // closure — the memoized map can be one frame stale relative to the
+          // store (e.g. if a tab closed mid-drag). Matches the
+          // `maybeCloseEmptySourceGroup` pattern below.
+          const liveState = useAppStore.getState()
+          const liveGroup = (liveState.groupsByWorktree[worktreeId] ?? []).find(
+            (g) => g.id === targetGroupId
+          )
+          const currentOrder = liveGroup?.tabOrder ?? []
           const nextOrder = applyInsertionIndex(
             currentOrder,
             activeTab.unifiedTabId,
@@ -403,10 +427,10 @@ export default function TabGroupDndContext({
     },
     [
       clearDragState,
-      groupVisibleOrder,
       maybeCloseEmptySourceGroup,
       moveUnifiedTabToGroup,
-      reorderUnifiedTabs
+      reorderUnifiedTabs,
+      worktreeId
     ]
   )
 
