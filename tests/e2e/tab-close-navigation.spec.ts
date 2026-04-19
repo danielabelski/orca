@@ -129,7 +129,7 @@ test.describe('Tab Close Navigation', () => {
    * neighbor in the same worktree, not the first file in the list.
    */
   test('closing the active editor tab activates its visual neighbor', async ({ orcaPage }) => {
-    const worktreeId = (await getActiveWorktreeId(orcaPage))!
+    const worktreeId = await waitForActiveWorktree(orcaPage)
 
     const fileIds = await openSeededEditorTabs(orcaPage, worktreeId, [
       'package.json',
@@ -175,7 +175,7 @@ test.describe('Tab Close Navigation', () => {
    * the same closeFile path, which is where #693 regressed.
    */
   test('closing the active diff tab activates a still-open neighbor', async ({ orcaPage }) => {
-    const worktreeId = (await getActiveWorktreeId(orcaPage))!
+    const worktreeId = await waitForActiveWorktree(orcaPage)
 
     // Seed two editor tabs + one diff tab in the same worktree.
     const editorIds = await openSeededEditorTabs(orcaPage, worktreeId, [
@@ -239,7 +239,7 @@ test.describe('Tab Close Navigation', () => {
    * the worktree, the app must return to Landing (activeWorktreeId === null).
    */
   test('closing the last visible surface returns the app to Landing', async ({ orcaPage }) => {
-    const worktreeId = (await getActiveWorktreeId(orcaPage))!
+    const worktreeId = await waitForActiveWorktree(orcaPage)
 
     // Prepare the worktree so only a single editor tab is present as a
     // visible surface: no browser tabs and no terminal tabs.
@@ -287,7 +287,11 @@ test.describe('Tab Close Navigation', () => {
     // before we close the last editor. Otherwise the deactivate branch would
     // not trigger for reasons unrelated to this regression.
     const surfaceCounts = await orcaPage.evaluate((wId) => {
-      const state = window.__store!.getState()
+      const store = window.__store
+      if (!store) {
+        throw new Error('window.__store is not available')
+      }
+      const state = store.getState()
       return {
         terminals: (state.tabsByWorktree[wId] ?? []).length,
         browserTabs: (state.browserTabsByWorktree[wId] ?? []).length

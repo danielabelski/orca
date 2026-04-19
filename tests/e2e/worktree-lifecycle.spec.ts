@@ -79,10 +79,34 @@ async function removeWorktreeViaStore(
 }
 
 test.describe('Worktree Lifecycle', () => {
+  // Why: `createIsolatedWorktree` materializes a real on-disk worktree in the
+  // worker-scoped seed repo. If a mid-test assertion fails, that branch +
+  // working directory leaks across subsequent tests in the same worker. Track
+  // the ID here and best-effort remove it in afterEach so fixture state stays
+  // clean even when a test aborts before its own cleanup runs.
+  let createdWorktreeId: string | null = null
+
   test.beforeEach(async ({ orcaPage }) => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     await ensureTerminalVisible(orcaPage)
+  })
+
+  test.afterEach(async ({ orcaPage }) => {
+    if (!createdWorktreeId) {
+      return
+    }
+    const idToClean = createdWorktreeId
+    createdWorktreeId = null
+    await orcaPage
+      .evaluate(async (id) => {
+        try {
+          await window.__store?.getState().removeWorktree(id, true)
+        } catch {
+          /* best-effort cleanup */
+        }
+      }, idToClean)
+      .catch(() => undefined)
   })
 
   /**
@@ -92,9 +116,10 @@ test.describe('Worktree Lifecycle', () => {
   test('removing a worktree clears its tabs, open files, and browser tabs', async ({
     orcaPage
   }) => {
-    const originalWorktreeId = (await getActiveWorktreeId(orcaPage))!
+    const originalWorktreeId = await waitForActiveWorktree(orcaPage)
 
-    const newWorktreeId = await createIsolatedWorktree(orcaPage)
+    createdWorktreeId = await createIsolatedWorktree(orcaPage)
+    const newWorktreeId = createdWorktreeId
     await switchToWorktree(orcaPage, newWorktreeId)
     await expect
       .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
@@ -135,6 +160,8 @@ test.describe('Worktree Lifecycle', () => {
 
     const result = await removeWorktreeViaStore(orcaPage, newWorktreeId)
     expect(result.ok).toBe(true)
+    // Successful removal — afterEach hook no longer needs to clean this up.
+    createdWorktreeId = null
 
     // Tabs / open files / browser tabs keyed by the removed worktree must all
     // be dropped. A regression that leaves any of these behind will show up
@@ -180,11 +207,12 @@ test.describe('Worktree Lifecycle', () => {
     orcaPage
   }) => {
     const allIds = await getAllWorktreeIds(orcaPage)
-    if (allIds.length < 2) {
-      test.skip(true, 'Need at least 2 worktrees to test worktree switching')
-    }
+    expect(
+      allIds.length,
+      'fixture should provide primary + e2e-secondary worktrees'
+    ).toBeGreaterThanOrEqual(2)
 
-    const originalWorktreeId = (await getActiveWorktreeId(orcaPage))!
+    const originalWorktreeId = await waitForActiveWorktree(orcaPage)
 
     await openFileExplorer(orcaPage)
     await clickFileInExplorer(orcaPage, ['README.md', 'package.json'])
@@ -193,7 +221,13 @@ test.describe('Worktree Lifecycle', () => {
     // after the round-trip. An empty `openFiles` here would make the second
     // assertion tautological, so guard that expectation up-front.
     const originalState = await orcaPage.evaluate((wId) => {
-      const state = window.__store!.getState()
+      const store = window.__store
+      if (!store) {
+        // Surface a store-unavailable failure via a clear empty baseline
+        // rather than a null-deref inside page.evaluate.
+        return { openFileIds: [] as string[], hasLayout: false }
+      }
+      const state = store.getState()
       return {
         openFileIds: state.openFiles.filter((f) => f.worktreeId === wId).map((f) => f.id),
         hasLayout: Boolean(state.layoutByWorktree?.[wId])
@@ -233,7 +267,13 @@ test.describe('Worktree Lifecycle', () => {
     // not torn down. A regression that clears these on setActiveWorktree
     // would fail here even though `activeWorktreeId` round-tripped cleanly.
     const afterRoundTrip = await orcaPage.evaluate((wId) => {
-      const state = window.__store!.getState()
+      const store = window.__store
+      if (!store) {
+        // Match the originalState guard so assertion failures point at
+        // "store gone" instead of a null-deref stack.
+        return { openFileIds: [] as string[], hasLayout: false }
+      }
+      const state = store.getState()
       return {
         openFileIds: state.openFiles.filter((f) => f.worktreeId === wId).map((f) => f.id),
         hasLayout: Boolean(state.layoutByWorktree?.[wId])
@@ -251,11 +291,12 @@ test.describe('Worktree Lifecycle', () => {
    */
   test('terminal tabs stay scoped to the worktree that created them', async ({ orcaPage }) => {
     const allIds = await getAllWorktreeIds(orcaPage)
-    if (allIds.length < 2) {
-      test.skip(true, 'Need at least 2 worktrees to test cross-worktree tab isolation')
-    }
+    expect(
+      allIds.length,
+      'fixture should provide primary + e2e-secondary worktrees'
+    ).toBeGreaterThanOrEqual(2)
 
-    const worktreeA = (await getActiveWorktreeId(orcaPage))!
+    const worktreeA = await waitForActiveWorktree(orcaPage)
     const worktreeB = allIds.find((id) => id !== worktreeA)!
 
     // Create an extra tab on A so it has a distinctive tab ID set.
