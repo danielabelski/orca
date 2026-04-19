@@ -192,11 +192,12 @@ export default function TabGroupDndContext({
     [closeEmptyGroup, worktreeId]
   )
 
-  // Why: collision detection checks the tab-bar container first (generous
-  // hitbox covering the entire strip including empty space), then falls back
-  // to individual sortable items. This inverts the default dnd-kit priority
-  // so that dragging anywhere in the tab bar registers a hit — not just on
-  // the tiny rect of a specific tab element.
+  // Why: collision detection is fully pointer-based instead of using
+  // closestCenter. With DragOverlay the active element stays at its original
+  // position (hidden), so closestCenter measures distance from the ORIGINAL
+  // tab position — not the cursor — which returns the wrong sortable.
+  // Pointer-based hit testing returns whichever droppable the cursor is
+  // actually over, or the tab-bar container for empty-space hits.
   const collisionDetection = useCallback<CollisionDetection>(
     (args: Parameters<CollisionDetection>[0]) => {
       if (args.pointerCoordinates) {
@@ -213,52 +214,30 @@ export default function TabGroupDndContext({
         return closestCenter(args)
       }
 
-      // 1. Check if pointer is over any tab-bar container (generous hitbox)
-      const tabBarHit = args.droppableContainers.find((container) => {
-        const parsed = parseGroupDropId(String(container.id))
-        if (!parsed) {
+      const pointer = args.pointerCoordinates
+      const getRect = (id: string | number) =>
+        args.droppableRects.get(id) ?? args.droppableRects.get(String(id))
+
+      // 1. Check if pointer is directly over a sortable tab element
+      const sortableHit = args.droppableContainers.find((container) => {
+        if (!parseSharedSortableId(String(container.id))) {
           return false
         }
-        return pointInRect(
-          args.pointerCoordinates!,
-          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-        )
+        return pointInRect(pointer, getRect(container.id))
       })
-
-      if (tabBarHit) {
-        const parsed = parseGroupDropId(String(tabBarHit.id))
-        if (parsed) {
-          const groupSortables = args.droppableContainers.filter(
-            (container) => parseSharedSortableId(String(container.id))?.groupId === parsed.groupId
-          )
-          if (groupSortables.length > 0) {
-            return closestCenter({ ...args, droppableContainers: groupSortables })
-          }
-        }
-        return makeCollision(String(tabBarHit.id), args)
+      if (sortableHit) {
+        return makeCollision(String(sortableHit.id), args)
       }
 
-      // 2. Check individual sortable hits (fallback for single-group mode)
-      const sortableHits = args.droppableContainers.filter((container) => {
-        const parsed = parseSharedSortableId(String(container.id))
-        if (!parsed) {
+      // 2. Check if pointer is in a tab-bar container (empty space after tabs)
+      const tabBarHit = args.droppableContainers.find((container) => {
+        if (!parseGroupDropId(String(container.id))) {
           return false
         }
-        return pointInRect(
-          args.pointerCoordinates!,
-          args.droppableRects.get(container.id) ?? args.droppableRects.get(String(container.id))
-        )
+        return pointInRect(pointer, getRect(container.id))
       })
-
-      if (sortableHits.length > 0) {
-        const parsedTarget = parseSharedSortableId(String(sortableHits[0]?.id))
-        if (parsedTarget) {
-          const groupSortables = args.droppableContainers.filter(
-            (container) =>
-              parseSharedSortableId(String(container.id))?.groupId === parsedTarget.groupId
-          )
-          return closestCenter({ ...args, droppableContainers: groupSortables })
-        }
+      if (tabBarHit) {
+        return makeCollision(String(tabBarHit.id), args)
       }
 
       return []
@@ -287,19 +266,43 @@ export default function TabGroupDndContext({
     [clearDragState]
   )
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const translatedRect = event.active.rect.current.translated
-    if (!translatedRect) {
-      return
-    }
-    // Why: collisionDetection records pointer coordinates when available, but dnd-kit
-    // does not always provide them on every event. handleDragMove fills the gap using
-    // the overlay center, which stays close to the cursor for the small tab-label overlay.
-    pointerRef.current = {
-      x: translatedRect.left + translatedRect.width / 2,
-      y: translatedRect.top + translatedRect.height / 2
-    }
-  }, [])
+  // Why: onDragOver only fires when the "over" element changes (e.g. moving
+  // from tab A to tab B). But the left/right insertion point within a single
+  // tab depends on the pointer crossing that tab's midpoint — which does NOT
+  // change the over element. Recomputing on every move keeps the indicator
+  // tracking the cursor in real time.
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const translatedRect = event.active.rect.current.translated
+      if (!translatedRect) {
+        return
+      }
+      const pointer = {
+        x: translatedRect.left + translatedRect.width / 2,
+        y: translatedRect.top + translatedRect.height / 2
+      }
+      pointerRef.current = pointer
+
+      setDragState((current) => {
+        if (!current.activeTab || !current.overGroupId) {
+          return current
+        }
+        const orderedTabs = groupVisibleOrder.get(current.overGroupId) ?? []
+        const newIndex =
+          computeInsertionFromPointer(
+            orderedTabs,
+            pointer,
+            droppableRectsRef.current,
+            current.overGroupId
+          ) ?? orderedTabs.length
+        if (newIndex === current.overTabBarIndex) {
+          return current
+        }
+        return { ...current, overTabBarIndex: newIndex }
+      })
+    },
+    [groupVisibleOrder]
+  )
 
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {

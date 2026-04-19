@@ -463,7 +463,7 @@ function TabBarInner({
           "+" button remains window-draggable. */}
       <div
         ref={setTabStripNode}
-        className="terminal-tab-strip flex items-stretch overflow-x-auto overflow-y-hidden"
+        className="terminal-tab-strip flex flex-1 min-w-0 items-stretch overflow-x-auto overflow-y-hidden"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         {orderedItems.map((item, index) => {
