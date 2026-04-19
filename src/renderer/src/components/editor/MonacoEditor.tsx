@@ -13,6 +13,7 @@ import { getConnectionId } from '@/lib/connection-context'
 import { scrollTopCache, cursorPositionCache, setWithLRU } from '@/lib/scroll-cache'
 import '@/lib/monaco-setup'
 import { computeEditorFontSize } from '@/lib/editor-font-zoom'
+import { e2eConfig } from '@/lib/e2e-config'
 
 import { useContextualCopySetup } from './useContextualCopySetup'
 import { performReveal } from './monaco-reveal'
@@ -161,6 +162,20 @@ export default function MonacoEditor({
   const handleMount: OnMount = useCallback(
     (editorInstance, monaco) => {
       editorRef.current = editorInstance
+
+      // Why: expose the live Monaco editor instance by filePath in dev/E2E so
+      // tests can assert on model content via the public `editor.getValue()`
+      // API instead of scraping the internal `.view-lines` DOM — which has no
+      // SemVer contract and could break on Monaco upgrades. Same gating as
+      // window.__store (see store/index.ts) so production builds are unaffected.
+      if ((import.meta.env.DEV || e2eConfig.exposeStore) && typeof window !== 'undefined') {
+        const registry =
+          ((window as unknown as Record<string, unknown>).__monacoEditors as
+            | Map<string, editor.IStandaloneCodeEditor>
+            | undefined) ?? new Map<string, editor.IStandaloneCodeEditor>()
+        registry.set(filePath, editorInstance)
+        ;(window as unknown as Record<string, unknown>).__monacoEditors = registry
+      }
 
       // Why: see comment on contentRef — reconcile the retained model against
       // the current prop before any user interaction so external changes that
@@ -333,8 +348,19 @@ export default function MonacoEditor({
       }
       cancelScheduledReveal()
       clearTransientRevealHighlight()
+
+      // Drop the dev/E2E editor registry entry so stale disposed instances
+      // can't leak to tests that run after this tab unmounts.
+      if ((import.meta.env.DEV || e2eConfig.exposeStore) && typeof window !== 'undefined') {
+        const registry = (window as unknown as Record<string, unknown>).__monacoEditors as
+          | Map<string, editor.IStandaloneCodeEditor>
+          | undefined
+        if (registry?.get(filePath) === editorRef.current) {
+          registry.delete(filePath)
+        }
+      }
     }
-  }, [cancelScheduledReveal, clearTransientRevealHighlight, viewStateKey])
+  }, [cancelScheduledReveal, clearTransientRevealHighlight, viewStateKey, filePath])
 
   // Update editor options when settings change
   useEffect(() => {
