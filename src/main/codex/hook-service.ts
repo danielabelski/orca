@@ -10,11 +10,14 @@ import {
   type HookDefinition
 } from '../agent-hooks/installer-utils'
 
-// Why: Codex permission prompts arrive through PreToolUse hook callbacks. Orca
-// maps that event to the waiting state, so the managed hook registration must
-// subscribe to PreToolUse or the sidebar can never show Codex as blocked on
-// approval.
-const CODEX_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop'] as const
+// Why: Codex fires PreToolUse before every tool call, not only on permission
+// prompts. Subscribing to it caused every tool invocation to flip Orca's
+// sidebar to "Waiting for permission". The real approval signals are
+// event-specific (exec_approval_request, apply_patch_approval_request,
+// request_user_input) and would need dedicated normalization. Until we add
+// that, keep the managed registration to lifecycle events that are
+// unambiguous about working/done state.
+const CODEX_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Stop'] as const
 
 function getConfigPath(): string {
   return join(homedir(), '.codex', 'hooks.json')
@@ -80,18 +83,25 @@ export class CodexHookService {
       }
     }
 
-    const managedHooksPresent = Object.values(config.hooks ?? {}).some((definitions) =>
-      definitions.some((definition) =>
-        (definition.hooks ?? []).some((hook) => hook.command === getManagedCommand(scriptPath))
+    const command = getManagedCommand(scriptPath)
+    const installedEvents = CODEX_EVENTS.filter((eventName) => {
+      const definitions = config.hooks?.[eventName] ?? []
+      return definitions.some((definition) =>
+        (definition.hooks ?? []).some((hook) => hook.command === command)
       )
-    )
+    })
+    const managedHooksPresent = installedEvents.length > 0
+    const allHooksPresent = installedEvents.length === CODEX_EVENTS.length
 
     return {
       agent: 'codex',
-      state: managedHooksPresent ? 'installed' : 'not_installed',
+      state: !managedHooksPresent ? 'not_installed' : allHooksPresent ? 'installed' : 'partial',
       configPath,
       managedHooksPresent,
-      detail: null
+      detail:
+        managedHooksPresent && !allHooksPresent
+          ? `Installed for ${installedEvents.length}/${CODEX_EVENTS.length} required events`
+          : null
     }
   }
 
@@ -112,13 +122,27 @@ export class CodexHookService {
     const command = getManagedCommand(scriptPath)
     const nextHooks = { ...config.hooks }
 
-    for (const eventName of CODEX_EVENTS) {
+    // Why: sweep the managed command out of every event first, not just the
+    // ones we currently subscribe to. Without this, an older Orca install that
+    // registered PreToolUse (which mis-mapped to "waiting") would leave a stale
+    // hook in ~/.codex/hooks.json and every tool call would still flip the
+    // sidebar to "Waiting for permission" after an install refresh.
+    for (const eventName of Object.keys(nextHooks)) {
       const current = Array.isArray(nextHooks[eventName]) ? nextHooks[eventName] : []
       const cleaned = removeManagedCommands(current, (currentCommand) => currentCommand === command)
+      if (cleaned.length === 0) {
+        delete nextHooks[eventName]
+      } else {
+        nextHooks[eventName] = cleaned
+      }
+    }
+
+    for (const eventName of CODEX_EVENTS) {
+      const current = Array.isArray(nextHooks[eventName]) ? nextHooks[eventName] : []
       const definition: HookDefinition = {
         hooks: [{ type: 'command', command }]
       }
-      nextHooks[eventName] = [...cleaned, definition]
+      nextHooks[eventName] = [...current, definition]
     }
 
     config.hooks = nextHooks

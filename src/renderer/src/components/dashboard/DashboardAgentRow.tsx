@@ -49,28 +49,35 @@ function stateLabelColor(state: string): string {
   }
 }
 
+// Why: the tooltip preserves the fuller prompt/status text so no information
+// is permanently hidden behind the compact row layout.
+function rowTooltip(agent: DashboardAgentRowData): string {
+  const parts: string[] = []
+  const prompt = agent.promptText.trim()
+  const status = agent.statusText.trim()
+  if (prompt) {
+    parts.push(`Prompt: ${prompt}`)
+  }
+  if (status) {
+    parts.push(status)
+  }
+  return parts.join('\n')
+}
+
 type Props = {
   agent: DashboardAgentRowData
 }
 
 const DashboardAgentRow = React.memo(function DashboardAgentRow({ agent }: Props) {
   const agentLabel = formatAgentTypeLabel(agent.agentType)
+  const tooltip = rowTooltip(agent)
 
   return (
-    <div
-      className={cn(
-        'rounded px-1.5 py-1 bg-background/30',
-        agent.source === 'heuristic' && 'opacity-70'
-      )}
-    >
-      {/* Top line: agent label + current state */}
+    <div title={tooltip || undefined} className={cn('rounded px-1.5 py-1 bg-background/30')}>
       <div className="flex items-center gap-1.5">
-        {/* Status dot */}
         <span className={cn('size-[6px] shrink-0 rounded-full', currentDotClasses(agent.state))} />
-        {/* Agent type */}
-        <span className="text-[10px] font-medium text-foreground/80">{agentLabel}</span>
-        {/* State label */}
-        <span className={cn('text-[10px] font-medium', stateLabelColor(agent.state))}>
+        <span className="text-[10px] font-medium text-foreground/80 truncate">{agentLabel}</span>
+        <span className={cn('ml-auto text-[10px] font-medium', stateLabelColor(agent.state))}>
           {stateLabel(agent.state)}
         </span>
       </div>

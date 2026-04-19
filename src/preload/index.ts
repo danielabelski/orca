@@ -762,6 +762,14 @@ const api = {
     /** Synchronous session save for beforeunload — blocks until flushed to disk. */
     setSync: (args: unknown): void => {
       ipcRenderer.sendSync('session:set-sync', args)
+    },
+    /** Fired when another window wrote a new session payload. The detached
+     *  agent-dashboard window subscribes to this so its view of tabs/terminal
+     *  titles stays in sync with the main window. */
+    onUpdated: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('session:updated', listener)
+      return () => ipcRenderer.removeListener('session:updated', listener)
     }
   },
 
@@ -1133,7 +1141,16 @@ const api = {
     /** Tell the main process to proceed with the window close. */
     confirmWindowClose: (): void => {
       ipcRenderer.send('window:confirm-close')
-    }
+    },
+    /** Open the agent dashboard in a detached secondary window. Focuses the
+     *  existing window if one is already open. */
+    openAgentDashboard: (): Promise<void> => ipcRenderer.invoke('ui:openAgentDashboard'),
+    /** Ask the main window to activate a worktree (focusing main + routing
+     *  through the same ui:activateWorktree path CLI/notifications use).
+     *  Used by the detached dashboard window, whose renderer has its own
+     *  store and cannot mutate the main window's active-worktree state. */
+    requestActivateWorktree: (args: { repoId: string; worktreeId: string }): Promise<void> =>
+      ipcRenderer.invoke('ui:requestActivateWorktree', args)
   },
 
   stats: {
@@ -1296,8 +1313,8 @@ const api = {
       callback: (data: {
         paneKey: string
         state: string
-        summary?: string
-        next?: string
+        statusText?: string
+        promptText?: string
         agentType?: string
       }) => void
     ): (() => void) => {
@@ -1306,8 +1323,8 @@ const api = {
         data: {
           paneKey: string
           state: string
-          summary?: string
-          next?: string
+          statusText?: string
+          promptText?: string
           agentType?: string
         }
       ) => callback(data)

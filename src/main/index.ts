@@ -112,10 +112,20 @@ function openMainWindow(): BrowserWindow {
   })
   mainWindow = window
   agentHookServer.setListener(({ paneKey, payload }) => {
-    if (mainWindow?.isDestroyed()) {
-      return
+    console.log('[agent-hooks] broadcasting agentStatus:set', {
+      paneKey,
+      state: payload.state,
+      statusText: payload.statusText
+    })
+    // Why: the detached agent dashboard is a second BrowserWindow with its own
+    // renderer subscribing to agentStatus:set. Broadcasting to all non-destroyed
+    // windows keeps both main and dashboard views in sync without forcing the
+    // dashboard to poll the main renderer over IPC.
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('agentStatus:set', { paneKey, ...payload })
+      }
     }
-    mainWindow?.webContents.send('agentStatus:set', { paneKey, ...payload })
   })
   return window
 }
@@ -138,16 +148,20 @@ app.whenReady().then(async () => {
   rateLimits.setCodexHomePathResolver(() => codexAccounts!.getSelectedManagedHomePath())
   runtime = new OrcaRuntimeService(store, stats)
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
-  // Why: managed hook installation mutates user-global agent config.
-  // Startup must fail open so a malformed local config never bricks Orca.
-  for (const installManagedHooks of [
-    () => claudeHookService.install(),
-    () => codexHookService.install()
-  ]) {
-    try {
-      installManagedHooks()
-    } catch (error) {
-      console.error('[agent-hooks] Failed to install managed hooks:', error)
+  if (store.getSettings().autoInstallAgentHooks) {
+    for (const installManagedHooks of [
+      () => claudeHookService.install(),
+      () => codexHookService.install()
+    ]) {
+      try {
+        installManagedHooks()
+      } catch (error) {
+        // Why: managed hook installation mutates user-global agent config, so
+        // startup reconciliation only runs after the user has explicitly opted
+        // in via Settings. Even then it must fail open so a malformed local
+        // config never bricks Orca.
+        console.error('[agent-hooks] Failed to install managed hooks:', error)
+      }
     }
   }
 

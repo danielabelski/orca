@@ -150,6 +150,12 @@ export type TerminalSlice = {
    *  already have a timer. Called when the feature is enabled mid-session. */
   seedCacheTimersForIdleTabs: () => void
   hydrateWorkspaceSession: (session: WorkspaceSessionState) => void
+  /** Dashboard-only hydrate: mirrors tabs from the session without nulling
+   *  ptyId or resetting agent-like titles. The detached dashboard window is a
+   *  read-only observer — it never reconnects PTYs, so stripping that state
+   *  (as hydrateWorkspaceSession does for cold boot) would suppress heuristic
+   *  agent detection in useDashboardData on every session:updated broadcast. */
+  hydrateObserverSession: (session: WorkspaceSessionState) => void
   reconnectPersistedTerminals: (signal?: AbortSignal) => Promise<void>
 }
 
@@ -1136,6 +1142,69 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         // survive app restart. Preserve ptyIdsByLeafId so that
         // reconnectPersistedTerminals can reattach each split-pane leaf
         // to its specific daemon session (not just the tab-level ptyId).
+        terminalLayoutsByTabId: Object.fromEntries(
+          Object.entries(session.terminalLayoutsByTabId).filter(([tabId]) => validTabIds.has(tabId))
+        )
+      }
+    })
+  },
+
+  hydrateObserverSession: (session) => {
+    set((s) => {
+      const validWorktreeIds = new Set(
+        Object.values(s.worktreesByRepo)
+          .flat()
+          .map((worktree) => worktree.id)
+      )
+      // Why: preserve ptyId and title as written by the main window. The
+      // dashboard never spawns or reconnects PTYs; its only job is to display
+      // what the main window persists. Clearing ptyId here would suppress the
+      // heuristic agent-detection path in useDashboardData on every
+      // session:updated broadcast (~150ms while typing), causing statuses to
+      // flicker or disappear.
+      const tabsByWorktree: Record<string, TerminalTab[]> = Object.fromEntries(
+        Object.entries(session.tabsByWorktree)
+          .filter(([worktreeId]) => validWorktreeIds.has(worktreeId))
+          .map(([worktreeId, tabs]) => [
+            worktreeId,
+            [...tabs]
+              .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+              .map((tab, index) => ({ ...tab, sortOrder: index }))
+          ])
+          .filter(([, tabs]) => tabs.length > 0)
+      )
+
+      const validTabIds = new Set(
+        Object.values(tabsByWorktree)
+          .flat()
+          .map((tab) => tab.id)
+      )
+      const activeWorktreeId =
+        session.activeWorktreeId && validWorktreeIds.has(session.activeWorktreeId)
+          ? session.activeWorktreeId
+          : null
+      const activeTabId =
+        session.activeTabId && validTabIds.has(session.activeTabId) ? session.activeTabId : null
+      const activeRepoId =
+        session.activeRepoId && s.repos.some((repo) => repo.id === session.activeRepoId)
+          ? session.activeRepoId
+          : null
+
+      const activeTabIdByWorktree: Record<string, string | null> = {}
+      if (session.activeTabIdByWorktree) {
+        for (const [wId, tabId] of Object.entries(session.activeTabIdByWorktree)) {
+          if (validWorktreeIds.has(wId) && tabId && validTabIds.has(tabId)) {
+            activeTabIdByWorktree[wId] = tabId
+          }
+        }
+      }
+
+      return {
+        activeRepoId,
+        activeWorktreeId,
+        activeTabId,
+        activeTabIdByWorktree,
+        tabsByWorktree,
         terminalLayoutsByTabId: Object.fromEntries(
           Object.entries(session.terminalLayoutsByTabId).filter(([tabId]) => validTabIds.has(tabId))
         )

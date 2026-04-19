@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { useAppStore } from '@/store'
 import {
   detectAgentStatusFromTitle,
+  formatElapsedAgentTime,
   formatAgentTypeLabel,
   inferAgentTypeFromTitle,
   isExplicitAgentStatusFresh
@@ -241,24 +242,27 @@ function AgentRow({ row, now }: { row: HoverRow; now: number }): React.JSX.Eleme
             {formatAgentTypeLabel(row.agentType)}
           </span>
           <span className="ml-auto text-[10px] text-muted-foreground/50">
-            {formatTimeAgo(row.explicit.updatedAt, now)}
+            {formatElapsedAgentTime(row.explicit.stateStartedAt, now)}
           </span>
         </div>
-        {row.explicit.summary && (
+        {row.explicit.statusText && (
           <div className={cn('pl-4 text-[11px] leading-snug', !isFresh && 'opacity-60')}>
-            {row.explicit.summary}
+            {row.explicit.statusText}
           </div>
         )}
-        {row.explicit.next && (
+        {row.explicit.promptText && (
           <div
             className={cn(
               'pl-4 text-[10.5px] leading-snug text-muted-foreground',
               !isFresh && 'opacity-60'
             )}
           >
-            Next: {row.explicit.next}
+            Prompt: {row.explicit.promptText}
           </div>
         )}
+        <div className="pl-4 text-[10px] text-muted-foreground/50">
+          Updated {formatTimeAgo(row.explicit.updatedAt, now)}
+        </div>
         {!isFresh && (
           <div className="pl-4 text-[10px] italic text-muted-foreground/60">
             Showing last reported task details; live terminal state has taken precedence.
@@ -315,12 +319,17 @@ const AgentStatusHover = React.memo(function AgentStatusHover({
   const tabs = useAppStore((s) => s.tabsByWorktree[worktreeId] ?? EMPTY_TABS)
   const agentStatusByPaneKey = useAppStore((s) => s.agentStatusByPaneKey)
   const agentStatusEpoch = useAppStore((s) => s.agentStatusEpoch)
+  const [now, setNow] = useState(() => Date.now())
 
-  // Why: timestamps in the hover are relative labels, so recompute "now" when
-  // the source rows change or a stored freshness boundary expires, rather than
-  // on an interval that would churn the sidebar every minute.
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  const now = useMemo(() => Date.now(), [agentStatusByPaneKey, agentStatusEpoch, tabs])
+  useEffect(() => {
+    setNow(Date.now())
+  }, [agentStatusByPaneKey, agentStatusEpoch, tabs])
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   const rows = useMemo(
     () => buildAgentStatusHoverRows(tabs, agentStatusByPaneKey, now),
     [tabs, agentStatusByPaneKey, now]

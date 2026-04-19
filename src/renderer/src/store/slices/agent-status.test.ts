@@ -21,7 +21,11 @@ describe('agent status freshness expiry', () => {
     const store = createTestStore()
     store
       .getState()
-      .setAgentStatus('tab-1:1', { state: 'working', summary: 'Fix tests', next: '' }, 'codex')
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'working', statusText: 'Fix tests', promptText: '' },
+        'codex'
+      )
 
     // setAgentStatus bumps epoch once synchronously
     expect(store.getState().agentStatusEpoch).toBe(1)
@@ -42,7 +46,11 @@ describe('agent status freshness expiry', () => {
     const store = createTestStore()
     store
       .getState()
-      .setAgentStatus('tab-1:1', { state: 'working', summary: 'Fix tests', next: '' }, 'codex')
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'working', statusText: 'Fix tests', promptText: '' },
+        'codex'
+      )
     // set bumps to 1, remove bumps to 2
     store.getState().removeAgentStatus('tab-1:1')
     expect(store.getState().agentStatusEpoch).toBe(2)
@@ -53,5 +61,78 @@ describe('agent status freshness expiry', () => {
 
     // No additional bump since the entry was removed before the timer fires
     expect(store.getState().agentStatusEpoch).toBe(2)
+  })
+})
+
+describe('agent status elapsed timing', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('preserves stateStartedAt across in-state updates', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'))
+
+    const store = createTestStore()
+    store
+      .getState()
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'working', statusText: 'Start fix', promptText: 'Fix login flow' },
+        'codex'
+      )
+
+    const startedAt = store.getState().agentStatusByPaneKey['tab-1:1']?.stateStartedAt
+    expect(startedAt).toBe(Date.now())
+
+    vi.advanceTimersByTime(15_000)
+    store
+      .getState()
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'working', statusText: 'Still fixing', promptText: '' },
+        'codex'
+      )
+
+    const entry = store.getState().agentStatusByPaneKey['tab-1:1']
+    expect(entry?.stateStartedAt).toBe(startedAt)
+    expect(entry?.updatedAt).toBe(Date.now())
+    expect(entry?.promptText).toBe('Fix login flow')
+  })
+
+  it('records the previous state start time in history when the state changes', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-09T12:00:00.000Z'))
+
+    const store = createTestStore()
+    store
+      .getState()
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'working', statusText: 'Start fix', promptText: '' },
+        'codex'
+      )
+
+    const workingStartedAt = store.getState().agentStatusByPaneKey['tab-1:1']?.stateStartedAt
+
+    vi.advanceTimersByTime(15_000)
+    store
+      .getState()
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'blocked', statusText: 'Need input', promptText: '' },
+        'codex'
+      )
+
+    const entry = store.getState().agentStatusByPaneKey['tab-1:1']
+    expect(entry?.stateStartedAt).toBe(Date.now())
+    expect(entry?.stateHistory).toEqual([
+      {
+        state: 'working',
+        statusText: 'Start fix',
+        promptText: '',
+        startedAt: workingStartedAt
+      }
+    ])
   })
 })

@@ -1,8 +1,10 @@
+/* eslint-disable max-lines */
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, Download, FolderOpen, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CliInstallStatus } from '../../../../shared/cli-install-types'
 import type { AgentHookInstallStatus } from '../../../../shared/agent-hook-types'
+import type { GlobalSettings } from '../../../../shared/types'
 import { Button } from '../ui/button'
 import {
   Dialog,
@@ -17,6 +19,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 
 type CliSectionProps = {
   currentPlatform: string
+  settings: GlobalSettings
+  updateSettings: (updates: Partial<GlobalSettings>) => void
 }
 
 const ORCA_CLI_SKILL_INSTALL_COMMAND =
@@ -45,7 +49,11 @@ function getInstallDescription(platform: string): string {
   return 'CLI registration is not yet available on this platform.'
 }
 
-export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Element {
+export function CliSection({
+  currentPlatform,
+  settings,
+  updateSettings
+}: CliSectionProps): React.JSX.Element {
   const [status, setStatus] = useState<CliInstallStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -86,6 +94,19 @@ export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Elem
       toast.error(error instanceof Error ? error.message : `Failed to install ${agent} hooks.`)
     } finally {
       setBusyHook(null)
+    }
+  }
+
+  const handleAutoInstallHooksChange = async (enabled: boolean): Promise<void> => {
+    try {
+      await updateSettings({ autoInstallAgentHooks: enabled })
+      toast.success(
+        enabled
+          ? 'Native hook management enabled. Orca will keep hooks installed on launch.'
+          : 'Native hook management disabled. Orca will no longer rewrite hook config on launch.'
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update hook setting.')
     }
   }
 
@@ -294,9 +315,34 @@ export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Elem
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground/70">
-                Orca installs Claude and Codex global hooks so agent lifecycle updates flow into the
-                sidebar automatically.
+                Opt in if you want Orca to manage Claude and Codex global hooks for you. This
+                updates the user-wide hook config in <code>~/.claude</code> and{' '}
+                <code>~/.codex</code>.
               </p>
+              <div className="mt-2 flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium">Keep hooks installed</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    When enabled, Orca reconciles its managed hooks on startup. Disabled by default
+                    because this mutates global agent config.
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={settings.autoInstallAgentHooks}
+                  onClick={() => void handleAutoInstallHooksChange(!settings.autoInstallAgentHooks)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors ${
+                    settings.autoInstallAgentHooks ? 'bg-foreground' : 'bg-muted-foreground/30'
+                  } ${busyHook !== null ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                  disabled={busyHook !== null}
+                >
+                  <span
+                    className={`pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform ${
+                      settings.autoInstallAgentHooks ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
               <div className="mt-2 space-y-2">
                 {(
                   [
@@ -304,7 +350,8 @@ export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Elem
                     ['codex', hookStatuses.codex]
                   ] as const
                 ).map(([agent, status]) => {
-                  const installed = status?.managedHooksPresent === true
+                  const installed = status?.state === 'installed'
+                  const needsRepair = status?.state === 'partial'
                   return (
                     <div
                       key={agent}
@@ -332,16 +379,27 @@ export function CliSection({ currentPlatform }: CliSectionProps): React.JSX.Elem
                           Installed
                         </Button>
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5"
-                          disabled={busyHook !== null || hookStatuses.loading}
-                          onClick={() => void handleInstallHook(agent)}
-                        >
-                          <Download className="size-3.5" />
-                          {busyHook === agent ? 'Installing…' : 'Install'}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {needsRepair && (
+                            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                              Partial
+                            </span>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5"
+                            disabled={busyHook !== null || hookStatuses.loading}
+                            onClick={() => void handleInstallHook(agent)}
+                          >
+                            <Download className="size-3.5" />
+                            {busyHook === agent
+                              ? 'Installing…'
+                              : needsRepair
+                                ? 'Repair'
+                                : 'Install'}
+                          </Button>
+                        </div>
                       )}
                     </div>
                   )

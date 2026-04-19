@@ -1,8 +1,17 @@
 import React, { useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
+import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
 import DashboardAgentRow from './DashboardAgentRow'
 import type { DashboardWorktreeCard as DashboardWorktreeCardData } from './useDashboardData'
+
+// Why: the dashboard renders in two places — embedded in the main window's
+// right sidebar, and in a detached secondary window. The detached renderer
+// has its own Zustand store, so calling setActiveWorktree there has no
+// effect on what the user sees. Detect that case and route through main.
+const IS_DETACHED_DASHBOARD =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('view') === 'agent-dashboard'
 
 function dominantStateBadge(state: string): { label: string; className: string } {
   switch (state) {
@@ -39,8 +48,15 @@ const DashboardWorktreeCard = React.memo(function DashboardWorktreeCard({
   // "checked" so done agents disappear from the active filter. The two actions
   // (navigate + check) must both fire on click.
   const handleClick = useCallback(() => {
-    setActiveWorktree(card.worktree.id)
-    setActiveView('terminal')
+    if (IS_DETACHED_DASHBOARD) {
+      void window.api.ui.requestActivateWorktree({
+        repoId: getRepoIdFromWorktreeId(card.worktree.id),
+        worktreeId: card.worktree.id
+      })
+    } else {
+      setActiveWorktree(card.worktree.id)
+      setActiveView('terminal')
+    }
     onCheck()
   }, [card.worktree.id, setActiveWorktree, setActiveView, onCheck])
 
@@ -93,7 +109,6 @@ const DashboardWorktreeCard = React.memo(function DashboardWorktreeCard({
         <div className="mt-0.5 text-[10px] text-muted-foreground/60 truncate">{branchName}</div>
       )}
 
-      {/* Agent rows with activity blocks */}
       {card.agents.length > 0 && (
         <div className="mt-1.5 flex flex-col gap-1">
           {card.agents.map((agent) => (

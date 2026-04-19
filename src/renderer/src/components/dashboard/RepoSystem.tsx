@@ -1,29 +1,21 @@
-/* eslint-disable max-lines -- Why: RepoSystem is a single SVG component whose
-layout constants, animation styles, and rendering are tightly coupled. Splitting
-the SVG template across files would scatter the coordinate system and make the
-visual layout harder to trace during debugging. */
 import React from 'react'
+import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { formatAgentTypeLabel } from '@/lib/agent-status'
-import type { DashboardRepoGroup } from './useDashboardData'
+import { AgentIcon } from '@/lib/agent-catalog'
+import { FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
+import type { TuiAgent } from '../../../../shared/types'
+import type {
+  DashboardRepoGroup,
+  DashboardAgentRow,
+  DashboardWorktreeCard
+} from './useDashboardData'
 import type { TooltipData } from './ConcentricView'
 
-// ─── Layout Constants ────────────────────────────────────────────────────────
-// Why: the SVG viewBox is fixed at 280x280 so each repo "system" renders as a
-// square that scales to the sidebar width. Radii define the three concentric
-// rings: outer (repo boundary), orbit (where worktrees sit), and inner (decorative).
-const SVG_SIZE = 280
-const CX = SVG_SIZE / 2
-const CY = SVG_SIZE / 2
-const REPO_RING_R = 115
-const ORBIT_R = 75
-const INNER_DECOR_R = 28
-const BASE_WT_R = 24
-const BASE_AGENT_R = 8
-
 // ─── State Colors ────────────────────────────────────────────────────────────
-// Why: hardcoded hex values ensure consistent SVG rendering regardless of CSS
-// variable availability. These match the Tailwind color tokens used in the
-// card-grid dashboard (emerald-500, amber-500, sky-500, zinc-500).
+// Why: hardcoded hex values ensure consistent rendering regardless of CSS
+// variable availability. These match the Tailwind color tokens used elsewhere
+// (emerald-500, amber-500, sky-500, zinc-500).
 const STATE_COLORS: Record<string, { fill: string; glow: string }> = {
   working: { fill: '#10b981', glow: '#34d399' },
   blocked: { fill: '#f59e0b', glow: '#fbbf24' },
@@ -32,114 +24,45 @@ const STATE_COLORS: Record<string, { fill: string; glow: string }> = {
   idle: { fill: '#71717a', glow: '#a1a1aa' }
 }
 
-export function stateColor(state: string) {
+export function stateColor(state: string): { fill: string; glow: string } {
   return STATE_COLORS[state] ?? STATE_COLORS.idle
-}
-
-// ─── Agent Type Initials ─────────────────────────────────────────────────────
-// Why: visible initials inside small agent circles provide quick identification
-// of which agent type is running, fulfilling the "visible icons" requirement.
-const AGENT_INITIALS: Record<string, string> = {
-  claude: 'C',
-  codex: 'X',
-  gemini: 'G',
-  opencode: 'O',
-  aider: 'A',
-  unknown: '?'
-}
-
-function agentInitial(type: string): string {
-  return AGENT_INITIALS[type] ?? (type.charAt(0).toUpperCase() || '?')
-}
-
-// ─── Layout Helpers ──────────────────────────────────────────────────────────
-
-/** Compute worktree circle radius that avoids overlap on the orbit ring. */
-function computeWorktreeRadius(count: number): number {
-  if (count <= 1) {
-    return BASE_WT_R
-  }
-  // Why: the max radius is derived from the chord distance between adjacent
-  // worktrees on the orbit. This prevents circles from overlapping as the
-  // count increases.
-  const maxR = ORBIT_R * Math.sin(Math.PI / count) - 2
-  return Math.max(12, Math.min(BASE_WT_R, Math.floor(maxR)))
-}
-
-function computeAgentRadius(wtR: number): number {
-  return Math.max(4, Math.min(BASE_AGENT_R, Math.round(wtR * 0.33)))
-}
-
-function worktreeAngle(index: number, total: number): number {
-  if (total === 1) {
-    return -Math.PI / 2
-  }
-  return -Math.PI / 2 + (2 * Math.PI * index) / total
-}
-
-function worktreePosition(angle: number): [number, number] {
-  return [CX + ORBIT_R * Math.cos(angle), CY + ORBIT_R * Math.sin(angle)]
-}
-
-/** Position agents in a small orbit within their worktree circle.
- *  1 agent: centered. 2+: arranged on a mini orbit ring, creating the
- *  "concentric circles within circles" visual hierarchy. */
-function agentPositions(count: number, cx: number, cy: number, wtR: number): [number, number][] {
-  if (count === 0) {
-    return []
-  }
-  if (count === 1) {
-    return [[cx, cy]]
-  }
-  const agentOrbitR = wtR * 0.55
-  return Array.from({ length: count }, (_, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / count
-    return [cx + agentOrbitR * Math.cos(angle), cy + agentOrbitR * Math.sin(angle)]
-  })
 }
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}\u2026` : s
 }
 
-// ─── SVG Animations ──────────────────────────────────────────────────────────
-// Why: defined as a constant string so all repo SVGs share the same keyframes.
-// The `cv-` prefix prevents collisions with other page styles since inline SVG
-// <style> tags leak into the global CSS scope.
-const SVG_STYLES = `
-  @keyframes cv-breathe {
-    0%, 100% { stroke-opacity: 0.12; }
-    50% { stroke-opacity: 0.45; }
+// Why: state-to-badge mapping matches the dashboard mock — RUNNING, PAUSED,
+// DONE, IDLE labels sit in the top-right of every agent tile. `waiting` is
+// folded into PAUSED to match the blocked/paused bucket used elsewhere.
+function agentStateBadge(state: string): string {
+  switch (state) {
+    case 'working':
+      return 'RUNNING'
+    case 'blocked':
+    case 'waiting':
+      return 'PAUSED'
+    case 'done':
+      return 'DONE'
+    case 'idle':
+      return 'IDLE'
+    default:
+      return state.toUpperCase()
   }
-  .cv-breathe { animation: cv-breathe 3s ease-in-out infinite; }
-
-  @keyframes cv-orbit-spin {
-    from { stroke-dashoffset: 0; }
-    to { stroke-dashoffset: -16; }
-  }
-  .cv-orbit-spin { animation: cv-orbit-spin 30s linear infinite; }
-
-  @keyframes cv-pulse-ring {
-    0%, 100% { stroke-opacity: 0.15; }
-    50% { stroke-opacity: 0.55; }
-  }
-  .cv-pulse-ring { animation: cv-pulse-ring 2s ease-in-out infinite; }
-
-  .cv-wt { cursor: pointer; }
-  .cv-wt > .cv-wt-bg {
-    transition: stroke-opacity 200ms ease, fill-opacity 200ms ease;
-  }
-  .cv-wt:hover > .cv-wt-bg {
-    stroke-opacity: 0.75;
-    fill-opacity: 0.28;
-  }
-`
+}
 
 // ─── RepoSystem Component ────────────────────────────────────────────────────
-// Why: memoized so tooltip state changes in the parent don't re-render SVGs.
+// Why: renders each repo as a card containing a grid of rounded-square
+// worktree tiles. Worktrees are sorted by `latestActivityAt` descending so the
+// most recently active tile sits at the top-left. Each tile shows the dominant
+// state via a left color bar + pill, the worktree name + branch, and a compact
+// list of agent rows. "Done" worktrees get an explicit dismiss (X) button so
+// clicking the tile itself navigates (like any other state) while dismissal is
+// opt-in.
 export type RepoSystemProps = {
   group: DashboardRepoGroup
   onClick: (worktreeId: string) => void
+  onDismiss: (worktreeId: string) => void
   onShowTooltip: (e: React.MouseEvent, data: Omit<TooltipData, 'x' | 'y'>) => void
   onHideTooltip: () => void
 }
@@ -147,276 +70,262 @@ export type RepoSystemProps = {
 const RepoSystem = React.memo(function RepoSystem({
   group,
   onClick,
+  onDismiss,
   onShowTooltip,
   onHideTooltip
 }: RepoSystemProps) {
-  const activeWorktrees = group.worktrees.filter((wt) => wt.agents.length > 0)
-  const wtR = computeWorktreeRadius(activeWorktrees.length)
-  const agentR = computeAgentRadius(wtR)
-  const showInitials = agentR >= 6
+  // Why: sort most-recent-first so the tile the user most likely cares about
+  // sits at the top-left corner of the repo's grid. Worktrees with no activity
+  // timestamp (latestActivityAt === 0) fall to the end in their natural order.
+  const activeWorktrees = group.worktrees
+    .filter((wt) => wt.agents.length > 0)
+    .slice()
+    .sort((a, b) => b.latestActivityAt - a.latestActivityAt)
   const totalAgents = activeWorktrees.reduce((s, w) => s + w.agents.length, 0)
 
   return (
-    <div className="w-full max-w-[280px]">
-      <svg viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`} className="w-full" style={{ aspectRatio: '1' }}>
-        <style>{SVG_STYLES}</style>
-        <defs>
-          <filter id={`cv-glow-${group.repo.id}`} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <radialGradient id={`cv-bg-${group.repo.id}`} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={group.repo.badgeColor} stopOpacity="0.08" />
-            <stop offset="65%" stopColor={group.repo.badgeColor} stopOpacity="0.025" />
-            <stop offset="100%" stopColor={group.repo.badgeColor} stopOpacity="0" />
-          </radialGradient>
-        </defs>
-
-        {/* Background radial gradient — gives each repo a subtle ambient glow */}
-        <circle cx={CX} cy={CY} r={REPO_RING_R + 8} fill={`url(#cv-bg-${group.repo.id})`} />
-
-        {/* Outermost ring: repo boundary */}
-        <circle
-          cx={CX}
-          cy={CY}
-          r={REPO_RING_R}
-          fill="none"
-          stroke={group.repo.badgeColor}
-          strokeWidth="1.5"
-          strokeOpacity="0.35"
+    <div className="w-full max-w-[560px] rounded-lg border-2 border-border bg-accent/10 p-2.5">
+      {/* Repo header */}
+      <div className="mb-2 flex items-center gap-1.5 px-0.5">
+        <span
+          className="size-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: group.repo.badgeColor }}
         />
-
-        {/* Middle ring: worktree orbit (animated dashed ring) */}
-        <circle
-          cx={CX}
-          cy={CY}
-          r={ORBIT_R}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0.5"
-          strokeOpacity="0.08"
-          strokeDasharray="3 5"
-          className="cv-orbit-spin"
-        />
-
-        {/* Inner decorative ring */}
-        <circle
-          cx={CX}
-          cy={CY}
-          r={INNER_DECOR_R}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0.5"
-          strokeOpacity="0.06"
-        />
-
-        {/* Radial spokes connecting center to each worktree */}
-        {activeWorktrees.map((_, i) => {
-          const angle = worktreeAngle(i, activeWorktrees.length)
-          const [wx, wy] = worktreePosition(angle)
-          return (
-            <line
-              key={`spoke-${i}`}
-              x1={CX}
-              y1={CY}
-              x2={wx}
-              y2={wy}
-              stroke={group.repo.badgeColor}
-              strokeWidth="0.5"
-              strokeOpacity="0.07"
-            />
-          )
-        })}
-
-        {/* Center: repo name + stats */}
-        <text
-          x={CX}
-          y={CY - 4}
-          textAnchor="middle"
-          className="fill-foreground"
-          style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.01em' }}
-        >
-          {truncate(group.repo.displayName, 16)}
-        </text>
-        <text
-          x={CX}
-          y={CY + 10}
-          textAnchor="middle"
-          className="fill-muted-foreground"
-          style={{ fontSize: 8.5 }}
-        >
-          {activeWorktrees.length} worktree{activeWorktrees.length !== 1 ? 's' : ''}
-          {' \u00B7 '}
-          {totalAgents} agent{totalAgents !== 1 ? 's' : ''}
-        </text>
-
-        {/* Attention badge at center (if any agents need attention) */}
+        <span className="truncate text-[12px] font-semibold text-foreground">
+          {truncate(group.repo.displayName, 28)}
+        </span>
+        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
+          {activeWorktrees.length} wt · {totalAgents} agent{totalAgents !== 1 ? 's' : ''}
+        </span>
         {group.attentionCount > 0 && (
-          <>
-            <circle cx={CX + 30} cy={CY - 14} r={8} fill="#f59e0b" fillOpacity="0.2" />
-            <text
-              x={CX + 30}
-              y={CY - 10.5}
-              textAnchor="middle"
-              fill="#f59e0b"
-              style={{ fontSize: 9, fontWeight: 700 }}
-            >
-              {group.attentionCount}
-            </text>
-          </>
+          <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9.5px] font-semibold text-amber-500">
+            {group.attentionCount}
+          </span>
         )}
+      </div>
 
-        {/* ── Worktree nodes on the orbit ring ── */}
-        {activeWorktrees.map((card, i) => {
-          const angle = worktreeAngle(i, activeWorktrees.length)
-          const [wx, wy] = worktreePosition(angle)
-          const sc = stateColor(card.dominantState)
-          const aPos = agentPositions(card.agents.length, wx, wy, wtR)
-          const branchName = card.worktree.branch?.replace(/^refs\/heads\//, '')
-
-          return (
-            <g
+      {activeWorktrees.length === 0 ? (
+        <div className="px-1 py-4 text-center text-[10px] italic text-muted-foreground/40">
+          No active agents
+        </div>
+      ) : (
+        // Why: each worktree gets its own outlined group so the visual
+        // hierarchy reads repo → worktree → agents. Agents inside a worktree
+        // are still laid out as fixed-size square tiles.
+        <div className="flex flex-col gap-2">
+          {activeWorktrees.map((card) => (
+            <WorktreeGroup
               key={card.worktree.id}
-              className="cv-wt"
-              onClick={() => onClick(card.worktree.id)}
-              onMouseLeave={onHideTooltip}
-            >
-              {/* Worktree circle background */}
-              <circle
-                className="cv-wt-bg"
-                cx={wx}
-                cy={wy}
-                r={wtR}
-                fill={sc.fill}
-                fillOpacity="0.14"
-                stroke={sc.fill}
-                strokeWidth="1.5"
-                strokeOpacity="0.45"
-              />
+              card={card}
+              onClick={onClick}
+              onDismiss={onDismiss}
+              onShowTooltip={onShowTooltip}
+              onHideTooltip={onHideTooltip}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+})
 
-              {/* Glow ring: working state (gentle breathing animation) */}
-              {card.dominantState === 'working' && (
-                <circle
-                  cx={wx}
-                  cy={wy}
-                  r={wtR + 4}
-                  fill="none"
-                  stroke={sc.glow}
-                  strokeWidth="1"
-                  className="cv-breathe"
-                  filter={`url(#cv-glow-${group.repo.id})`}
-                />
-              )}
+// ─── WorktreeGroup ───────────────────────────────────────────────────────────
+// Why: outlines a single worktree's agents so the repo → worktree → agent
+// hierarchy is visually clear. Shows the worktree name/branch in a small
+// header above its agent tiles.
+type WorktreeGroupProps = {
+  card: DashboardWorktreeCard
+  onClick: (worktreeId: string) => void
+  onDismiss: (worktreeId: string) => void
+  onShowTooltip: (e: React.MouseEvent, data: Omit<TooltipData, 'x' | 'y'>) => void
+  onHideTooltip: () => void
+}
 
-              {/* Pulse ring: blocked state (attention-drawing pulse) */}
-              {card.dominantState === 'blocked' && (
-                <circle
-                  cx={wx}
-                  cy={wy}
-                  r={wtR + 5}
-                  fill="none"
-                  stroke={sc.glow}
-                  strokeWidth="1.5"
-                  className="cv-pulse-ring"
-                />
-              )}
+const WorktreeGroup = React.memo(function WorktreeGroup({
+  card,
+  onClick,
+  onDismiss,
+  onShowTooltip,
+  onHideTooltip
+}: WorktreeGroupProps) {
+  return (
+    <div className="rounded-md border-2 border-border/80 bg-background/20 p-1.5">
+      <div className="mb-1.5 flex items-center gap-1.5 px-0.5">
+        <span className="truncate text-[11px] font-medium text-muted-foreground">
+          {truncate(card.worktree.displayName, 28)}
+        </span>
+        <span className="ml-auto shrink-0 text-[9.5px] text-muted-foreground/50">
+          {card.agents.length} agent{card.agents.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div
+        className="grid gap-1.5"
+        // Why: fixed-width columns (not 1fr) so each agent tile renders at a
+        // constant size regardless of container width or how many tiles are
+        // in the row. aspect-square on the tile then gives a constant height.
+        style={{ gridTemplateColumns: 'repeat(auto-fill, 120px)' }}
+      >
+        {card.agents.map((agent) => (
+          <AgentSquareTile
+            key={agent.paneKey}
+            agent={agent}
+            card={card}
+            onClick={onClick}
+            onDismiss={onDismiss}
+            onShowTooltip={onShowTooltip}
+            onHideTooltip={onHideTooltip}
+          />
+        ))}
+      </div>
+    </div>
+  )
+})
 
-              {/* Agent orbit ring (visible when 2+ agents — creates the nested
-                  concentric pattern within each worktree) */}
-              {card.agents.length >= 2 && (
-                <circle
-                  cx={wx}
-                  cy={wy}
-                  r={wtR * 0.55}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="0.4"
-                  strokeOpacity="0.12"
-                  strokeDasharray="1.5 2.5"
-                />
-              )}
+// ─── AgentSquareTile ─────────────────────────────────────────────────────────
+// Why: a single agent's square card — matches the dashboard mock. The tile is
+// aspect-square and shows a state badge top-right (RUNNING / PAUSED / DONE /
+// IDLE), the agent name prominently, and the parent worktree's name/path
+// underneath. Hover surfaces the full tooltip via the same mechanism the old
+// row-based layout used.
+type AgentSquareTileProps = {
+  agent: DashboardAgentRow
+  card: DashboardWorktreeCard
+  onClick: (worktreeId: string) => void
+  onDismiss: (worktreeId: string) => void
+  onShowTooltip: (e: React.MouseEvent, data: Omit<TooltipData, 'x' | 'y'>) => void
+  onHideTooltip: () => void
+}
 
-              {/* Agent icons — each has its own hover for per-agent tooltip */}
-              {card.agents.map((agent, j) => {
-                const [ax, ay] = aPos[j]
-                const ac = stateColor(agent.state)
-                return (
-                  <g
-                    key={agent.paneKey}
-                    onMouseMove={(e) => {
-                      // Why: stopPropagation prevents the worktree-level
-                      // onMouseLeave from firing when moving between agents
-                      // within the same worktree circle.
-                      e.stopPropagation()
-                      onShowTooltip(e, {
-                        agentLabel: formatAgentTypeLabel(agent.agentType),
-                        state: agent.state,
-                        worktreeName: card.worktree.displayName,
-                        branchName
-                      })
-                    }}
-                    onMouseLeave={onHideTooltip}
-                  >
-                    {/* Invisible larger hit area for easier hovering */}
-                    <circle cx={ax} cy={ay} r={Math.max(agentR + 4, 12)} fill="transparent" />
-                    <circle
-                      cx={ax}
-                      cy={ay}
-                      r={agentR}
-                      fill={ac.fill}
-                      fillOpacity="0.9"
-                      stroke={ac.glow}
-                      strokeWidth="0.5"
-                      strokeOpacity="0.4"
-                    />
-                    {showInitials && (
-                      <text
-                        x={ax}
-                        y={ay + Math.round(agentR * 0.4)}
-                        textAnchor="middle"
-                        fill="white"
-                        style={{
-                          fontSize: Math.max(7, Math.round(agentR * 1.15)),
-                          fontWeight: 700
-                        }}
-                      >
-                        {agentInitial(agent.agentType)}
-                      </text>
-                    )}
-                  </g>
-                )
-              })}
+const AgentSquareTile = React.memo(function AgentSquareTile({
+  agent,
+  card,
+  onClick,
+  onDismiss
+}: AgentSquareTileProps) {
+  const sc = stateColor(agent.state)
+  const isWorking = agent.state === 'working'
+  const isBlocked = agent.state === 'blocked' || agent.state === 'waiting'
+  const isDone = agent.state === 'done'
+  const agentLabel = formatAgentTypeLabel(agent.agentType)
+  // Why: show the submitted prompt — the user's question/task — inside the
+  // tile. statusText (e.g. "Turn complete") is transient agent chatter and
+  // not what the user wants to see at a glance; fall back to it only if no
+  // prompt was captured.
+  const promptText = (agent.promptText || agent.statusText || '').trim()
 
-              {/* Worktree label below the circle */}
-              <text
-                x={wx}
-                y={wy + wtR + 12}
-                textAnchor="middle"
-                className="fill-foreground/80"
-                style={{ fontSize: 8.5, fontWeight: 500 }}
-              >
-                {truncate(card.worktree.displayName, 14)}
-              </text>
-            </g>
-          )
-        })}
+  const history = agent.entry?.stateHistory ?? []
+  const blocks = [
+    ...history.map((h) => ({
+      state: h.state,
+      title: `${h.state}${h.statusText ? ` — ${h.statusText}` : ''}`
+    })),
+    {
+      state: agent.state,
+      title: `${agent.state}${agent.statusText ? ` — ${agent.statusText}` : ''}`
+    }
+  ]
 
-        {/* Empty state when no worktrees have active agents */}
-        {activeWorktrees.length === 0 && (
-          <text
-            x={CX}
-            y={CY + 26}
-            textAnchor="middle"
-            className="fill-muted-foreground/40"
-            style={{ fontSize: 9, fontStyle: 'italic' }}
+  // Why: fixed-width blocks (matching the old hover popover) so each turn is
+  // legibly sized and doesn't stretch with the tile. Cap count to fit within
+  // the tile width without wrapping.
+  const MAX_BLOCKS = 8
+  const visibleBlocks = blocks.slice(-MAX_BLOCKS)
+
+  return (
+    <div
+      className={cn(
+        'group relative flex aspect-square cursor-pointer flex-col overflow-hidden rounded-lg border-2 bg-background/40 p-1.5',
+        'transition-colors hover:bg-background/70'
+      )}
+      style={{ borderColor: `${sc.fill}88` }}
+      onClick={() => onClick(card.worktree.id)}
+    >
+      {/* Working/blocked glow overlay — same breathing treatment the
+          worktree-level tile had, now applied per-agent. */}
+      {(isWorking || isBlocked) && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 animate-pulse rounded-lg"
+          style={{
+            boxShadow: `inset 0 0 14px ${sc.glow}40`,
+            animationDuration: isBlocked ? '1.5s' : '3s'
+          }}
+        />
+      )}
+
+      {/* Top row: yellow bell (done) on the left, state badge + dismiss on the right. */}
+      <div className="relative flex items-start gap-1">
+        {isDone && <FilledBellIcon className="size-3.5 shrink-0 text-amber-500 drop-shadow-sm" />}
+        <span
+          className="ml-auto rounded px-1 py-[1px] text-[8px] font-semibold uppercase tracking-wider"
+          style={{ backgroundColor: `${sc.fill}22`, color: sc.fill }}
+        >
+          {agentStateBadge(agent.state)}
+        </span>
+        {isDone && (
+          <button
+            type="button"
+            className="flex size-3.5 items-center justify-center rounded text-muted-foreground/70 opacity-60 hover:bg-background/70 hover:text-foreground hover:opacity-100 group-hover:opacity-100"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              // Why: stopPropagation so the tile's own onClick (which
+              // navigates to the terminal) doesn't fire.
+              e.stopPropagation()
+              onDismiss(card.worktree.id)
+            }}
+            aria-label="Dismiss completed agent"
+            title="Remove from view"
           >
-            No active agents
-          </text>
+            <X size={9} strokeWidth={2.5} />
+          </button>
         )}
-      </svg>
+      </div>
+
+      {/* Body: agent icon then prompt stacked vertically at the top of the
+          tile. The icon replaces the textual agent name (claude/codex/…)
+          with the same SVG/favicon we render in the workspace selector. */}
+      <div className="relative mt-1 min-w-0">
+        <span
+          className="flex size-4 shrink-0 items-center justify-center text-foreground"
+          title={agentLabel}
+          aria-label={agentLabel}
+        >
+          <AgentIcon agent={agent.agentType as TuiAgent} size={14} />
+        </span>
+        {/* Current prompt/status — the action in this turn. Line-clamped to
+            2 rows so it never pushes the tile larger than aspect-square. */}
+        {promptText && (
+          <div
+            className="mt-1 overflow-hidden text-[11px] font-medium leading-snug text-foreground/90"
+            style={{
+              display: '-webkit-box',
+              WebkitBoxOrient: 'vertical',
+              WebkitLineClamp: 2
+            }}
+            title={promptText}
+          >
+            {promptText}
+          </div>
+        )}
+      </div>
+
+      {/* Past-turn blocks — pinned to the bottom of the tile so they form a
+          consistent baseline across agents regardless of prompt length. */}
+      {visibleBlocks.length > 0 && (
+        <div className="relative mt-auto flex flex-wrap items-center gap-[2px] pt-1">
+          {visibleBlocks.map((block, i) => {
+            const bc = stateColor(block.state)
+            return (
+              <span
+                key={`${i}-${block.state}`}
+                title={block.title}
+                className="h-1.5 w-3 rounded-sm"
+                style={{ backgroundColor: bc.fill, opacity: 0.8 }}
+              />
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 })

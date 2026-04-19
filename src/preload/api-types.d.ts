@@ -414,6 +414,7 @@ export type PreloadApi = {
     get: () => Promise<WorkspaceSessionState>
     set: (args: WorkspaceSessionState) => Promise<void>
     setSync: (args: WorkspaceSessionState) => void
+    onUpdated: (callback: () => void) => () => void
   }
   updater: {
     getVersion: () => Promise<string>
@@ -575,6 +576,8 @@ export type PreloadApi = {
     onFullscreenChanged: (callback: (isFullScreen: boolean) => void) => () => void
     onWindowCloseRequested: (callback: (data: { isQuitting: boolean }) => void) => () => void
     confirmWindowClose: () => void
+    openAgentDashboard: () => Promise<void>
+    requestActivateWorktree: (args: { repoId: string; worktreeId: string }) => Promise<void>
   }
   runtime: {
     syncWindowGraph: (graph: RuntimeSyncWindowGraph) => Promise<RuntimeStatus>

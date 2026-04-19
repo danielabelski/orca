@@ -73,7 +73,7 @@ export function registerCoreHandlers(
   browserSessionRegistry.restorePersistedUserAgent()
   registerShellHandlers()
   registerSessionHandlers(store)
-  registerUIHandlers(store)
+  registerUIHandlers(store, mainWindowWebContentsId)
   registerFilesystemHandlers(store)
   registerFilesystemWatcherHandlers()
   registerRuntimeHandlers(runtime)

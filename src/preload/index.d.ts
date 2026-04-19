@@ -202,8 +202,8 @@ type AgentStatusApi = {
     callback: (data: {
       paneKey: string
       state: string
-      summary?: string
-      next?: string
+      statusText?: string
+      promptText?: string
       agentType?: string
     }) => void
   ) => () => void

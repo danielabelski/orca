@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/store'
-import { detectAgentStatusFromTitle, inferAgentTypeFromTitle } from '@/lib/agent-status'
 import type { AgentStatusEntry, AgentType } from '../../../../shared/agent-status-types'
 import type { Repo, Worktree, TerminalTab } from '../../../../shared/types'
 
@@ -12,7 +11,10 @@ export type DashboardAgentRow = {
   tab: TerminalTab
   agentType: AgentType
   state: string
-  source: 'agent' | 'heuristic'
+  source: 'agent'
+  stateStartedAt: number | null
+  statusText: string
+  promptText: string
 }
 
 export type DashboardWorktreeCard = {
@@ -70,40 +72,27 @@ function buildAgentRowsForWorktree(
   const tabs = tabsByWorktree[worktreeId] ?? []
   const rows: DashboardAgentRow[] = []
 
+  // Why: the dashboard is driven entirely by explicit hook-reported status.
+  // Title-heuristic fallbacks are deliberately omitted — braille spinners and
+  // task-description titles cannot reliably distinguish Claude from Codex,
+  // which led to Codex sessions being mislabeled as Claude. If hooks aren't
+  // installed or haven't fired yet, the agent simply doesn't appear.
   for (const tab of tabs) {
-    // Find explicit status entries for panes within this tab
     const explicitEntries = Object.values(agentStatusByPaneKey).filter((entry) =>
       entry.paneKey.startsWith(`${tab.id}:`)
     )
-
-    if (explicitEntries.length > 0) {
-      // Why: an explicit agent status report is proof that a terminal is active,
-      // even if ptyId hasn't been set yet (e.g. the PTY was spawned but the tab
-      // metadata hasn't received the ptyId back from the main process yet).
-      for (const entry of explicitEntries) {
-        rows.push({
-          paneKey: entry.paneKey,
-          entry,
-          tab,
-          agentType: entry.agentType ?? inferAgentTypeFromTitle(entry.terminalTitle ?? tab.title),
-          state: entry.state,
-          source: 'agent'
-        })
-      }
-    } else if (tab.ptyId) {
-      // Heuristic fallback from terminal title — only for tabs with a known PTY
-      const heuristicStatus = detectAgentStatusFromTitle(tab.title)
-      if (heuristicStatus) {
-        rows.push({
-          paneKey: `heuristic:${tab.id}`,
-          entry: null,
-          tab,
-          agentType: inferAgentTypeFromTitle(tab.title),
-          // Map heuristic 'permission' to 'blocked' for dashboard consistency
-          state: heuristicStatus === 'permission' ? 'blocked' : heuristicStatus,
-          source: 'heuristic'
-        })
-      }
+    for (const entry of explicitEntries) {
+      rows.push({
+        paneKey: entry.paneKey,
+        entry,
+        tab,
+        agentType: entry.agentType ?? 'unknown',
+        state: entry.state,
+        source: 'agent',
+        stateStartedAt: entry.stateStartedAt,
+        statusText: entry.statusText,
+        promptText: entry.promptText
+      })
     }
   }
 

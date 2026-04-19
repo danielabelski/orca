@@ -7,6 +7,7 @@ import {
   detectAgentStatusFromTitle,
   clearWorkingIndicators,
   createAgentStatusTracker,
+  formatElapsedAgentTime,
   getAgentLabel,
   inferAgentTypeFromTitle,
   isGeminiTerminalTitle,
@@ -220,6 +221,20 @@ describe('normalizeTerminalTitle', () => {
   it('collapses Pi spinner and idle titles to stable labels', () => {
     expect(normalizeTerminalTitle('⠋ π - my-project')).toBe('⠋ Pi')
     expect(normalizeTerminalTitle('π - my-project')).toBe('Pi')
+  })
+})
+
+describe('formatElapsedAgentTime', () => {
+  it('formats seconds for short durations', () => {
+    expect(formatElapsedAgentTime(1_000, 16_000)).toBe('15s')
+  })
+
+  it('formats minutes and seconds under one hour', () => {
+    expect(formatElapsedAgentTime(0, 125_000)).toBe('2m 5s')
+  })
+
+  it('formats hours and minutes for long durations', () => {
+    expect(formatElapsedAgentTime(0, 3_780_000)).toBe('1h 3m')
   })
 })
 

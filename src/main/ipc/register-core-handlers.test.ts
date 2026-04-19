@@ -180,7 +180,7 @@ describe('registerCoreHandlers', () => {
     expect(registerNotificationHandlersMock).toHaveBeenCalledWith(store)
     expect(registerSettingsHandlersMock).toHaveBeenCalledWith(store)
     expect(registerSessionHandlersMock).toHaveBeenCalledWith(store)
-    expect(registerUIHandlersMock).toHaveBeenCalledWith(store)
+    expect(registerUIHandlersMock).toHaveBeenCalledWith(store, null)
     expect(registerFilesystemHandlersMock).toHaveBeenCalledWith(store)
     expect(registerRuntimeHandlersMock).toHaveBeenCalledWith(runtime)
     expect(registerCliHandlersMock).toHaveBeenCalled()

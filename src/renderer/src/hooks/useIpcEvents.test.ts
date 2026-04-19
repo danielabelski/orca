@@ -186,6 +186,9 @@ describe('useIpcEvents updater integration', () => {
             credentialResolvedListenerRef.current = listener
             return () => {}
           }
+        },
+        agentStatus: {
+          onSet: () => () => {}
         }
       }
     })

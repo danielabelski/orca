@@ -47,13 +47,15 @@ export function useDashboardKeyboard({
 }: UseDashboardKeyboardParams): void {
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
   const setActiveView = useAppStore((s) => s.setActiveView)
-  const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
-  const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Only active when the dashboard pane is open and visible
-      if (!rightSidebarOpen || rightSidebarTab !== 'dashboard') {
+      // Why: the dashboard is now embedded in multiple places (sidebar bottom
+      // panel, detached window). Only steal keys when focus is already inside
+      // a dashboard worktree card, so arrow-key filtering in the file
+      // explorer (and other panels) is not interrupted.
+      const activeEl = document.activeElement as HTMLElement | null
+      if (!activeEl?.closest('[data-worktree-id]')) {
         return
       }
 
@@ -73,7 +75,7 @@ export function useDashboardKeyboard({
         return
       }
 
-      // Filter quick-select: 1-4 keys
+      // Filter quick-select: 1-5 keys
       if (FILTER_KEYS[e.key]) {
         e.preventDefault()
         setFilter(FILTER_KEYS[e.key])
@@ -123,8 +125,6 @@ export function useDashboardKeyboard({
       }
     },
     [
-      rightSidebarOpen,
-      rightSidebarTab,
       filteredGroups,
       collapsedRepos,
       focusedWorktreeId,

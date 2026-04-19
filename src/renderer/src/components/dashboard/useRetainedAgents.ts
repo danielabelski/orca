@@ -42,37 +42,10 @@ export function useRetainedAgents(liveGroups: DashboardRepoGroup[]): {
       }
     }
 
-    // Build a set of tab IDs that have live explicit (non-heuristic) agents.
-    // Why: heuristic paneKeys are "heuristic:{tabId}"; explicit ones are
-    // "{tabId}:{paneId}". When an agent starts reporting explicit status, the
-    // heuristic row vanishes — but that's a promotion, not a completion. We
-    // must not retain the heuristic entry as "done" when its tab still has a
-    // live explicit agent.
-    const tabsWithExplicitAgent = new Set<string>()
-    for (const paneKey of current.keys()) {
-      if (!paneKey.startsWith('heuristic:')) {
-        tabsWithExplicitAgent.add(paneKey.split(':')[0])
-      }
-    }
-
     // Detect agents that were present last render but are gone now
     const disappeared: RetainedAgent[] = []
     for (const [paneKey, prev] of prevAgentsRef.current) {
-      if (
-        !current.has(paneKey) &&
-        !retainedRef.current.has(paneKey) &&
-        // Why: don't retain heuristic "idle" agents — they weren't doing
-        // meaningful work, so showing them as "done" would be misleading.
-        prev.row.state !== 'idle'
-      ) {
-        // Why: if a heuristic agent vanished because an explicit agent for the
-        // same tab took over, that's not a completion — skip retention.
-        if (paneKey.startsWith('heuristic:')) {
-          const tabId = paneKey.slice('heuristic:'.length)
-          if (tabsWithExplicitAgent.has(tabId)) {
-            continue
-          }
-        }
+      if (!current.has(paneKey) && !retainedRef.current.has(paneKey) && prev.row.state !== 'idle') {
         disappeared.push({ ...prev.row, worktreeId: prev.worktreeId })
       }
     }
@@ -94,17 +67,6 @@ export function useRetainedAgents(liveGroups: DashboardRepoGroup[]): {
         if (!existingWorktreeIds.has(ra.worktreeId)) {
           next.delete(key)
           changed = true
-          continue
-        }
-        // Why: if a retained heuristic agent's tab now has an explicit agent,
-        // the heuristic was superseded — evict it. This handles the case where
-        // the heuristic was retained before the explicit status arrived.
-        if (key.startsWith('heuristic:')) {
-          const tabId = key.slice('heuristic:'.length)
-          if (tabsWithExplicitAgent.has(tabId)) {
-            next.delete(key)
-            changed = true
-          }
         }
       }
 

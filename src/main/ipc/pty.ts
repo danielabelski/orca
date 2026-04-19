@@ -325,11 +325,25 @@ export function registerPtyHandlers(
       }
     ) => {
       const provider = getProvider(args.connectionId)
+      // Why: the daemon PTY adapter does not route through LocalPtyProvider's
+      // `buildSpawnEnv` hook, so agent-hook loopback coordinates
+      // (ORCA_AGENT_HOOK_PORT / TOKEN) are never injected when the daemon is
+      // active. Merge them here so Claude/Codex managed hook scripts can reach
+      // the local receiver regardless of which provider handles the spawn.
+      const agentHookEnv = args.connectionId ? {} : agentHookServer.buildPtyEnv()
+      const mergedEnv = { ...args.env, ...agentHookEnv }
+      console.log('[agent-hooks] pty:spawn merged env', {
+        connectionId: args.connectionId ?? null,
+        hasPort: Boolean(mergedEnv.ORCA_AGENT_HOOK_PORT),
+        hasToken: Boolean(mergedEnv.ORCA_AGENT_HOOK_TOKEN),
+        hasPaneKey: Boolean(mergedEnv.ORCA_PANE_KEY),
+        paneKey: mergedEnv.ORCA_PANE_KEY
+      })
       const result = await provider.spawn({
         cols: args.cols,
         rows: args.rows,
         cwd: args.cwd,
-        env: args.env,
+        env: mergedEnv,
         command: args.command,
         worktreeId: args.worktreeId,
         sessionId: args.sessionId

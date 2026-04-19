@@ -58,8 +58,9 @@ function makeAgentStatusEntry(
 ): AgentStatusEntry {
   return {
     state: overrides.state ?? 'working',
-    summary: overrides.summary ?? '',
-    next: overrides.next ?? '',
+    statusText: overrides.statusText ?? '',
+    promptText: overrides.promptText ?? '',
+    stateStartedAt: overrides.stateStartedAt ?? NOW - 30_000,
     updatedAt: overrides.updatedAt ?? NOW - 30_000,
     source: overrides.source ?? 'agent',
     agentType: overrides.agentType ?? 'codex',

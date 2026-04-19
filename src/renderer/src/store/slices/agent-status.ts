@@ -78,18 +78,27 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
 
     setAgentStatus: (paneKey, payload, terminalTitle) => {
       set((s) => {
+        const now = Date.now()
         const existing = s.agentStatusByPaneKey[paneKey]
         const effectiveTitle = terminalTitle ?? existing?.terminalTitle
 
         // Why: build up a rolling log of state transitions so the dashboard can
         // render activity blocks showing what the agent has been doing. Only push
-        // when the state actually changes to avoid duplicate entries from summary-
+        // when the state actually changes to avoid duplicate entries from detail-
         // only updates within the same state.
         let history: AgentStateHistoryEntry[] = existing?.stateHistory ?? []
         if (existing && existing.state !== payload.state) {
           history = [
             ...history,
-            { state: existing.state, summary: existing.summary, startedAt: existing.updatedAt }
+            // Why: history should capture how long the prior state actually
+            // lasted. Using updatedAt here would reset durations whenever an
+            // agent posts a progress-only status text update without changing state.
+            {
+              state: existing.state,
+              statusText: existing.statusText,
+              promptText: existing.promptText,
+              startedAt: existing.stateStartedAt
+            }
           ]
           if (history.length > AGENT_STATE_HISTORY_MAX) {
             history = history.slice(history.length - AGENT_STATE_HISTORY_MAX)
@@ -98,9 +107,18 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
 
         const entry: AgentStatusEntry = {
           state: payload.state,
-          summary: payload.summary,
-          next: payload.next,
-          updatedAt: Date.now(),
+          statusText: payload.statusText,
+          // Why: only UserPromptSubmit-style hooks carry the raw prompt text.
+          // Later events in the same turn (permission, stop) must retain the
+          // last submitted prompt so the dashboard still shows what this turn
+          // is about instead of blanking the prompt after the first transition.
+          promptText: payload.promptText || existing?.promptText || '',
+          // Why: keep the current state's original start time until the agent
+          // transitions to a new state. Otherwise the elapsed timer would jump
+          // backward on every in-state status-text refresh.
+          stateStartedAt:
+            existing && existing.state === payload.state ? existing.stateStartedAt : now,
+          updatedAt: now,
           source: 'agent',
           // Why: the design doc requires agentType in the hover, but the OSC
           // payload may omit it. Fall back to title inference so older injected

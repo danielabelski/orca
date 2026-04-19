@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Files, Search, GitBranch, ListChecks, LayoutDashboard, PanelRight } from 'lucide-react'
+import { Files, Search, GitBranch, ListChecks, PanelRight } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
@@ -19,7 +19,7 @@ import FileExplorer from './FileExplorer'
 import SourceControl from './SourceControl'
 import SearchPanel from './Search'
 import ChecksPanel from './ChecksPanel'
-import AgentDashboard from '../dashboard/AgentDashboard'
+import DashboardBottomPanel from './DashboardBottomPanel'
 
 const MIN_WIDTH = 220
 // Why: long file names (e.g. construction drawing sheets, multi-part document
@@ -112,12 +112,6 @@ const ACTIVITY_ITEMS: ActivityBarItem[] = [
     title: 'Checks',
     shortcut: `${isMac ? '\u21E7' : 'Shift+'}${mod}K`,
     gitOnly: true
-  },
-  {
-    id: 'dashboard',
-    icon: LayoutDashboard,
-    title: 'Agent Dashboard',
-    shortcut: `${isMac ? '\u21E7' : 'Shift+'}${mod}D`
   }
 ]
 
@@ -174,7 +168,6 @@ function RightSidebarInner(): React.JSX.Element {
       {effectiveTab === 'search' && <SearchPanel />}
       {effectiveTab === 'source-control' && <SourceControl />}
       {effectiveTab === 'checks' && <ChecksPanel />}
-      {effectiveTab === 'dashboard' && <AgentDashboard />}
     </div>
   )
 
@@ -254,6 +247,13 @@ function RightSidebarInner(): React.JSX.Element {
         )}
 
         {panelContent}
+
+        {/* Why: persistent bottom-docked dashboard section. Lives below
+            whichever activity panel is active so users can glance at agent
+            status without losing their current sidebar tab. */}
+        <TooltipProvider delayDuration={400}>
+          <DashboardBottomPanel />
+        </TooltipProvider>
 
         {/* Resize handle on LEFT side */}
         <div

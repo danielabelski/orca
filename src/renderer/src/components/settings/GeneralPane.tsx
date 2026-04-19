@@ -438,6 +438,8 @@ export function GeneralPane({ settings, updateSettings }: GeneralPaneProps): Rea
       <CliSection
         key="cli"
         currentPlatform={navigator.userAgent.includes('Mac') ? 'darwin' : 'other'}
+        settings={settings}
+        updateSettings={updateSettings}
       />
     ) : null,
     matchesSettingsSearch(searchQuery, GENERAL_CACHE_TIMER_SEARCH_ENTRIES) ? (

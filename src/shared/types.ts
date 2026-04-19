@@ -634,6 +634,10 @@ export type GlobalSettings = {
    *  'true' = full Meta on both Option keys;
    *  'left' / 'right' = only that Option key acts as Meta, the other composes. */
   terminalMacOptionAsAlt: 'true' | 'false' | 'left' | 'right'
+  /** Why: installing Claude/Codex hooks mutates user-global config files in
+   *  ~/.claude and ~/.codex, so Orca must never do it implicitly. This flag is
+   *  an explicit user opt-in that gates startup reconciliation. */
+  autoInstallAgentHooks: boolean
 }
 
 export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 'test'
@@ -698,6 +702,9 @@ export type PersistedUIState = {
   windowBounds?: { x: number; y: number; width: number; height: number } | null
   /** Whether the window was maximized when it was last closed. */
   windowMaximized?: boolean
+  /** Saved bounds for the detached agent dashboard window so it restores to
+   *  the user's last size/position when reopened. */
+  agentDashboardWindowBounds?: { x: number; y: number; width: number; height: number } | null
   /** One-shot migration flag: 'recent' used to mean the weighted smart sort
    *  (v1→v2 rename). When this flag is absent and sortBy is 'recent', the
    *  main-process load() migrates it to 'smart' and sets this flag so the

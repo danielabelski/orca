@@ -109,9 +109,12 @@ export function inferAgentTypeFromTitle(title: string | null | undefined): Agent
   if (isGeminiTerminalTitle(title)) {
     return 'gemini'
   }
-  if (isClaudeAgent(title)) {
-    return 'claude'
-  }
+  // Why: Codex, OpenCode, and Aider titles can include braille-spinner
+  // prefixes during startup. `isClaudeAgent` treats any braille spinner as
+  // Claude, which caused a running Codex session to mis-report as Claude in
+  // the dashboard until its first explicit hook event arrived. Match the
+  // ordering used by `getAgentLabel` and prefer explicit agent-name hits
+  // over Claude's generic spinner heuristic.
   if (includesAgentName(title, 'codex')) {
     return 'codex'
   }
@@ -120,6 +123,9 @@ export function inferAgentTypeFromTitle(title: string | null | undefined): Agent
   }
   if (includesAgentName(title, 'aider')) {
     return 'aider'
+  }
+  if (isClaudeAgent(title)) {
+    return 'claude'
   }
   return 'unknown'
 }
@@ -149,6 +155,23 @@ export function isExplicitAgentStatusFresh(
   staleAfterMs: number
 ): boolean {
   return now - entry.updatedAt <= staleAfterMs
+}
+
+export function formatElapsedAgentTime(startedAt: number, now: number): string {
+  const elapsedMs = Math.max(0, now - startedAt)
+  const totalSeconds = Math.floor(elapsedMs / 1000)
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const minutes = totalMinutes % 60
+  const hours = Math.floor(totalMinutes / 60)
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+  if (totalMinutes > 0) {
+    return `${totalMinutes}m ${seconds}s`
+  }
+  return `${seconds}s`
 }
 
 /**

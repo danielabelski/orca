@@ -91,18 +91,25 @@ export class ClaudeHookService {
       }
     }
 
-    const managedHooksPresent = Object.values(config.hooks ?? {}).some((definitions) =>
-      definitions.some((definition) =>
-        (definition.hooks ?? []).some((hook) => hook.command === getManagedCommand(scriptPath))
+    const command = getManagedCommand(scriptPath)
+    const installedEvents = CLAUDE_EVENTS.filter((event) => {
+      const definitions = config.hooks?.[event.eventName] ?? []
+      return definitions.some((definition) =>
+        (definition.hooks ?? []).some((hook) => hook.command === command)
       )
-    )
+    })
+    const managedHooksPresent = installedEvents.length > 0
+    const allHooksPresent = installedEvents.length === CLAUDE_EVENTS.length
 
     return {
       agent: 'claude',
-      state: managedHooksPresent ? 'installed' : 'not_installed',
+      state: !managedHooksPresent ? 'not_installed' : allHooksPresent ? 'installed' : 'partial',
       configPath,
       managedHooksPresent,
-      detail: null
+      detail:
+        managedHooksPresent && !allHooksPresent
+          ? `Installed for ${installedEvents.length}/${CLAUDE_EVENTS.length} required events`
+          : null
     }
   }
 

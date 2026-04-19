@@ -12,6 +12,21 @@ type AgentHookEventPayload = {
   payload: ParsedAgentStatusPayload
 }
 
+function extractPromptText(hookPayload: Record<string, unknown>): string {
+  // Why: Claude documents `prompt` on UserPromptSubmit, but different agents
+  // may use slightly different field names. Check a small allowlist so we can
+  // capture the user prompt when it is present without depending on one exact
+  // provider-specific key everywhere in the renderer.
+  const candidateKeys = ['prompt', 'user_prompt', 'userPrompt', 'message']
+  for (const key of candidateKeys) {
+    const value = hookPayload[key]
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+    }
+  }
+  return ''
+}
+
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = ''
@@ -33,7 +48,17 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
   })
 }
 
-function normalizeClaudeEvent(eventName: unknown): ParsedAgentStatusPayload | null {
+function normalizeClaudeEvent(
+  eventName: unknown,
+  promptText: string
+): ParsedAgentStatusPayload | null {
+  // Why: Claude's Stop event is the primary "turn complete" signal, but the
+  // SubagentStop and SessionEnd events also mark turn/session completion. If
+  // only Stop is treated as "done", a session whose last event is one of the
+  // other stop events lingers in whatever the previous state was — most often
+  // "working" from a trailing PostToolUse, which then decays to heuristic
+  // "idle" when the entry goes stale. Treating all terminal events as "done"
+  // matches the user's mental model: Claude is no longer actively working.
   const state =
     eventName === 'UserPromptSubmit' ||
     eventName === 'PostToolUse' ||
@@ -41,7 +66,7 @@ function normalizeClaudeEvent(eventName: unknown): ParsedAgentStatusPayload | nu
       ? 'working'
       : eventName === 'PermissionRequest'
         ? 'waiting'
-        : eventName === 'Stop'
+        : eventName === 'Stop' || eventName === 'SubagentStop' || eventName === 'SessionEnd'
           ? 'done'
           : null
 
@@ -52,26 +77,32 @@ function normalizeClaudeEvent(eventName: unknown): ParsedAgentStatusPayload | nu
   return parseAgentStatusPayload(
     JSON.stringify({
       state,
-      summary:
+      statusText:
         state === 'waiting'
           ? 'Waiting for permission'
           : state === 'done'
             ? 'Turn complete'
             : 'Responding to prompt',
+      promptText,
       agentType: 'claude'
     })
   )
 }
 
-function normalizeCodexEvent(eventName: unknown): ParsedAgentStatusPayload | null {
+function normalizeCodexEvent(
+  eventName: unknown,
+  promptText: string
+): ParsedAgentStatusPayload | null {
+  // Why: Codex's PreToolUse fires on every tool invocation, not only on user
+  // approval prompts, so mapping it to "waiting" turned every running Codex
+  // agent into "Waiting for permission". Only map events that unambiguously
+  // indicate lifecycle transitions.
   const state =
     eventName === 'SessionStart' || eventName === 'UserPromptSubmit'
       ? 'working'
-      : eventName === 'PreToolUse'
-        ? 'waiting'
-        : eventName === 'Stop'
-          ? 'done'
-          : null
+      : eventName === 'Stop'
+        ? 'done'
+        : null
 
   if (!state) {
     return null
@@ -80,12 +111,8 @@ function normalizeCodexEvent(eventName: unknown): ParsedAgentStatusPayload | nul
   return parseAgentStatusPayload(
     JSON.stringify({
       state,
-      summary:
-        state === 'waiting'
-          ? 'Waiting for permission'
-          : state === 'done'
-            ? 'Turn complete'
-            : 'Responding to prompt',
+      statusText: state === 'done' ? 'Turn complete' : 'Responding to prompt',
+      promptText,
       agentType: 'codex'
     })
   )
@@ -107,8 +134,11 @@ function normalizeHookPayload(
   }
 
   const eventName = (hookPayload as Record<string, unknown>).hook_event_name
+  const promptText = extractPromptText(hookPayload as Record<string, unknown>)
   const payload =
-    source === 'claude' ? normalizeClaudeEvent(eventName) : normalizeCodexEvent(eventName)
+    source === 'claude'
+      ? normalizeClaudeEvent(eventName, promptText)
+      : normalizeCodexEvent(eventName, promptText)
 
   return payload ? { paneKey, payload } : null
 }
@@ -131,12 +161,14 @@ export class AgentHookServer {
     this.token = randomUUID()
     this.server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       if (req.method !== 'POST') {
+        console.log('[agent-hooks] reject non-POST', req.method, req.url)
         res.writeHead(404)
         res.end()
         return
       }
 
       if (req.headers['x-orca-agent-hook-token'] !== this.token) {
+        console.log('[agent-hooks] token mismatch on', req.url)
         res.writeHead(403)
         res.end()
         return
@@ -147,19 +179,28 @@ export class AgentHookServer {
         const source =
           req.url === '/hook/claude' ? 'claude' : req.url === '/hook/codex' ? 'codex' : null
         if (!source) {
+          console.log('[agent-hooks] unknown path', req.url)
           res.writeHead(404)
           res.end()
           return
         }
 
         const payload = normalizeHookPayload(source, body)
+        console.log('[agent-hooks] received', {
+          source,
+          eventName: (body as { payload?: { hook_event_name?: unknown } })?.payload
+            ?.hook_event_name,
+          paneKey: (body as { paneKey?: unknown })?.paneKey,
+          normalized: payload?.payload.state ?? null
+        })
         if (payload) {
           this.onAgentStatus?.(payload)
         }
 
         res.writeHead(204)
         res.end()
-      } catch {
+      } catch (error) {
+        console.log('[agent-hooks] error handling request', error)
         // Why: agent hooks must fail open. The receiver returns success for
         // malformed payloads so a newer or broken hook never blocks the agent.
         res.writeHead(204)
@@ -174,6 +215,7 @@ export class AgentHookServer {
         if (address && typeof address === 'object') {
           this.port = address.port
         }
+        console.log('[agent-hooks] receiver listening', { port: this.port })
         resolve()
       })
     })

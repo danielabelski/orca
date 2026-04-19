@@ -11,6 +11,32 @@ import { useRetainedAgents } from './useRetainedAgents'
 
 type ViewMode = 'list' | 'radial'
 
+function computeDominantState(states: string[]): 'working' | 'blocked' | 'done' | 'idle' {
+  if (states.length === 0) {
+    return 'idle'
+  }
+  let hasWorking = false
+  let hasDone = false
+  for (const state of states) {
+    if (state === 'blocked' || state === 'waiting') {
+      return 'blocked'
+    }
+    if (state === 'working') {
+      hasWorking = true
+    }
+    if (state === 'done') {
+      hasDone = true
+    }
+  }
+  if (hasWorking) {
+    return 'working'
+  }
+  if (hasDone) {
+    return 'done'
+  }
+  return 'idle'
+}
+
 const AgentDashboard = React.memo(function AgentDashboard() {
   const liveGroups = useDashboardData()
   // Why: useRetainedAgents merges "done" entries for agents that have
@@ -29,8 +55,51 @@ const AgentDashboard = React.memo(function AgentDashboard() {
   const [checkedWorktreeIds, setCheckedWorktreeIds] = useState<Set<string>>(new Set())
   const prevDominantStates = useRef<Record<string, string>>({})
 
+  const visibleGroups = useMemo(() => {
+    // Why: a user-dismissed worktree should hide completed agents regardless
+    // of whether they come from retained history or a still-live explicit
+    // status entry. Otherwise "done" agents can reappear in the radial view
+    // until their pane closes, which violates the remove-from-UI behavior.
+    return groups
+      .map((group) => {
+        const worktrees = group.worktrees
+          .map((wt) => {
+            if (!checkedWorktreeIds.has(wt.worktree.id)) {
+              return wt
+            }
+
+            const visibleAgents = wt.agents.filter((agent) => agent.state !== 'done')
+            if (visibleAgents.length === wt.agents.length) {
+              return wt
+            }
+
+            return {
+              ...wt,
+              agents: visibleAgents,
+              dominantState: computeDominantState(visibleAgents.map((agent) => agent.state)),
+              latestActivityAt: Math.max(
+                0,
+                ...visibleAgents.map((agent) => agent.entry?.updatedAt ?? 0)
+              )
+            }
+          })
+          .filter((wt) => wt.agents.length > 0)
+
+        const attentionCount = worktrees.reduce(
+          (count, wt) =>
+            count +
+            wt.agents.filter((agent) => agent.state === 'blocked' || agent.state === 'waiting')
+              .length,
+          0
+        )
+
+        return { ...group, worktrees, attentionCount }
+      })
+      .filter((group) => group.worktrees.length > 0)
+  }, [groups, checkedWorktreeIds])
+
   const { filter, setFilter, filteredGroups, hasResults } = useDashboardFilter(
-    groups,
+    visibleGroups,
     checkedWorktreeIds
   )
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
@@ -102,7 +171,7 @@ const AgentDashboard = React.memo(function AgentDashboard() {
     let runningAgents = 0
     let blockedAgents = 0
     let doneAgents = 0
-    for (const group of groups) {
+    for (const group of visibleGroups) {
       for (const wt of group.worktrees) {
         for (const agent of wt.agents) {
           if (agent.state === 'working') {
@@ -118,7 +187,7 @@ const AgentDashboard = React.memo(function AgentDashboard() {
       }
     }
     return { running: runningAgents, blocked: blockedAgents, done: doneAgents }
-  }, [groups])
+  }, [visibleGroups])
 
   // Empty state: no repos at all
   if (groups.length === 0) {
@@ -196,7 +265,7 @@ const AgentDashboard = React.memo(function AgentDashboard() {
 
       {/* Scrollable content — switches between concentric and list views */}
       {viewMode === 'radial' ? (
-        <ConcentricView groups={groups} onCheckWorktree={handleCheckWorktree} />
+        <ConcentricView groups={visibleGroups} onCheckWorktree={handleCheckWorktree} />
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-sleek">
           <div className="flex flex-col gap-2 p-2">

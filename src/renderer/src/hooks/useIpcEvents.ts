@@ -408,8 +408,8 @@ export function useIpcEvents(): void {
         const payload = parseAgentStatusPayload(
           JSON.stringify({
             state: data.state,
-            summary: data.summary,
-            next: data.next,
+            statusText: data.statusText,
+            promptText: data.promptText,
             agentType: data.agentType
           })
         )
@@ -424,7 +424,8 @@ export function useIpcEvents(): void {
         console.log('[agentStatus:set] Storing:', {
           paneKey: data.paneKey,
           state: payload.state,
-          summary: payload.summary,
+          statusText: payload.statusText,
+          promptText: payload.promptText,
           currentTitle
         })
         store.setAgentStatus(data.paneKey, payload, currentTitle)
