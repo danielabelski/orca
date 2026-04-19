@@ -692,6 +692,7 @@ export type PersistedUIState = {
   sortBy: 'name' | 'smart' | 'recent' | 'repo'
   showActiveOnly: boolean
   filterRepoIds: string[]
+  collapsedGroups: string[]
   uiZoomLevel: number
   editorFontZoomLevel: number
   worktreeCardProperties: WorktreeCardProperty[]

@@ -169,6 +169,7 @@ export function getDefaultUIState(): PersistedUIState {
     sortBy: 'name',
     showActiveOnly: false,
     filterRepoIds: [],
+    collapsedGroups: [],
     uiZoomLevel: 0,
     editorFontZoomLevel: 0,
     worktreeCardProperties: [...DEFAULT_WORKTREE_CARD_PROPERTIES],

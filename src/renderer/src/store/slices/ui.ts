@@ -122,6 +122,8 @@ export type UISlice = {
   setShowActiveOnly: (v: boolean) => void
   filterRepoIds: string[]
   setFilterRepoIds: (ids: string[]) => void
+  collapsedGroups: Set<string>
+  toggleCollapsedGroup: (key: string) => void
   worktreeCardProperties: WorktreeCardProperty[]
   toggleWorktreeCardProperty: (prop: WorktreeCardProperty) => void
   statusBarItems: StatusBarItem[]
@@ -225,7 +227,13 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
   setSearchQuery: (q) => set({ searchQuery: q }),
 
   groupBy: 'none',
-  setGroupBy: (g) => set({ groupBy: g }),
+  // Why: group keys are mode-specific (e.g. repo id vs PR status), so
+  // collapsed state from one mode is meaningless in another. Clearing
+  // also prevents unbounded accumulation of stale keys across mode switches.
+  setGroupBy: (g) => {
+    window.api.ui.set({ collapsedGroups: [] }).catch(console.error)
+    set({ groupBy: g, collapsedGroups: new Set<string>() })
+  },
 
   sortBy: 'name',
   setSortBy: (s) => set({ sortBy: s }),
@@ -235,6 +243,19 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
 
   filterRepoIds: [],
   setFilterRepoIds: (ids) => set({ filterRepoIds: ids }),
+
+  collapsedGroups: new Set<string>(),
+  toggleCollapsedGroup: (key) =>
+    set((s) => {
+      const next = new Set(s.collapsedGroups)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      window.api.ui.set({ collapsedGroups: [...next] }).catch(console.error)
+      return { collapsedGroups: next }
+    }),
 
   worktreeCardProperties: [...DEFAULT_WORKTREE_CARD_PROPERTIES],
   toggleWorktreeCardProperty: (prop) =>
@@ -307,6 +328,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         // worktree list stable across restarts instead of silently widening it.
         showActiveOnly: ui.showActiveOnly,
         filterRepoIds: (ui.filterRepoIds ?? []).filter((repoId) => validRepoIds.has(repoId)),
+        collapsedGroups: new Set(ui.collapsedGroups ?? []),
         uiZoomLevel: ui.uiZoomLevel ?? 0,
         editorFontZoomLevel: ui.editorFontZoomLevel ?? 0,
         worktreeCardProperties: ui.worktreeCardProperties ?? [...DEFAULT_WORKTREE_CARD_PROPERTIES],

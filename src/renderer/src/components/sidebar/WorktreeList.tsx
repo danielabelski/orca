@@ -597,20 +597,8 @@ const WorktreeList = React.memo(function WorktreeList() {
   // the active navigation surface, so any modal should clear and disable them.
   const { showHints } = useModifierHint(activeModal === 'none')
 
-  // Collapsed group state
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-
-  const toggleGroup = useCallback((key: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }, [])
+  const collapsedGroups = useAppStore((s) => s.collapsedGroups)
+  const toggleGroup = useAppStore((s) => s.toggleCollapsedGroup)
 
   // Build flat row list for rendering
   const rows: Row[] = useMemo(
