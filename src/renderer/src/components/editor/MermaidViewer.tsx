@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
 import { scrollTopCache, setWithLRU } from '@/lib/scroll-cache'
 import MermaidBlock from './MermaidBlock'
+import { MermaidErrorBoundary } from './MermaidErrorBoundary'
 
 type MermaidViewerProps = {
   content: string
@@ -97,7 +98,9 @@ export default function MermaidViewer({
         {/* Why: DOMPurify's SVG profile strips <foreignObject> elements that
            mermaid uses for HTML labels. Force SVG-native <text> labels so
            they survive sanitization — same fix as the markdown preview path. */}
-        <MermaidBlock content={content.trim()} isDark={isDark} htmlLabels={false} />
+        <MermaidErrorBoundary resetKey={content} source={content}>
+          <MermaidBlock content={content.trim()} isDark={isDark} htmlLabels={false} />
+        </MermaidErrorBoundary>
       </div>
     </div>
   )

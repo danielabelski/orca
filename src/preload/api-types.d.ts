@@ -239,7 +239,31 @@ export type AppApi = {
   relaunch: () => Promise<void>
 }
 
+export type RendererCrashKind =
+  | 'render'
+  | 'unhandled-rejection'
+  | 'window-error'
+  | 'renderer-gone'
+  | 'ipc-rejection'
+  | 'ipc-listener'
+
+export type RendererCrashForwardPayload = {
+  kind: RendererCrashKind
+  message?: string
+  stack?: string
+  componentStack?: string
+  boundary?: string
+  channel?: string
+  extra?: unknown
+}
+
+export type CrashLogApi = {
+  report: (payload: RendererCrashForwardPayload) => void
+  revealLog: () => Promise<boolean>
+}
+
 export type PreloadApi = {
+  crashLog: CrashLogApi
   app: AppApi
   repos: {
     list: () => Promise<Repo[]>

@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -17,6 +18,9 @@ import { absolutePathToFileUri, resolveMarkdownLinkTarget } from './markdown-int
 import { useLocalImageSrc } from './useLocalImageSrc'
 import CodeBlockCopyButton from './CodeBlockCopyButton'
 import MermaidBlock from './MermaidBlock'
+import { MermaidErrorBoundary } from './MermaidErrorBoundary'
+import { CodeHighlightErrorBoundary } from './CodeHighlightErrorBoundary'
+import { extractCodeText } from './extractCodeText'
 import {
   applyMarkdownPreviewSearchHighlights,
   clearMarkdownPreviewSearchHighlights,
@@ -322,14 +326,42 @@ export default function MarkdownPreview({
     // injection, and sanitized foreignObject labels disappear on some platforms.
     code: ({ className, children, ...props }) => {
       if (/language-mermaid/.test(className || '')) {
+        // Why: language-mermaid is unknown to rehype-highlight, so children
+        // reaches here as a raw string — String() is safe. For other fenced
+        // languages see extractCodeText below.
+        const mermaidSource = String(children).trimEnd()
         return (
-          <MermaidBlock content={String(children).trimEnd()} isDark={isDark} htmlLabels={false} />
+          <MermaidErrorBoundary resetKey={mermaidSource} source={mermaidSource}>
+            <MermaidBlock content={mermaidSource} isDark={isDark} htmlLabels={false} />
+          </MermaidErrorBoundary>
         )
       }
+      // Why: contain rehype-highlight / lowlight crashes so a malformed
+      // fenced code block falls back to plain source instead of unmounting
+      // the whole markdown preview tree. Only fenced blocks (language-*) run
+      // through the highlighter, so inline code skips the boundary to avoid a
+      // class-component wrapper around every backtick span. Re-keys on source
+      // so the next edit auto-recovers. See design §Layer 3.
+      const isFenced = /language-/.test(className || '')
+      if (!isFenced) {
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        )
+      }
+      // Why: by this point rehype-highlight has replaced `children` with an
+      // array of React span elements (one per token). String(children) would
+      // return "[object Object],…" — making resetKey constant (breaking
+      // auto-recovery) and showing literal "[object Object]" in the fallback.
+      // Walk the tree to recover the original source text.
+      const sourceText = extractCodeText(children)
       return (
-        <code className={className} {...props}>
-          {children}
-        </code>
+        <CodeHighlightErrorBoundary resetKey={sourceText} source={sourceText} className={className}>
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </CodeHighlightErrorBoundary>
       )
     },
     // Why: Wrap <pre> blocks with a positioned container so a copy button can
@@ -339,7 +371,10 @@ export default function MarkdownPreview({
     // <div> inside <pre> produces invalid HTML.
     pre: ({ children, ...props }) => {
       const child = React.Children.toArray(children)[0]
-      if (React.isValidElement(child) && child.type === MermaidBlock) {
+      if (
+        React.isValidElement(child) &&
+        (child.type === MermaidBlock || child.type === MermaidErrorBoundary)
+      ) {
         return <>{children}</>
       }
       return <CodeBlockCopyButton {...props}>{children}</CodeBlockCopyButton>

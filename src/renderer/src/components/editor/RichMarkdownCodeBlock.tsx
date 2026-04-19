@@ -4,6 +4,7 @@ import type { NodeViewProps } from '@tiptap/react'
 import { Copy, Check } from 'lucide-react'
 import { useAppStore } from '@/store'
 import MermaidBlock from './MermaidBlock'
+import { MermaidErrorBoundary } from './MermaidErrorBoundary'
 
 /**
  * Common languages shown in the selector. The user can also type a language
@@ -118,7 +119,9 @@ export function RichMarkdownCodeBlock({
           Mermaid HTML labels just like markdown preview to keep labels visible. */}
       {isMermaid && node.textContent.trim() && (
         <div contentEditable={false} className="mermaid-preview">
-          <MermaidBlock content={node.textContent.trim()} isDark={isDark} htmlLabels={false} />
+          <MermaidErrorBoundary resetKey={node.textContent.trim()} source={node.textContent.trim()}>
+            <MermaidBlock content={node.textContent.trim()} isDark={isDark} htmlLabels={false} />
+          </MermaidErrorBoundary>
         </div>
       )}
     </NodeViewWrapper>

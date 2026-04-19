@@ -1,7 +1,8 @@
 /* oxlint-disable max-lines */
-import { BrowserWindow, ipcMain, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { appendRendererCrashEntry, getRendererCrashLogPath } from '../ipc/renderer-crash-log'
 import icon from '../../../resources/icon.png?asset'
 import devIcon from '../../../resources/icon-dev.png?asset'
 import type { Store } from '../persistence'
@@ -102,6 +103,66 @@ export function createMainWindow(
       sandbox: true,
       webviewTag: true
     }
+  })
+
+  // Why: per error-boundary-design.md §B4, this listener must register before
+  // loadURL/loadFile so a crash during initial load is still observed. Writes
+  // the reason to renderer-crashes.log, then (unless a dialog is already
+  // showing) surfaces a native modal so the user can reload the window.
+  //
+  // Window-scoped (not module-scoped): if the window is recreated the flag
+  // must not leak across instances, and a synchronous throw from
+  // showMessageBox would otherwise pin the flag to true forever.
+  let rendererGoneDialogOpen = false
+  mainWindow.on('closed', () => {
+    rendererGoneDialogOpen = false
+  })
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    // Why: 'clean-exit' fires on normal shutdown paths (app.quit, window
+    // close). Treating it as a crash would log false positives and show the
+    // "Orca stopped responding" dialog on a healthy quit.
+    if (details.reason === 'clean-exit') {
+      return
+    }
+    appendRendererCrashEntry({
+      kind: 'renderer-gone',
+      message: `render process gone: ${details.reason}`,
+      extra: { reason: details.reason, exitCode: details.exitCode }
+    })
+    if (rendererGoneDialogOpen || mainWindow.isDestroyed()) {
+      return
+    }
+    rendererGoneDialogOpen = true
+    dialog
+      .showMessageBox(mainWindow, {
+        type: 'error',
+        buttons: ['Reload window', 'Quit Orca', 'Reveal log'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+        title: 'Orca stopped responding',
+        // Why: composer drafts live only in renderer memory; they do not
+        // survive renderer process death. Called out explicitly per design §B4.
+        message: 'The Orca window crashed and needs to be reloaded.',
+        detail: `Reason: ${details.reason}. Unsaved drafts may be lost.`
+      })
+      .then((result) => {
+        rendererGoneDialogOpen = false
+        if (mainWindow.isDestroyed()) {
+          return
+        }
+        if (result.response === 0) {
+          mainWindow.webContents.reload()
+        } else if (result.response === 1) {
+          // Quit the whole app — a dead renderer has no state to retry into.
+          app.quit()
+        } else if (result.response === 2) {
+          shell.showItemInFolder(getRendererCrashLogPath())
+        }
+      })
+      .catch(() => {
+        rendererGoneDialogOpen = false
+      })
   })
 
   if (process.platform === 'darwin') {

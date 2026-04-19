@@ -20,6 +20,7 @@ import {
   ORCA_UPDATER_QUIT_AND_INSTALL_ABORTED_EVENT,
   ORCA_UPDATER_QUIT_AND_INSTALL_STARTED_EVENT
 } from '../shared/updater-renderer-events'
+import type { RendererCrashForwardPayload } from './api-types'
 
 type NativeDropResolution =
   | { target: 'editor' }
@@ -158,8 +159,28 @@ document.addEventListener(
   true
 )
 
+// Why: the crash-log sink is defined here instead of as a method on `api.app`
+// so the renderer's global window.onerror / unhandledrejection handlers can
+// forward to it before React mounts. Payload shape is imported from
+// api-types.d.ts (single source of truth, mirrored by RendererCrashPayload in
+// src/main/ipc/renderer-crash-log.ts).
+
 // Custom APIs for renderer
 const api = {
+  crashLog: {
+    // Why: one-way send (not invoke). The renderer global handler must not
+    // await anything — if the renderer is dying, we want the payload on its
+    // way to disk as fast as possible.
+    report: (payload: RendererCrashForwardPayload): void => {
+      try {
+        ipcRenderer.send('log:renderer-crash', payload)
+      } catch {
+        // Sink must never throw back into the caller.
+      }
+    },
+    revealLog: (): Promise<boolean> => ipcRenderer.invoke('log:revealRendererCrashLog')
+  },
+
   app: {
     getRuntimeFlags: (): Promise<{ daemonEnabledAtStartup: boolean }> =>
       ipcRenderer.invoke('app:getRuntimeFlags'),

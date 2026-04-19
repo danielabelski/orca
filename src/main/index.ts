@@ -14,6 +14,7 @@ import {
 import { recordPendingDaemonTransitionNotice, setAppRuntimeFlags } from './ipc/app'
 import { closeAllWatchers } from './ipc/filesystem-watcher'
 import { registerCoreHandlers } from './ipc/register-core-handlers'
+import { registerRendererCrashLogHandler } from './ipc/renderer-crash-log'
 import { triggerStartupNotificationRegistration } from './ipc/notifications'
 import { OrcaRuntimeService } from './runtime/orca-runtime'
 import { OrcaRuntimeRpcServer } from './runtime/runtime-rpc'
@@ -66,6 +67,11 @@ initStatsPath()
 initClaudeUsagePath()
 initCodexUsagePath()
 enableMainProcessGpuFeatures()
+
+// Why: the renderer-crash log sink must be registered before any BrowserWindow
+// is created so a crash during initial load still produces a log entry. Per
+// error-boundary-design.md §B1 "Registration order".
+registerRendererCrashLogHandler()
 
 function openMainWindow(): BrowserWindow {
   if (!store) {
