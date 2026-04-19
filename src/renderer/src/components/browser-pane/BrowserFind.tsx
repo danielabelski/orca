@@ -15,8 +15,18 @@ export default function BrowserFind({
 }: BrowserFindProps): React.JSX.Element | null {
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [activeMatch, setActiveMatch] = useState(0)
   const [totalMatches, setTotalMatches] = useState(0)
+
+  // Why: findInPage re-highlights the active match on every call, which causes
+  // a visible flash as the user types. Debounce to only re-run once typing
+  // settles. Enter (findNext/findPrevious) still uses the live `query` so
+  // explicit navigation is immediate.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query), 200)
+    return () => clearTimeout(id)
+  }, [query])
 
   const safeFindInPage = useCallback(
     (text: string, opts?: Electron.FindInPageOptions): void => {
@@ -70,16 +80,16 @@ export default function BrowserFind({
   }, [isOpen, safeStopFindInPage])
 
   useEffect(() => {
-    if (!query) {
+    if (!debouncedQuery) {
       safeStopFindInPage()
       setActiveMatch(0)
       setTotalMatches(0)
       return
     }
     if (isOpen) {
-      safeFindInPage(query)
+      safeFindInPage(debouncedQuery)
     }
-  }, [query, isOpen, safeFindInPage, safeStopFindInPage])
+  }, [debouncedQuery, isOpen, safeFindInPage, safeStopFindInPage])
 
   // Why: this effect captures `webviewRef.current` into a local variable, so
   // if the webview element were replaced while `isOpen` stays true the listener
