@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, Terminal } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Check, ChevronDown, ExternalLink, RefreshCw, Terminal } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { AGENT_CATALOG, AgentIcon } from '@/lib/agent-catalog'
 import { Button } from '../ui/button'
@@ -205,12 +205,29 @@ function AgentRow({
 
 export function AgentsPane({ settings, updateSettings }: AgentsPaneProps): React.JSX.Element {
   const [detectedIds, setDetectedIds] = useState<Set<string> | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     void window.api.preflight.detectAgents().then((ids) => {
       setDetectedIds(new Set(ids))
     })
   }, [])
+
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    // Why: refresh re-spawns the user's login shell to re-capture PATH
+    // (preflight:refreshAgents on the main side). This handles the
+    // "installed a new CLI, Orca doesn't see it yet" case without a restart.
+    if (isRefreshing) {
+      return
+    }
+    setIsRefreshing(true)
+    try {
+      const result = await window.api.preflight.refreshAgents()
+      setDetectedIds(new Set(result.agents))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [isRefreshing])
 
   const defaultAgent = settings.defaultTuiAgent
   const cmdOverrides = settings.agentCmdOverrides ?? {}
@@ -296,6 +313,21 @@ export function AgentsPane({ settings, updateSettings }: AgentsPaneProps): React
             <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
               {detectedAgents.length} detected
             </span>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={isRefreshing}
+              title="Re-read your shell PATH and re-detect installed agents"
+              className={cn(
+                'ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
+                isRefreshing
+                  ? 'text-muted-foreground/60'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              )}
+            >
+              <RefreshCw className={cn('size-3', isRefreshing && 'animate-spin')} />
+              {isRefreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
 
           <div className="space-y-2">

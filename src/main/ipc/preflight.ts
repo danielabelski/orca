@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
+import { hydrateShellPath, mergePathSegments } from '../startup/hydrate-shell-path'
 
 const execFileAsync = promisify(execFile)
 
@@ -60,6 +61,32 @@ export async function detectInstalledAgents(): Promise<string[]> {
   return checks.filter((c) => c.installed).map((c) => c.id)
 }
 
+export type RefreshAgentsResult = {
+  /** Agents detected after hydrating PATH from the user's login shell. */
+  agents: string[]
+  /** PATH segments that were added this refresh (empty if nothing new). */
+  addedPathSegments: string[]
+  /** True when the shell spawn succeeded. False = relied on existing PATH. */
+  shellHydrationOk: boolean
+}
+
+/**
+ * Re-spawn the user's login shell to refresh process.env.PATH, then re-run
+ * agent detection. Called by the Agents settings pane when the user clicks
+ * Refresh — handles the "installed a new CLI, Orca doesn't see it yet" case
+ * without requiring an app restart.
+ */
+export async function refreshShellPathAndDetectAgents(): Promise<RefreshAgentsResult> {
+  const hydration = await hydrateShellPath({ force: true })
+  const added = hydration.ok ? mergePathSegments(hydration.segments) : []
+  const agents = await detectInstalledAgents()
+  return {
+    agents,
+    addedPathSegments: added,
+    shellHydrationOk: hydration.ok
+  }
+}
+
 async function isGhAuthenticated(): Promise<boolean> {
   try {
     await execFileAsync('gh', ['auth', 'status'], {
@@ -109,5 +136,9 @@ export function registerPreflightHandlers(): void {
 
   ipcMain.handle('preflight:detectAgents', async (): Promise<string[]> => {
     return detectInstalledAgents()
+  })
+
+  ipcMain.handle('preflight:refreshAgents', async (): Promise<RefreshAgentsResult> => {
+    return refreshShellPathAndDetectAgents()
   })
 }

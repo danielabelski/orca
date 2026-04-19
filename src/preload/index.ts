@@ -460,7 +460,12 @@ const api = {
       git: { installed: boolean }
       gh: { installed: boolean; authenticated: boolean }
     }> => ipcRenderer.invoke('preflight:check', args),
-    detectAgents: (): Promise<string[]> => ipcRenderer.invoke('preflight:detectAgents')
+    detectAgents: (): Promise<string[]> => ipcRenderer.invoke('preflight:detectAgents'),
+    refreshAgents: (): Promise<{
+      agents: string[]
+      addedPathSegments: string[]
+      shellHydrationOk: boolean
+    }> => ipcRenderer.invoke('preflight:refreshAgents')
   },
 
   notifications: {

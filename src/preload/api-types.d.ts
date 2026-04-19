@@ -159,9 +159,16 @@ export type PreflightStatus = {
   gh: { installed: boolean; authenticated: boolean }
 }
 
+export type RefreshAgentsResult = {
+  agents: string[]
+  addedPathSegments: string[]
+  shellHydrationOk: boolean
+}
+
 export type PreflightApi = {
   check: (args?: { force?: boolean }) => Promise<PreflightStatus>
   detectAgents: () => Promise<string[]>
+  refreshAgents: () => Promise<RefreshAgentsResult>
 }
 
 export type StatsApi = {

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { handleMock, execFileMock, execFileAsyncMock } = vi.hoisted(() => ({
-  handleMock: vi.fn(),
-  execFileMock: vi.fn(),
-  execFileAsyncMock: vi.fn()
-}))
+const { handleMock, execFileMock, execFileAsyncMock, hydrateShellPathMock, mergePathSegmentsMock } =
+  vi.hoisted(() => ({
+    handleMock: vi.fn(),
+    execFileMock: vi.fn(),
+    execFileAsyncMock: vi.fn(),
+    hydrateShellPathMock: vi.fn(),
+    mergePathSegmentsMock: vi.fn()
+  }))
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -17,9 +20,15 @@ vi.mock('child_process', () => {
     [Symbol.for('nodejs.util.promisify.custom')]: execFileAsyncMock
   })
   return {
-    execFile: execFileWithPromisify
+    execFile: execFileWithPromisify,
+    spawn: vi.fn()
   }
 })
+
+vi.mock('../startup/hydrate-shell-path', () => ({
+  hydrateShellPath: hydrateShellPathMock,
+  mergePathSegments: mergePathSegmentsMock
+}))
 
 import {
   _resetPreflightCache,
@@ -36,6 +45,8 @@ describe('preflight', () => {
   beforeEach(() => {
     handleMock.mockReset()
     execFileAsyncMock.mockReset()
+    hydrateShellPathMock.mockReset()
+    mergePathSegmentsMock.mockReset()
     _resetPreflightCache()
 
     for (const key of Object.keys(handlers)) {
@@ -179,5 +190,68 @@ describe('preflight', () => {
     registerPreflightHandlers()
 
     await expect(handlers['preflight:detectAgents']()).resolves.toEqual(['cursor'])
+  })
+
+  it('refreshes via preflight:refreshAgents by re-hydrating PATH before re-detecting', async () => {
+    // Why: the Agents settings Refresh button calls this path. It must (1) ask
+    // the shell hydrator for a fresh PATH, (2) merge any new segments, then
+    // (3) re-run `which` so newly-installed CLIs appear without a restart.
+    hydrateShellPathMock.mockResolvedValueOnce({
+      segments: ['/Users/test/.opencode/bin'],
+      ok: true
+    })
+    mergePathSegmentsMock.mockReturnValueOnce(['/Users/test/.opencode/bin'])
+    execFileAsyncMock.mockImplementation(async (command, args) => {
+      if (command !== 'which') {
+        throw new Error(`unexpected command ${String(command)}`)
+      }
+      if (String(args[0]) === 'opencode') {
+        return { stdout: '/Users/test/.opencode/bin/opencode\n' }
+      }
+      throw new Error('not found')
+    })
+
+    registerPreflightHandlers()
+
+    const result = (await handlers['preflight:refreshAgents']()) as {
+      agents: string[]
+      addedPathSegments: string[]
+      shellHydrationOk: boolean
+    }
+
+    expect(result).toEqual({
+      agents: ['opencode'],
+      addedPathSegments: ['/Users/test/.opencode/bin'],
+      shellHydrationOk: true
+    })
+    expect(hydrateShellPathMock).toHaveBeenCalledWith({ force: true })
+  })
+
+  it('still re-detects when the shell spawn fails — relies on the existing PATH', async () => {
+    hydrateShellPathMock.mockResolvedValueOnce({ segments: [], ok: false })
+    execFileAsyncMock.mockImplementation(async (command, args) => {
+      if (command !== 'which') {
+        throw new Error(`unexpected command ${String(command)}`)
+      }
+      if (String(args[0]) === 'claude') {
+        return { stdout: '/Users/test/.local/bin/claude\n' }
+      }
+      throw new Error('not found')
+    })
+
+    registerPreflightHandlers()
+
+    const result = (await handlers['preflight:refreshAgents']()) as {
+      agents: string[]
+      addedPathSegments: string[]
+      shellHydrationOk: boolean
+    }
+
+    expect(result.shellHydrationOk).toBe(false)
+    expect(result.addedPathSegments).toEqual([])
+    expect(result.agents).toEqual(['claude'])
+    // Why: when hydration fails, we must not call merge — nothing to merge —
+    // otherwise we'd log a no-op "added 0 segments" event on every refresh.
+    expect(mergePathSegmentsMock).not.toHaveBeenCalled()
   })
 })

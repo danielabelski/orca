@@ -27,6 +27,7 @@ import {
   installUncaughtPipeErrorGuard,
   patchPackagedProcessPath
 } from './startup/configure-process'
+import { hydrateShellPath, mergePathSegments } from './startup/hydrate-shell-path'
 import { RateLimitService } from './rate-limits/service'
 import { attachMainWindowServices } from './window/attach-main-window-services'
 import { createMainWindow } from './window/createMainWindow'
@@ -53,6 +54,21 @@ let starNag: StarNagService | null = null
 
 installUncaughtPipeErrorGuard()
 patchPackagedProcessPath()
+// Why: patchPackagedProcessPath seeds a minimal list of well-known system
+// dirs synchronously so early IPC (e.g. preflight before the shell spawn
+// completes) doesn't miss homebrew/nix. Kick off the login-shell probe in
+// parallel for packaged runs — when it resolves, its PATH is prepended and
+// detectInstalledAgents picks up whatever the user's rc files put on PATH
+// (cargo/pyenv/volta/custom tool install dirs) without hardcoding each one.
+// Dev runs already inherit a complete PATH from the launching terminal, so
+// the spawn cost is only paid where it's needed.
+if (app.isPackaged && process.platform !== 'win32') {
+  void hydrateShellPath().then((result) => {
+    if (result.ok) {
+      mergePathSegments(result.segments)
+    }
+  })
+}
 configureDevUserDataPath(is.dev)
 installDevParentDisconnectQuit(is.dev)
 installDevParentWatchdog(is.dev)
