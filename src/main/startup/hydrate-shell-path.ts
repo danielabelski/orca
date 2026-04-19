@@ -59,16 +59,16 @@ function parseCapturedPath(stdout: string): string[] {
   if (!value) {
     return []
   }
-  const seen = new Set<string>()
-  const segments: string[] = []
-  for (const segment of value.split(delimiter)) {
-    const trimmed = segment.trim()
-    if (trimmed && !seen.has(trimmed)) {
-      seen.add(trimmed)
-      segments.push(trimmed)
-    }
-  }
-  return segments
+  // Why: Set preserves insertion order, and PATH resolution is first-match-wins,
+  // so de-duping this way keeps the user's rc-file ordering intact.
+  return [
+    ...new Set(
+      value
+        .split(delimiter)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  ]
 }
 
 function spawnShellAndReadPath(shell: string): Promise<HydrationResult> {
@@ -172,13 +172,10 @@ export function mergePathSegments(segments: string[]): string[] {
   }
   const current = process.env.PATH ?? ''
   const existing = new Set(current.split(delimiter).filter(Boolean))
-  const added: string[] = []
-  for (const segment of segments) {
-    if (!existing.has(segment)) {
-      existing.add(segment)
-      added.push(segment)
-    }
-  }
+  // Why: Node 22+ Set.prototype.difference preserves insertion order of the
+  // receiver, so [...incoming.difference(existing)] gives us the new entries
+  // in the order the shell provided them (first-match-wins on PATH).
+  const added = [...new Set(segments).difference(existing)]
   if (added.length === 0) {
     return []
   }
