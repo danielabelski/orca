@@ -413,18 +413,9 @@ function TabBarInner({
     prevStripLenRef.current = { worktreeId, len }
   }, [orderedItems, worktreeId])
 
-  // Why: composed ref. `useDroppable` needs the DOM node so the group's drop
-  // target registers with dnd-kit, while the wheel / ResizeObserver / auto-
-  // scroll-to-end effects above read `tabStripRef.current` directly. Writing to
-  // both from a single callback ref keeps main's scroll behavior working under
-  // THEIRS' cross-group drag abstractions without duplicating the node.
-  const setTabStripNode = useCallback(
-    (node: HTMLDivElement | null) => {
-      tabStripRef.current = node
-      setGroupDropNodeRef(node)
-    },
-    [setGroupDropNodeRef]
-  )
+  const setTabStripNode = useCallback((node: HTMLDivElement | null) => {
+    tabStripRef.current = node
+  }, [])
 
   const getDragData = useCallback(
     <TContentType extends TabContentType>(
@@ -552,6 +543,7 @@ function TabBarInner({
 
   return (
     <div
+      ref={setGroupDropNodeRef}
       className="flex items-stretch h-full overflow-hidden flex-1 min-w-0"
       // Why: only drops aimed at the top tab/session strip should open files in
       // Orca's editor. Terminal-pane drops need to keep inserting file paths
@@ -559,6 +551,11 @@ function TabBarInner({
       // this explicit surface marker instead of treating the whole app as an
       // editor drop zone.
       data-native-file-drop-target="editor"
+      // Why: the group droppable rect is registered on this outer row (not on
+      // the inner tab strip) so dropping past the last tab — including the
+      // empty area to the right of the "+" button — still lands in this
+      // group. Attaching to the strip alone leaves no droppable gutter once
+      // the strip is sized to its tabs.
     >
       {isSharedDnd ? (
         tabStrip
