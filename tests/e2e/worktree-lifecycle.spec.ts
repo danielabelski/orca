@@ -1,0 +1,264 @@
+/**
+ * E2E tests for the full worktree lifecycle: removal cleanup, switching with
+ * the right sidebar open, and cross-worktree tab isolation.
+ *
+ * Why these flows:
+ * - PR #532 (`clean up editor/terminal state when removing a worktree`) showed
+ *   that removeWorktree must drop the tabs/editors/browser tabs owned by the
+ *   removed worktree. A regression here silently leaks a deleted worktree's
+ *   IDs into tabsByWorktree / openFiles and breaks the UI the next time the
+ *   user opens another worktree.
+ * - PR #628 (`resolve Windows freeze when switching worktrees with right
+ *   sidebar open`) + PR #598 (`resolve right sidebar freeze on Windows`) +
+ *   PR #726 (`prevent split-group container teardown when switching
+ *   worktrees`) all changed behavior on the same path: activating a different
+ *   worktree while the right sidebar is showing. Assert that the switch lands
+ *   cleanly with the sidebar still open, because the prior regressions left
+ *   the UI hung.
+ * - PR #542 / #554 (`terminal shortcuts firing in wrong worktree`) regressed
+ *   twice. Cover the invariant directly: a terminal tab created in worktree A
+ *   must not appear in worktree B's tab list.
+ */
+
+import { test, expect } from './helpers/orca-app'
+import {
+  waitForSessionReady,
+  waitForActiveWorktree,
+  getActiveWorktreeId,
+  getAllWorktreeIds,
+  getWorktreeTabs,
+  getOpenFiles,
+  getBrowserTabs,
+  switchToWorktree,
+  ensureTerminalVisible
+} from './helpers/store'
+import { clickFileInExplorer, openFileExplorer } from './helpers/file-explorer'
+
+async function createIsolatedWorktree(
+  page: Parameters<typeof getActiveWorktreeId>[0]
+): Promise<string> {
+  const name = `e2e-lifecycle-${Date.now()}`
+  return page.evaluate(async (worktreeName) => {
+    const store = window.__store
+    if (!store) {
+      throw new Error('window.__store is not available')
+    }
+
+    const state = store.getState()
+    const activeWorktreeId = state.activeWorktreeId
+    if (!activeWorktreeId) {
+      throw new Error('No active worktree to derive repo from')
+    }
+
+    const activeWorktree = Object.values(state.worktreesByRepo)
+      .flat()
+      .find((worktree) => worktree.id === activeWorktreeId)
+    if (!activeWorktree) {
+      throw new Error(`Active worktree ${activeWorktreeId} not found`)
+    }
+
+    const result = await state.createWorktree(activeWorktree.repoId, worktreeName)
+    await state.fetchWorktrees(activeWorktree.repoId)
+    return result.worktree.id
+  }, name)
+}
+
+async function removeWorktreeViaStore(
+  page: Parameters<typeof getActiveWorktreeId>[0],
+  worktreeId: string
+): Promise<{ ok: boolean; error?: string }> {
+  return page.evaluate(async (id) => {
+    const store = window.__store
+    if (!store) {
+      return { ok: false as const, error: 'store unavailable' }
+    }
+
+    const result = await store.getState().removeWorktree(id, true)
+    return result
+  }, worktreeId)
+}
+
+test.describe('Worktree Lifecycle', () => {
+  test.beforeEach(async ({ orcaPage }) => {
+    await waitForSessionReady(orcaPage)
+    await waitForActiveWorktree(orcaPage)
+    await ensureTerminalVisible(orcaPage)
+  })
+
+  /**
+   * Covers PR #532: removing a worktree must drop its tab/editor/browser state
+   * from the store, not leak IDs into the next render.
+   */
+  test('removing a worktree clears its tabs, open files, and browser tabs', async ({
+    orcaPage
+  }) => {
+    const originalWorktreeId = (await getActiveWorktreeId(orcaPage))!
+
+    const newWorktreeId = await createIsolatedWorktree(orcaPage)
+    await switchToWorktree(orcaPage, newWorktreeId)
+    await expect
+      .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
+      .toBe(newWorktreeId)
+    await ensureTerminalVisible(orcaPage)
+
+    // Seed one of each surface on the new worktree so removeWorktree has to
+    // clean up all three in a single atomic set().
+    await orcaPage.evaluate((worktreeId) => {
+      const store = window.__store
+      if (!store) {
+        return
+      }
+
+      const state = store.getState()
+      state.createTab(worktreeId)
+      state.createBrowserTab(worktreeId, 'about:blank', {
+        title: 'lifecycle-test',
+        activate: false
+      })
+    }, newWorktreeId)
+
+    await openFileExplorer(orcaPage)
+    await clickFileInExplorer(orcaPage, ['README.md', 'package.json'])
+
+    // Baseline: the new worktree now has tabs/browser tabs/open files.
+    expect((await getWorktreeTabs(orcaPage, newWorktreeId)).length).toBeGreaterThan(0)
+    expect((await getBrowserTabs(orcaPage, newWorktreeId)).length).toBeGreaterThan(0)
+    expect((await getOpenFiles(orcaPage, newWorktreeId)).length).toBeGreaterThan(0)
+
+    // Switch away before removing so we're not deleting the active worktree —
+    // that's an easier code path and hides the cleanup regression this spec
+    // is protecting.
+    await switchToWorktree(orcaPage, originalWorktreeId)
+    await expect
+      .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
+      .toBe(originalWorktreeId)
+
+    const result = await removeWorktreeViaStore(orcaPage, newWorktreeId)
+    expect(result.ok).toBe(true)
+
+    // Tabs / open files / browser tabs keyed by the removed worktree must all
+    // be dropped. A regression that leaves any of these behind will show up
+    // in the sidebar as a worktree-less tab strip.
+    await expect
+      .poll(async () => (await getWorktreeTabs(orcaPage, newWorktreeId)).length, {
+        timeout: 10_000,
+        message: 'tabsByWorktree still holds entries for the removed worktree'
+      })
+      .toBe(0)
+    await expect
+      .poll(async () => (await getBrowserTabs(orcaPage, newWorktreeId)).length, { timeout: 5_000 })
+      .toBe(0)
+    await expect
+      .poll(async () => (await getOpenFiles(orcaPage, newWorktreeId)).length, { timeout: 5_000 })
+      .toBe(0)
+
+    const allIds = await getAllWorktreeIds(orcaPage)
+    expect(allIds).not.toContain(newWorktreeId)
+  })
+
+  /**
+   * Covers PR #598 / #628 / #726: switching worktrees while the right sidebar
+   * is open used to freeze the renderer or tear down the split-group
+   * container. Assert the switch lands on the new worktree and leaves the
+   * sidebar in a usable state.
+   */
+  test('switching worktrees with the right sidebar open does not hang the UI', async ({
+    orcaPage
+  }) => {
+    const allIds = await getAllWorktreeIds(orcaPage)
+    if (allIds.length < 2) {
+      test.skip(true, 'Need at least 2 worktrees to test worktree switching')
+    }
+
+    const originalWorktreeId = (await getActiveWorktreeId(orcaPage))!
+
+    // Open the explorer panel in the right sidebar. This is the exact surface
+    // the freeze regressions were reported against.
+    await openFileExplorer(orcaPage)
+
+    // Seed an open file so the explorer is doing real rendering work during
+    // the switch, not an empty tree.
+    await clickFileInExplorer(orcaPage, ['README.md', 'package.json'])
+
+    const otherWorktreeId = allIds.find((id) => id !== originalWorktreeId)!
+    await switchToWorktree(orcaPage, otherWorktreeId)
+    await expect
+      .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
+      .toBe(otherWorktreeId)
+
+    // The sidebar must still be open and pointing at the explorer tab. A
+    // frozen-renderer regression also tends to lose the sidebar state here.
+    await expect
+      .poll(
+        async () =>
+          orcaPage.evaluate(() => {
+            const state = window.__store?.getState()
+            return Boolean(state?.rightSidebarOpen && state?.rightSidebarTab === 'explorer')
+          }),
+        { timeout: 5_000, message: 'Right sidebar state was lost during worktree switch' }
+      )
+      .toBe(true)
+
+    // Switch back to confirm the round-trip is still responsive — a hang
+    // shows up as a timeout here.
+    await switchToWorktree(orcaPage, originalWorktreeId)
+    await expect
+      .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
+      .toBe(originalWorktreeId)
+  })
+
+  /**
+   * Covers PR #542 / #554: a regression caused terminal tab membership to
+   * leak across worktrees (the wrong worktree's tab reacted to shortcuts).
+   * Guard the underlying invariant — tabsByWorktree[A] and tabsByWorktree[B]
+   * do not share IDs — at the model layer where the bug actually lived.
+   */
+  test('terminal tabs stay scoped to the worktree that created them', async ({ orcaPage }) => {
+    const allIds = await getAllWorktreeIds(orcaPage)
+    if (allIds.length < 2) {
+      test.skip(true, 'Need at least 2 worktrees to test cross-worktree tab isolation')
+    }
+
+    const worktreeA = (await getActiveWorktreeId(orcaPage))!
+    const worktreeB = allIds.find((id) => id !== worktreeA)!
+
+    // Create an extra tab on A so it has a distinctive tab ID set.
+    await orcaPage.evaluate((worktreeId) => {
+      const store = window.__store
+      if (!store) {
+        return
+      }
+
+      store.getState().createTab(worktreeId)
+    }, worktreeA)
+    await expect
+      .poll(async () => (await getWorktreeTabs(orcaPage, worktreeA)).length, { timeout: 5_000 })
+      .toBeGreaterThanOrEqual(2)
+
+    // Switch to B and create a tab there too.
+    await switchToWorktree(orcaPage, worktreeB)
+    await expect
+      .poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 })
+      .toBe(worktreeB)
+    await ensureTerminalVisible(orcaPage)
+    await orcaPage.evaluate((worktreeId) => {
+      const store = window.__store
+      if (!store) {
+        return
+      }
+
+      store.getState().createTab(worktreeId)
+    }, worktreeB)
+    await expect
+      .poll(async () => (await getWorktreeTabs(orcaPage, worktreeB)).length, { timeout: 5_000 })
+      .toBeGreaterThanOrEqual(2)
+
+    const tabsA = await getWorktreeTabs(orcaPage, worktreeA)
+    const tabsB = await getWorktreeTabs(orcaPage, worktreeB)
+    const idsA = new Set(tabsA.map((tab) => tab.id))
+    const idsB = new Set(tabsB.map((tab) => tab.id))
+
+    const overlap = [...idsA].filter((id) => idsB.has(id))
+    expect(overlap, 'tabsByWorktree leaked tab IDs across worktrees').toEqual([])
+  })
+})
