@@ -32,12 +32,15 @@ function defaultTerminalFontFamily(): string {
   return 'SF Mono' // macOS default
 }
 /**
- * Why: ProseMirror builds an in-memory tree for the entire document, so large
- * markdown files cause noticeable typing lag in the rich editor. Files above
- * this threshold fall back to source mode (Monaco) which handles large files
- * efficiently via virtualized line rendering.
+ * Why: ProseMirror builds an in-memory tree for the entire document and Tiptap
+ * parses the full markdown string synchronously on mount. For files with many
+ * code blocks this also triggers lowlight syntax highlighting for each block,
+ * which can block the main thread for several seconds on a ~150KB file — long
+ * enough that tabs become unclickable (issue #585). Files above this threshold
+ * fall back to source mode (Monaco) which handles large files efficiently via
+ * virtualized line rendering, so opening them never freezes the UI.
  */
-export const RICH_MARKDOWN_MAX_SIZE_BYTES = 300 * 1024
+export const RICH_MARKDOWN_MAX_SIZE_BYTES = 100 * 1024
 
 export const DEFAULT_EDITOR_AUTO_SAVE_DELAY_MS = 1000
 export const MIN_EDITOR_AUTO_SAVE_DELAY_MS = 250
