@@ -28,6 +28,7 @@ import { connectPanePty } from './pty-connection'
 import type { PtyTransport } from './pty-transport'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
 import { registerRuntimeTerminalTab, scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
+import { e2eConfig } from '@/lib/e2e-config'
 
 type UseTerminalPaneLifecycleDeps = {
   tabId: string
@@ -420,6 +421,13 @@ export function useTerminalPaneLifecycle({
     })
 
     managerRef.current = manager
+    // Why: E2E tests need to read terminal buffer content, but xterm.js renders
+    // to canvas and the accessibility addon is not loaded. Exposing the manager
+    // lets tests call serializeAddon.serialize() to read the buffer reliably.
+    if (e2eConfig.exposeStore) {
+      window.__paneManagers = window.__paneManagers ?? new Map()
+      window.__paneManagers.set(tabId, manager)
+    }
     const restoredPaneByLeafId = replayTerminalLayout(manager, initialLayoutRef.current, isActive)
 
     restoreScrollbackBuffers(
@@ -569,6 +577,9 @@ export function useTerminalPaneLifecycle({
       pendingWrites.clear()
       manager.destroy()
       managerRef.current = null
+      if (e2eConfig.exposeStore) {
+        window.__paneManagers?.delete(tabId)
+      }
       setTabPaneExpanded(tabId, false)
       setTabCanExpandPane(tabId, false)
     }
