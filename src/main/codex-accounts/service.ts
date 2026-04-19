@@ -245,6 +245,20 @@ export class CodexAccountService {
     const resolvedCandidate = resolve(candidatePath)
     const resolvedRoot = resolve(rootPath)
 
+    // Why: in dev mode, userData points to orca-dev/ while production uses
+    // orca/. Accounts created by the packaged app store production paths in
+    // settings. A quick prefix check before realpathSync avoids noisy errors
+    // when dev instances encounter production-rooted managed home paths.
+    if (!resolvedCandidate.startsWith(resolvedRoot + sep)) {
+      throw new Error(
+        `Managed Codex home is outside current storage root (expected under ${resolvedRoot}).`
+      )
+    }
+
+    if (!existsSync(resolvedCandidate)) {
+      throw new Error('Managed Codex home directory does not exist on disk.')
+    }
+
     // realpath() requires the leaf to exist. For pre-login add flow we create
     // the home directory first so the containment check still verifies the
     // canonical on-disk target rather than trusting persisted text blindly.
