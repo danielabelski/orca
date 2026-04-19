@@ -2,12 +2,58 @@ import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { net, session } from 'electron'
 import type { ProviderRateLimits, RateLimitWindow } from '../../shared/rate-limit-types'
 import { fetchViaPty } from './claude-pty'
 
 const OAUTH_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const OAUTH_BETA_HEADER = 'oauth-2025-04-20'
 const API_TIMEOUT_MS = 10_000
+
+let proxyConfigured = false
+
+/**
+ * Bridge standard HTTP proxy env vars into Electron's session proxy config.
+ *
+ * Why: Electron's net.fetch uses Chromium's networking stack which respects
+ * OS-level proxy settings but ignores HTTP_PROXY / HTTPS_PROXY env vars.
+ * Users in regions where api.anthropic.com is only reachable via proxy (see
+ * #521, #800) often set these env vars rather than configuring system proxy.
+ * Without this bridge, the usage indicator silently fails and the app may hit
+ * Anthropic from an unexpected IP, risking rate-limit signals on the account.
+ */
+async function ensureProxyFromEnv(): Promise<void> {
+  if (proxyConfigured) {
+    return
+  }
+  proxyConfigured = true
+
+  // Why: app.resolveProxy does NOT reflect session-level proxy config —
+  // only session.defaultSession.resolveProxy does.
+  const resolved = await session.defaultSession.resolveProxy(OAUTH_USAGE_URL)
+  if (resolved !== 'DIRECT') {
+    return
+  }
+
+  const proxyUrl =
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.ALL_PROXY ??
+    process.env.all_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy
+  if (!proxyUrl) {
+    return
+  }
+
+  try {
+    new URL(proxyUrl)
+    await session.defaultSession.setProxy({ proxyRules: proxyUrl })
+  } catch {
+    // Invalid proxy URL — degrade to direct connection rather than crashing.
+    // The usage bar is cosmetic; a typo'd envvar should not break polling.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Credential reading — tries multiple sources for an OAuth bearer token
@@ -181,11 +227,15 @@ function mapWindow(
 }
 
 async function fetchViaOAuth(token: string): Promise<ProviderRateLimits> {
+  await ensureProxyFromEnv()
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
 
   try {
-    const res = await fetch(OAUTH_USAGE_URL, {
+    // Why: net.fetch uses Chromium's networking stack which respects OS proxy
+    // settings and certificates. Env var proxies are bridged by ensureProxyFromEnv.
+    const res = await net.fetch(OAUTH_USAGE_URL, {
       headers: {
         Authorization: `Bearer ${token}`,
         'anthropic-beta': OAUTH_BETA_HEADER
