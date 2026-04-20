@@ -78,16 +78,20 @@ async function pressAndExpectWrite(
   page: Page,
   app: ElectronApplication,
   chord: string,
-  expectedSubstring: string
+  expectedData: string
 ): Promise<void> {
   await clearPtyWriteLog(app)
   await focusActiveTerminal(page)
   await page.keyboard.press(chord)
 
+  // Why: assert exact equality, not substring match. Short control codes like
+  // \x01 (Ctrl+A) and \x05 (Ctrl+E) are single bytes that can appear inside
+  // unrelated writes (shell prompt redraws, bracketed-paste sequences), so a
+  // substring match would produce false positives.
   await expect
-    .poll(async () => (await getPtyWrites(app)).some((w) => w.includes(expectedSubstring)), {
+    .poll(async () => (await getPtyWrites(app)).some((w) => w === expectedData), {
       timeout: 5_000,
-      message: `Expected chord "${chord}" to write ${JSON.stringify(expectedSubstring)}`
+      message: `Expected chord "${chord}" to write ${JSON.stringify(expectedData)}`
     })
     .toBe(true)
 }
@@ -95,6 +99,10 @@ async function pressAndExpectWrite(
 const isMac = process.platform === 'darwin'
 const mod = isMac ? 'Meta' : 'Control'
 
+// Why: serial mode is load-bearing. Tests mutate shared Electron app state
+// (pane layout, terminal buffer, expand toggle) and the pty:write spy log is
+// a single main-process singleton. Parallel execution would interleave chord
+// effects and corrupt assertions.
 test.describe.configure({ mode: 'serial' })
 test.describe('Terminal Shortcuts', () => {
   test.beforeEach(async ({ orcaPage }) => {
@@ -219,5 +227,8 @@ test.describe('Terminal Shortcuts', () => {
       timeout: 3_000
     })
     await orcaPage.keyboard.press('Escape')
+    await expect(orcaPage.locator('[data-terminal-search-root]').first()).toBeHidden({
+      timeout: 3_000
+    })
   })
 })
