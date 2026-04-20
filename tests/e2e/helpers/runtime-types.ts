@@ -1,3 +1,5 @@
+import type { editor } from 'monaco-editor'
+
 import type { AppState } from '../../../src/renderer/src/store/types'
 import type { OpenFile, RightSidebarTab } from '../../../src/renderer/src/store/slices/editor'
 import type { ManagedPane } from '../../../src/renderer/src/lib/pane-manager/pane-manager-types'
@@ -45,6 +47,12 @@ declare global {
   interface Window {
     __store?: AppStore
     __paneManagers?: Map<string, PaneManagerLike>
+    // Why: MonacoEditor.tsx exposes the live editor instances in dev/E2E keyed
+    // by viewStateKey (one entry per mounted pane, unique even when split panes
+    // view the same file). Declaring the shape here lets tests call
+    // `window.__monacoEditors` directly instead of casting through `unknown`,
+    // so a future shape change is caught at compile time.
+    __monacoEditors?: Map<string, editor.IStandaloneCodeEditor>
   }
 }
 

@@ -119,15 +119,33 @@ export async function getOpenFileSummary(
  * assertions are stable across Monaco upgrades — unlike scraping
  * `.view-lines` which targets an internal class name.
  *
- * Returns null if the editor hasn't mounted yet for this path; callers
+ * Why scan by model URI instead of registry.get(filePath): the registry is
+ * keyed by `viewStateKey` (per-pane, unique even across split panes viewing
+ * the same file) to avoid collisions between sibling panes. Specs not
+ * exercising split panes only care about "the editor showing this file", so
+ * we iterate the Map values and match the Monaco model's URI fsPath. If
+ * multiple panes view the same file the first match is returned, which is
+ * fine for non-split specs — all panes share the same retained model, so
+ * `getValue()` returns the same content either way.
+ *
+ * Returns null if no mounted editor has a model for this path; callers
  * should poll until it becomes a string.
  */
 export async function getMonacoContent(page: Page, filePath: string): Promise<string | null> {
   return page.evaluate((fp) => {
-    const registry = (window as unknown as Record<string, unknown>).__monacoEditors as
-      | Map<string, { getValue: () => string }>
-      | undefined
-    const editorInstance = registry?.get(fp)
-    return editorInstance ? editorInstance.getValue() : null
+    const registry = window.__monacoEditors
+    if (!registry) {
+      return null
+    }
+    for (const editorInstance of registry.values()) {
+      const model = editorInstance.getModel?.()
+      if (!model) {
+        continue
+      }
+      if (model.uri.fsPath === fp) {
+        return editorInstance.getValue()
+      }
+    }
+    return null
   }, filePath)
 }

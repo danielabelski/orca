@@ -163,18 +163,25 @@ export default function MonacoEditor({
     (editorInstance, monaco) => {
       editorRef.current = editorInstance
 
-      // Why: expose the live Monaco editor instance by filePath in dev/E2E so
-      // tests can assert on model content via the public `editor.getValue()`
-      // API instead of scraping the internal `.view-lines` DOM — which has no
-      // SemVer contract and could break on Monaco upgrades. Same gating as
+      // Why: expose the live Monaco editor instance in dev/E2E so tests can
+      // assert on model content via the public `editor.getValue()` API instead
+      // of scraping the internal `.view-lines` DOM — which has no SemVer
+      // contract and could break on Monaco upgrades. Same gating as
       // window.__store (see store/index.ts) so production builds are unaffected.
+      //
+      // Why key on viewStateKey (per-pane) rather than filePath: EditorContent
+      // mounts one <MonacoEditor> per visible pane with `key={viewStateScopeId}`
+      // so two split panes viewing the same file are distinct React instances
+      // with distinct viewStateKey values. Keying on filePath would collide
+      // (second mount overwrites the first), and because cleanup below is
+      // guarded by editorRef identity, the first pane's later unmount would
+      // find a non-matching entry and leave the registry empty while a live
+      // pane still exists. Using viewStateKey makes set and delete share the
+      // same unique per-pane slot, eliminating that asymmetric-lifecycle bug.
       if ((import.meta.env.DEV || e2eConfig.exposeStore) && typeof window !== 'undefined') {
-        const registry =
-          ((window as unknown as Record<string, unknown>).__monacoEditors as
-            | Map<string, editor.IStandaloneCodeEditor>
-            | undefined) ?? new Map<string, editor.IStandaloneCodeEditor>()
-        registry.set(filePath, editorInstance)
-        ;(window as unknown as Record<string, unknown>).__monacoEditors = registry
+        const registry = window.__monacoEditors ?? new Map<string, editor.IStandaloneCodeEditor>()
+        registry.set(viewStateKey, editorInstance)
+        window.__monacoEditors = registry
       }
 
       // Why: see comment on contentRef — reconcile the retained model against
@@ -350,17 +357,17 @@ export default function MonacoEditor({
       clearTransientRevealHighlight()
 
       // Drop the dev/E2E editor registry entry so stale disposed instances
-      // can't leak to tests that run after this tab unmounts.
+      // can't leak to tests that run after this tab unmounts. Keyed by
+      // viewStateKey (per-pane, unique even across split panes viewing the
+      // same file) so set and delete share the same slot — see handleMount.
       if ((import.meta.env.DEV || e2eConfig.exposeStore) && typeof window !== 'undefined') {
-        const registry = (window as unknown as Record<string, unknown>).__monacoEditors as
-          | Map<string, editor.IStandaloneCodeEditor>
-          | undefined
-        if (registry?.get(filePath) === editorRef.current) {
-          registry.delete(filePath)
+        const registry = window.__monacoEditors
+        if (registry?.get(viewStateKey) === editorRef.current) {
+          registry.delete(viewStateKey)
         }
       }
     }
-  }, [cancelScheduledReveal, clearTransientRevealHighlight, viewStateKey, filePath])
+  }, [cancelScheduledReveal, clearTransientRevealHighlight, viewStateKey])
 
   // Update editor options when settings change
   useEffect(() => {

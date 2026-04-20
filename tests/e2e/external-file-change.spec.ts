@@ -163,8 +163,12 @@ test.describe('External File Change Reflection', () => {
       expect(fileId).not.toBeNull()
       await activateEditorTab(orcaPage, fileId!)
 
-      // Confirm the tab entered rich mode before the external write. Without
-      // this baseline, "still rich after write" could mean "never was rich."
+      // Confirm the tab is in rich mode before the external write. Why the
+      // `?? 'rich'` default: the store's `markdownViewMode` map is populated
+      // only when the user explicitly toggles to source mode — EditorPanel.tsx
+      // applies the `'rich'` default at the read site. We mirror that here so
+      // this assertion matches the effective mode the user sees, not the raw
+      // map (which is `undefined` for a file that was never toggled).
       await expect
         .poll(
           async () =>
@@ -198,9 +202,12 @@ test.describe('External File Change Reflection', () => {
                 return null
               }
               const file = state.openFiles.find((f) => f.id === id)
+              if (!file) {
+                return null
+              }
               return {
-                isDirty: Boolean(file?.isDirty),
-                externalMutation: file?.externalMutation ?? null,
+                isDirty: Boolean(file.isDirty),
+                externalMutation: file.externalMutation ?? null,
                 mode: state.markdownViewMode[id] ?? 'rich'
               }
             }, fileId!),
@@ -273,34 +280,91 @@ test.describe('External File Change Reflection', () => {
         .poll(async () => getOpenFileSummary(orcaPage, fileId!), { timeout: 3_000 })
         .toEqual({ isDirty: true, externalMutation: null, draft: draftContent })
 
-      // External writer stomps on the same path.
-      const externalToken = `external-clobber-attempt-${Date.now()}`
-      const externalContent = `export const scratch = "${externalToken}"\n`
-      writeFileSync(scratchAbs, externalContent)
+      // Why a second "sibling" scratch file: we need a positive signal that
+      // the external-reload pipeline has actually fired and settled, rather
+      // than sleeping a fixed 500ms and hoping. By opening a clean sibling
+      // tab, writing both externals back-to-back, and waiting until the
+      // sibling's Monaco model reflects its external content, we prove the
+      // reload pipeline has run end-to-end under identical timing. Only
+      // then do we assert the dirty-guard skipped the dirty tab.
+      const siblingRel = `scratch-external-dirty-sibling-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ts`
+      const siblingAbs = path.join(worktreePath!, siblingRel)
+      const siblingSeed = 'export const sibling = "initial"\n'
 
-      // The guard: the draft must survive, the dirty flag must stay, and we
-      // must NOT have been marked as tombstoned/renamed. The reload pipeline
-      // in PR #735 skips the scheduleDebouncedExternalReload call when any
-      // matching openFile is dirty — verifying the draft didn't shift is the
-      // strongest store-visible proof that skip happened.
-      //
-      // Wait long enough to outlast the 75ms debounce + fs event settle, so
-      // a regression that *did* reload would have observably clobbered by now.
-      await orcaPage.waitForTimeout(500)
-      const afterWrite = await getOpenFileSummary(orcaPage, fileId!)
-      expect(afterWrite).toEqual({
-        isDirty: true,
-        externalMutation: null,
-        draft: draftContent
-      })
+      try {
+        // Write the sibling seed inside the try so the finally still cleans
+        // up if anything between here and the sibling-open throws.
+        writeFileSync(siblingAbs, siblingSeed)
 
-      // The load-bearing assertion for PR #735's dirty-guard: Monaco's model
-      // must NOT carry the external token. A regression that unconditionally
-      // reloaded on external writes would paint the external content over the
-      // user's in-progress edit, silently losing their work — exactly the
-      // failure mode the guard was added to prevent.
-      const monacoContent = await getMonacoContent(orcaPage, scratchAbs)
-      expect(monacoContent).not.toContain(externalToken)
+        const siblingId = await openFileInStore(orcaPage, worktreeId, siblingRel)
+        expect(siblingId).not.toBeNull()
+
+        // Leave the sibling as the active tab. Orca's EditorPanel only mounts
+        // a MonacoEditor for the ACTIVE file, so we need the sibling active
+        // for its Monaco model to exist (and thus for getMonacoContent to
+        // return a non-null value usable as our positive signal). The
+        // dirty-guard in PR #735 is path-scoped — it reads openFiles from
+        // the store and matches by path, skipping the reload for any
+        // matching openFile that is dirty — so the guard still fires for
+        // the (now-inactive) dirty tab when the external write lands. See
+        // src/renderer/src/hooks/useEditorExternalWatch.ts around lines
+        // 377-391.
+
+        // Monaco must mount the sibling with its seed before the external
+        // write, or the post-write poll could race a still-mounting pane
+        // and see its external content only because it rendered late.
+        await expect
+          .poll(async () => getMonacoContent(orcaPage, siblingAbs), { timeout: 10_000 })
+          .toBe(siblingSeed)
+
+        // External writer stomps both paths in the same moment.
+        const externalToken = `external-clobber-attempt-${Date.now()}`
+        const externalContent = `export const scratch = "${externalToken}"\n`
+        const siblingExternal = `export const sibling = "external-${Date.now()}"\n`
+        writeFileSync(scratchAbs, externalContent)
+        writeFileSync(siblingAbs, siblingExternal)
+
+        // Positive-signal wait: block until the sibling (clean) tab has
+        // demonstrably picked up its external content via the reload
+        // pipeline. Once that's happened, the dirty tab has had identical
+        // time to be (incorrectly) reloaded if the guard is broken.
+        await expect
+          .poll(async () => getMonacoContent(orcaPage, siblingAbs), {
+            timeout: 10_000,
+            message: 'sibling clean tab never reflected external write'
+          })
+          .toBe(siblingExternal)
+
+        // The guard: the draft must survive, the dirty flag must stay, and
+        // we must NOT have been marked as tombstoned/renamed. The reload
+        // pipeline in PR #735 skips the scheduleDebouncedExternalReload
+        // call when any matching openFile is dirty — verifying the draft
+        // didn't shift is the strongest store-visible proof that skip
+        // happened.
+        const afterWrite = await getOpenFileSummary(orcaPage, fileId!)
+        expect(afterWrite).toEqual({
+          isDirty: true,
+          externalMutation: null,
+          draft: draftContent
+        })
+
+        // The previous Monaco-level assertion (that the dirty tab's Monaco
+        // did not contain the external token) is intentionally omitted:
+        // activating the sibling unmounts the dirty tab's MonacoEditor, so
+        // its model is no longer observable until we re-activate. The
+        // draft-survives-in-store check above is the load-bearing contract
+        // for PR #735's dirty-guard — syncContentOnMount will repaint from
+        // the draft when the user switches back, which is covered by
+        // MonacoEditor's existing unit tests for syncContentOnMount.
+      } finally {
+        if (existsSync(siblingAbs)) {
+          try {
+            unlinkSync(siblingAbs)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     } finally {
       if (existsSync(scratchAbs)) {
         try {
@@ -330,7 +394,13 @@ test.describe('External File Change Reflection', () => {
     // it fresh for this test (instead of reusing src/index.ts) avoids
     // leaving the seeded repo in a broken state if cleanup fails and lets
     // tests in the same worker keep depending on the seeded files.
-    const scratchRel = 'scratch-external-delete.ts'
+    // The unique timestamp + random suffix isolates parallel workers that
+    // share TEST_REPO_PATH — without it, two workers executing this spec
+    // concurrently would race on the same on-disk path and one worker's
+    // unlinkSync would fire a watcher event in the other worker's session,
+    // flipping its tombstone prematurely or clearing it via the parallel
+    // resurrection. Same rationale as tests 1-3.
+    const scratchRel = `scratch-external-delete-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ts`
     const scratchAbs = path.join(worktreePath!, scratchRel)
     const initialContent = 'export const scratch = "initial"\n'
     writeFileSync(scratchAbs, initialContent)
