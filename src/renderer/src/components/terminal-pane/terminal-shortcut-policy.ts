@@ -138,6 +138,16 @@ export function resolveTerminalShortcutAction(
     if (event.key === 'Delete') {
       return { type: 'sendInput', data: '\x0b' }
     }
+    // Why: Cmd+←/→ on macOS conventionally moves to start/end of line in
+    // terminals (iTerm2, Ghostty). xterm.js has no default mapping for
+    // Cmd+Arrow, so we translate to readline's Ctrl+A (\x01) / Ctrl+E (\x05),
+    // which work universally across bash/zsh/fish and most TUI editors.
+    if (event.key === 'ArrowLeft') {
+      return { type: 'sendInput', data: '\x01' }
+    }
+    if (event.key === 'ArrowRight') {
+      return { type: 'sendInput', data: '\x05' }
+    }
   }
 
   if (

@@ -89,6 +89,37 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
+  it('translates Cmd+←/→ on macOS to readline start/end-of-line (Ctrl+A/E)', () => {
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true }),
+        true
+      )
+    ).toEqual({ type: 'sendInput', data: '\x01' })
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true }),
+        true
+      )
+    ).toEqual({ type: 'sendInput', data: '\x05' })
+
+    // Cmd+Shift+Arrow is a different chord (selection) — don't intercept.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, shiftKey: true }),
+        true
+      )
+    ).toBeNull()
+
+    // Non-Mac Ctrl+Arrow must pass through unchanged (readline's word-nav there).
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowLeft', code: 'ArrowLeft', ctrlKey: true }),
+        false
+      )
+    ).toBeNull()
+  })
+
   it('uses ctrl as the non-mac pane modifier but still requires shift for tab-safe chords', () => {
     expect(
       resolveTerminalShortcutAction(event({ key: 'f', code: 'KeyF', ctrlKey: true }), false)
