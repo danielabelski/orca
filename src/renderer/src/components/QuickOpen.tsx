@@ -1,5 +1,5 @@
 /* oxlint-disable max-lines */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { File } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { detectLanguage } from '@/lib/language-detect'
@@ -64,32 +64,58 @@ export default function QuickOpen(): React.JSX.Element | null {
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const listRef = useRef<HTMLDivElement>(null)
 
-  // Find active worktree path and sibling worktree paths to exclude
-  const { worktreePath, excludePaths } = useMemo(() => {
+  // Why: the derived tuple (worktreePath, excludePaths) must have a stable
+  // identity across unrelated store updates. We key the memo on a joined
+  // string so any worktreesByRepo mutation that doesn't affect this worktree's
+  // path or its siblings leaves our array reference untouched, which in turn
+  // keeps the file-load effect below from refetching and blinking the list.
+  const worktreePath = useMemo(() => {
     if (!activeWorktreeId) {
-      return { worktreePath: null, excludePaths: [] as string[] }
+      return null
     }
     for (const worktrees of Object.values(worktreesByRepo)) {
       const wt = worktrees.find((w) => w.id === activeWorktreeId)
       if (wt) {
-        // Why: when the active worktree is the repo root (isMainWorktree),
-        // linked worktrees are nested subdirectories. Without excluding them,
-        // file listing returns files from every worktree, not just this one.
-        const siblings = worktrees
-          .filter((w) => w.id !== activeWorktreeId && w.path.startsWith(`${wt.path}/`))
-          .map((w) => w.path)
-        return { worktreePath: wt.path, excludePaths: siblings }
+        return wt.path
       }
     }
-    return { worktreePath: null, excludePaths: [] as string[] }
+    return null
   }, [activeWorktreeId, worktreesByRepo])
+
+  const excludePathsKey = useMemo(() => {
+    if (!activeWorktreeId || !worktreePath) {
+      return ''
+    }
+    for (const worktrees of Object.values(worktreesByRepo)) {
+      if (!worktrees.some((w) => w.id === activeWorktreeId)) {
+        continue
+      }
+      // Why: when the active worktree is the repo root (isMainWorktree),
+      // linked worktrees are nested subdirectories. Without excluding them,
+      // file listing returns files from every worktree, not just this one.
+      return worktrees
+        .filter((w) => w.id !== activeWorktreeId && w.path.startsWith(`${worktreePath}/`))
+        .map((w) => w.path)
+        .sort()
+        .join('\n')
+    }
+    return ''
+  }, [activeWorktreeId, worktreePath, worktreesByRepo])
 
   const connectionId = useMemo(
     () => getConnectionId(activeWorktreeId ?? null) ?? undefined,
     [activeWorktreeId]
   )
+
+  // Why: reset input only on open. Keeping this out of the file-load effect
+  // prevents unrelated store updates (which can produce a new excludePaths
+  // array reference) from wiping a query the user is currently typing.
+  useEffect(() => {
+    if (visible) {
+      setQuery('')
+    }
+  }, [visible])
 
   // Load file list when opened
   useEffect(() => {
@@ -103,10 +129,11 @@ export default function QuickOpen(): React.JSX.Element | null {
     }
 
     let cancelled = false
-    setQuery('')
     setFiles([])
     setLoadError(null)
     setLoading(true)
+
+    const excludePaths = excludePathsKey ? excludePathsKey.split('\n') : undefined
 
     void window.api.fs
       // Why: quick-open shares the active worktree path model with file explorer
@@ -115,7 +142,7 @@ export default function QuickOpen(): React.JSX.Element | null {
       .listFiles({
         rootPath: worktreePath,
         connectionId,
-        excludePaths: excludePaths.length > 0 ? excludePaths : undefined
+        excludePaths
       })
       .then((result) => {
         if (!cancelled) {
@@ -139,7 +166,7 @@ export default function QuickOpen(): React.JSX.Element | null {
     return () => {
       cancelled = true
     }
-  }, [visible, worktreePath, connectionId, excludePaths])
+  }, [visible, worktreePath, connectionId, excludePathsKey])
 
   // Filter files by fuzzy match
   const filtered = useMemo(() => {
@@ -157,17 +184,6 @@ export default function QuickOpen(): React.JSX.Element | null {
     results.sort((a, b) => a.score - b.score)
     return results.slice(0, 50)
   }, [files, query])
-
-  // Why: when the query changes the first result becomes selected, but cmdk
-  // doesn't reset the list's scrollTop. Without this, a previously scrolled
-  // list leaves the new top result clipped behind the input border.
-  // rAF defers until after cmdk's own scroll-into-view pass, so our reset wins.
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      listRef.current?.scrollTo(0, 0)
-    })
-    return () => cancelAnimationFrame(id)
-  }, [query, visible])
 
   const handleSelect = useCallback(
     (relativePath: string) => {
@@ -210,7 +226,7 @@ export default function QuickOpen(): React.JSX.Element | null {
       description="Search for a file to open"
     >
       <CommandInput placeholder="Go to file..." value={query} onValueChange={setQuery} />
-      <CommandList ref={listRef} className="p-2">
+      <CommandList className="p-2">
         {loading ? (
           <div className="py-6 text-center text-sm text-muted-foreground">Loading files...</div>
         ) : loadError ? (
