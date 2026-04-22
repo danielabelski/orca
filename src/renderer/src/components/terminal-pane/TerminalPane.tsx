@@ -63,6 +63,8 @@ export default function TerminalPane({
     new Map()
   )
   const paneTransportsRef = useRef<Map<number, PtyTransport>>(new Map())
+  const paneMode2031Ref = useRef<Map<number, boolean>>(new Map())
+  const paneLastThemeModeRef = useRef<Map<number, 'dark' | 'light'>>(new Map())
   const panePtyBindingsRef = useRef<Map<number, IDisposable>>(new Map())
   const pendingWritesRef = useRef<Map<number, string>>(new Map())
   const isActiveRef = useRef(isActive)
@@ -341,6 +343,8 @@ export default function TerminalPane({
     expandedStyleSnapshotRef,
     paneFontSizesRef,
     paneTransportsRef,
+    paneMode2031Ref,
+    paneLastThemeModeRef,
     panePtyBindingsRef,
     pendingWritesRef,
     isActiveRef,

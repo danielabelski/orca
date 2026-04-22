@@ -23,8 +23,9 @@ import {
   restoreScrollbackBuffers
 } from './layout-serialization'
 import { applyExpandedLayoutTo, restoreExpandedLayoutFrom } from './expand-collapse'
-import { applyTerminalAppearance } from './terminal-appearance'
+import { applyTerminalAppearance, mode2031SequenceFor } from './terminal-appearance'
 import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-option-as-alt'
+import { resolveEffectiveTerminalAppearance } from '@/lib/terminal-theme'
 import { connectPanePty } from './pty-connection'
 import type { PtyTransport } from './pty-transport'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
@@ -64,6 +65,8 @@ type UseTerminalPaneLifecycleDeps = {
   >
   paneFontSizesRef: React.RefObject<Map<number, number>>
   paneTransportsRef: React.RefObject<Map<number, PtyTransport>>
+  paneMode2031Ref: React.RefObject<Map<number, boolean>>
+  paneLastThemeModeRef: React.RefObject<Map<number, 'dark' | 'light'>>
   panePtyBindingsRef: React.RefObject<Map<number, IDisposable>>
   pendingWritesRef: React.RefObject<Map<number, string>>
   isActiveRef: React.RefObject<boolean>
@@ -140,6 +143,8 @@ export function useTerminalPaneLifecycle({
   expandedStyleSnapshotRef,
   paneFontSizesRef,
   paneTransportsRef,
+  paneMode2031Ref,
+  paneLastThemeModeRef,
   panePtyBindingsRef,
   pendingWritesRef,
   isActiveRef,
@@ -171,6 +176,7 @@ export function useTerminalPaneLifecycle({
   // Why: read settingsRef at fire time so toggling "copy on select" takes
   // effect without recreating panes.
   const selectionDisposablesRef = useRef(new Map<number, IDisposable>())
+  const mode2031DisposablesRef = useRef(new Map<number, IDisposable[]>())
 
   const applyAppearance = (manager: PaneManager): void => {
     const currentSettings = settingsRef.current
@@ -183,8 +189,28 @@ export function useTerminalPaneLifecycle({
       systemPrefersDarkRef.current,
       paneFontSizesRef.current,
       paneTransportsRef.current,
-      effectiveMacOptionAsAltRef.current
+      effectiveMacOptionAsAltRef.current,
+      paneMode2031Ref.current,
+      paneLastThemeModeRef.current
     )
+  }
+
+  const pushMode2031ForPane = (paneId: number): void => {
+    const transport = paneTransportsRef.current.get(paneId)
+    if (!transport?.isConnected()) {
+      return
+    }
+    const currentSettings = settingsRef.current
+    if (!currentSettings) {
+      return
+    }
+    const { mode } = resolveEffectiveTerminalAppearance(
+      currentSettings,
+      systemPrefersDarkRef.current
+    )
+    if (transport.sendInput(mode2031SequenceFor(mode))) {
+      paneLastThemeModeRef.current.set(paneId, mode)
+    }
   }
 
   // Initialize PaneManager instance once
@@ -282,6 +308,33 @@ export function useTerminalPaneLifecycle({
 
     const manager = new PaneManager(container, {
       onPaneCreated: (pane) => {
+        // Install mode 2031 parser handlers before PTY attach so the child's
+        // initial CSI ?2031h (sent at startup) is captured.
+        const parser = pane.terminal.parser
+        const hasMode2031 = (params: (number | number[])[]): boolean =>
+          params.some((p) => (Array.isArray(p) ? p.includes(2031) : p === 2031))
+        // Why return false from both handlers: we only observe mode 2031.
+        // Returning false lets xterm's built-in DEC private mode handler
+        // continue processing the same sequence, so compound sequences like
+        // `CSI ?25;2031h` still update cursor visibility correctly.
+        const mode2031Disposables: IDisposable[] = [
+          parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+            if (hasMode2031(params)) {
+              paneMode2031Ref.current.set(pane.id, true)
+              pushMode2031ForPane(pane.id)
+            }
+            return false
+          }),
+          parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+            if (hasMode2031(params)) {
+              paneMode2031Ref.current.delete(pane.id)
+              paneLastThemeModeRef.current.delete(pane.id)
+            }
+            return false
+          })
+        ]
+        mode2031DisposablesRef.current.set(pane.id, mode2031Disposables)
+
         const linkProviderDisposable = pane.terminal.registerLinkProvider(
           createFilePathLinkProvider(pane.id, linkDeps, pane.linkTooltip, fileOpenLinkHint)
         )
@@ -349,6 +402,15 @@ export function useTerminalPaneLifecycle({
           selectionDisposable.dispose()
           selectionDisposablesRef.current.delete(paneId)
         }
+        const mode2031Disposables = mode2031DisposablesRef.current.get(paneId)
+        if (mode2031Disposables) {
+          for (const d of mode2031Disposables) {
+            d.dispose()
+          }
+          mode2031DisposablesRef.current.delete(paneId)
+        }
+        paneMode2031Ref.current.delete(paneId)
+        paneLastThemeModeRef.current.delete(paneId)
         const transport = paneTransportsRef.current.get(paneId)
         const panePtyBinding = panePtyBindings.get(paneId)
         if (panePtyBinding) {
