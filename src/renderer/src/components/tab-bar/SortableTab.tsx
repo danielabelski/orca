@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { X, Terminal as TerminalIcon, Minimize2, Columns2, Rows2 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -12,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input'
 import type { TerminalTab } from '../../../../shared/types'
 import type { TabDragItemData } from '../tab-group/useTabDragSplit'
+import { getDropIndicatorClasses, type DropIndicator } from './drop-indicator'
 
 type SortableTabProps = {
   tab: TerminalTab
@@ -28,6 +28,7 @@ type SortableTabProps = {
   onToggleExpand: (tabId: string) => void
   onSplitGroup: (direction: 'left' | 'right' | 'up' | 'down', sourceVisibleTabId: string) => void
   dragData: TabDragItemData
+  dropIndicator?: DropIndicator
 }
 
 export const TAB_COLORS = [
@@ -59,19 +60,18 @@ export default function SortableTab({
   onSetTabColor,
   onToggleExpand,
   onSplitGroup,
-  dragData
+  dragData,
+  dropIndicator
 }: SortableTabProps): React.JSX.Element {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef } = useSortable({
     id: tab.id,
     data: dragData
   })
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : undefined,
-    opacity: isDragging ? 0.8 : 1
-  }
+  // Why: intentionally no transform/transition/opacity here. The PR's
+  // design is that tabs stay visually anchored during a drag — only the
+  // blue insertion bar moves. Siblings also don't shift (see
+  // SortableContext in TabBar.tsx, which omits a strategy for that reason).
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
   const [isEditing, setIsEditing] = useState(false)
@@ -150,12 +150,11 @@ export default function SortableTab({
       >
         <div
           ref={setNodeRef}
-          style={style}
           data-testid="sortable-tab"
           data-tab-title={tab.customTitle ?? tab.title}
           {...attributes}
           {...dragListeners}
-          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${
+          className={`group relative flex items-center h-full px-3 text-sm cursor-pointer select-none shrink-0 border-r border-border ${getDropIndicatorClasses(dropIndicator ?? null)} ${
             isActive
               ? 'bg-accent text-foreground border-b-transparent'
               : 'bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50'
