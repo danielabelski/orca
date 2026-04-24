@@ -6,6 +6,7 @@ import type {
   BrowserSessionProfile,
   BrowserSessionProfileScope,
   BrowserSessionProfileSource,
+  ClaudeRateLimitAccountsState,
   CodexRateLimitAccountsState,
   CreateWorktreeResult,
   DirEntry,
@@ -474,6 +475,13 @@ export type PreloadApi = {
     reauthenticate: (args: { accountId: string }) => Promise<CodexRateLimitAccountsState>
     remove: (args: { accountId: string }) => Promise<CodexRateLimitAccountsState>
     select: (args: { accountId: string | null }) => Promise<CodexRateLimitAccountsState>
+  }
+  claudeAccounts: {
+    list: () => Promise<ClaudeRateLimitAccountsState>
+    add: () => Promise<ClaudeRateLimitAccountsState>
+    reauthenticate: (args: { accountId: string }) => Promise<ClaudeRateLimitAccountsState>
+    remove: (args: { accountId: string }) => Promise<ClaudeRateLimitAccountsState>
+    select: (args: { accountId: string | null }) => Promise<ClaudeRateLimitAccountsState>
   }
   cli: {
     getInstallStatus: () => Promise<CliInstallStatus>
