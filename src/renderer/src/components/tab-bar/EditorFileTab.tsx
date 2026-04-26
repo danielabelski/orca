@@ -5,6 +5,7 @@ import {
   FileCode,
   GitCompareArrows,
   Copy,
+  Eye,
   ShieldAlert,
   ExternalLink,
   Columns2,
@@ -20,7 +21,9 @@ import {
 import { basename, normalizeRelativePath } from '@/lib/path'
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
 import { renameFileOnDisk } from '@/lib/rename-file'
+import { detectLanguage } from '@/lib/language-detect'
 import { useWorktreeById } from '@/store/selectors'
+import { useAppStore } from '@/store'
 import { STATUS_COLORS, STATUS_LABELS } from '../right-sidebar/status-display'
 import type { GitFileStatus } from '../../../../shared/types'
 import type { OpenFile } from '../../store/slices/editor'
@@ -31,6 +34,7 @@ import {
   getDropIndicatorClasses,
   type DropIndicator
 } from './drop-indicator'
+import { canOpenMarkdownPreview } from '@/components/editor/markdown-preview-controls'
 
 const isMac = navigator.userAgent.includes('Mac')
 const isLinux = navigator.userAgent.includes('Linux')
@@ -82,6 +86,19 @@ export default function EditorFileTab({
 
   const isDiff = file.mode === 'diff'
   const isConflictReview = file.mode === 'conflict-review'
+  const isMarkdownPreviewTab = file.mode === 'markdown-preview'
+  const resolvedLanguage =
+    file.mode === 'diff'
+      ? detectLanguage(file.relativePath)
+      : isConflictReview
+        ? 'plaintext'
+        : file.language
+  const canShowMarkdownPreview = canOpenMarkdownPreview({
+    language: resolvedLanguage,
+    mode: file.mode,
+    diffSource: file.diffSource
+  })
+  const openMarkdownPreview = useAppStore((s) => s.openMarkdownPreview)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
   const [isRenaming, setIsRenaming] = useState(false)
@@ -212,6 +229,10 @@ export default function EditorFileTab({
             <GitCompareArrows
               className={`w-3 h-3 mr-1 shrink-0 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}
             />
+          ) : isMarkdownPreviewTab ? (
+            <Eye
+              className={`w-3.5 h-3.5 mr-1.5 shrink-0 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}
+            />
           ) : (
             <FileCode
               className={`w-3 h-3 mr-1 shrink-0 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}
@@ -335,6 +356,24 @@ export default function EditorFileTab({
             Close Tabs To The Right
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          {canShowMarkdownPreview && (
+            <>
+              <DropdownMenuItem
+                onSelect={() => {
+                  onActivate()
+                  openMarkdownPreview({
+                    filePath: file.filePath,
+                    relativePath: file.relativePath,
+                    worktreeId: file.worktreeId,
+                    language: resolvedLanguage
+                  })
+                }}
+              >
+                Open Markdown Preview
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             onSelect={() => {
               void window.api.ui.writeClipboardText(file.filePath)
