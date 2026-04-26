@@ -19,13 +19,32 @@ export function handleSwitchTab(direction: number): boolean {
   if (allTabIds.length <= 1) {
     return false
   }
-  const currentId =
-    store.activeTabType === 'editor'
-      ? store.activeFileId
-      : store.activeTabType === 'browser'
-        ? store.activeBrowserTabId
-        : store.activeTabId
-  const idx = allTabIds.findIndex((t) => t.id === currentId)
+  const activeGroupId = store.activeGroupIdByWorktree[worktreeId]
+  const group = activeGroupId
+    ? (store.groupsByWorktree[worktreeId] ?? []).find((candidate) => candidate.id === activeGroupId)
+    : undefined
+  // Why: prefer the active group's unified tab id so split layouts disambiguate
+  // which copy of a same-entity tab is focused. Match strictly against `tabId`
+  // in that path; only fall back to backing-id matching when the group path
+  // doesn't apply (no group, or its activeTabId isn't in the visible nav —
+  // e.g. hydration races). Keeping the two domains in separate branches
+  // prevents a backing id from colliding with an unrelated tab's `tabId`.
+  const groupTabIdInNav =
+    group?.activeTabId && allTabIds.some((entry) => entry.tabId === group.activeTabId)
+      ? group.activeTabId
+      : null
+  let idx: number
+  if (groupTabIdInNav) {
+    idx = allTabIds.findIndex((t) => t.tabId === groupTabIdInNav)
+  } else {
+    const fallbackId =
+      store.activeTabType === 'editor'
+        ? store.activeFileId
+        : store.activeTabType === 'browser'
+          ? store.activeBrowserTabId
+          : store.activeTabId
+    idx = allTabIds.findIndex((t) => t.id === fallbackId)
+  }
   const next = allTabIds[(idx + direction + allTabIds.length) % allTabIds.length]
   if (next.type === 'terminal') {
     store.setActiveTab(next.id)
@@ -34,7 +53,13 @@ export function handleSwitchTab(direction: number): boolean {
     store.setActiveBrowserTab(next.id)
     store.setActiveTabType('browser')
   } else {
+    // Why: `setActiveFile` targets the file entity (its implicit activateTab
+    // picks the first matching tab in the active group); `activateTab(tabId)`
+    // then disambiguates which split copy when the same file is open twice.
     store.setActiveFile(next.id)
+    if (next.tabId) {
+      store.activateTab?.(next.tabId)
+    }
     store.setActiveTabType('editor')
   }
   return true
