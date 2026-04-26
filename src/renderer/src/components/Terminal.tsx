@@ -30,7 +30,7 @@ import EditorAutosaveController from './editor/EditorAutosaveController'
 import type { TabGroupLayoutNode } from '../../../shared/types'
 import BrowserPane, { destroyPersistentWebview } from './browser-pane/BrowserPane'
 import BrowserPaneOverlayLayer from './browser-pane/BrowserPaneOverlayLayer'
-import { handleSwitchTab } from '../hooks/ipc-tab-switch'
+import { handleSwitchTab, handleSwitchTerminalTab } from '../hooks/ipc-tab-switch'
 import TabGroupSplitLayout from './tab-group/TabGroupSplitLayout'
 import { shouldAutoCreateInitialTerminal } from './terminal/initial-terminal'
 import {
@@ -752,6 +752,35 @@ function Terminal(): React.JSX.Element | null {
         // consumed the key.
         if (handleSwitchTab(e.code === 'BracketRight' ? 1 : -1)) {
           e.preventDefault()
+        }
+      }
+
+      // Ctrl+PageDown/PageUp - switch terminal tabs only
+      // Why: this chord intentionally uses Ctrl on every platform; on macOS,
+      // Cmd+PageUp/PageDown is an OS desktop-switch shortcut we should not steal.
+      // Why: also reject Shift so Ctrl+Shift+PageUp/PageDown stays available
+      // for focused terminal / editor consumers and matches the unshifted
+      // predicate in browser-guest-ui.ts and the chord advertised in
+      // ShortcutsPane.
+      if (
+        e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.code === 'PageDown' || e.code === 'PageUp') &&
+        !e.repeat
+      ) {
+        if (handleSwitchTerminalTab(e.code === 'PageDown' ? 1 : -1)) {
+          // Why: stop propagation in addition to preventDefault. Unlike
+          // Cmd+Shift+]/[ (xterm ignores Meta-modified keys by default),
+          // xterm actively translates plain Ctrl+PageUp/PageDown into the
+          // \e[5~ / \e[6~ escape sequences and writes them to the shell.
+          // preventDefault on the window-capture listener does not stop
+          // xterm's own keydown listener on its textarea, so we must stop
+          // the event before it reaches the focused terminal.
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
         }
       }
     }
