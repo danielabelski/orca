@@ -16,5 +16,23 @@ export const EXPERIMENTAL_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
       'scrollback',
       'reattach'
     ]
+  },
+  {
+    title: 'Agent Orchestration',
+    description:
+      'Coordinate multiple coding agents via messaging, task DAGs, dispatch, and decision gates.',
+    keywords: [
+      'experimental',
+      'orchestration',
+      'multi-agent',
+      'agents',
+      'coordination',
+      'messaging',
+      'dispatch',
+      'task',
+      'DAG',
+      'worker',
+      'coordinator'
+    ]
   }
 ]
