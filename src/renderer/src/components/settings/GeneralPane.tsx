@@ -28,6 +28,8 @@ import {
   GENERAL_CACHE_TIMER_SEARCH_ENTRIES,
   GENERAL_CLI_SEARCH_ENTRIES,
   GENERAL_EDITOR_SEARCH_ENTRIES,
+  GENERAL_GEMINI_SEARCH_ENTRIES,
+  GENERAL_OPENCODE_SEARCH_ENTRIES,
   GENERAL_PANE_SEARCH_ENTRIES,
   GENERAL_SUPPORT_SEARCH_ENTRIES,
   GENERAL_UPDATE_SEARCH_ENTRIES,
@@ -1011,6 +1013,131 @@ export function GeneralPane({ settings, updateSettings }: GeneralPaneProps): Rea
               })}
             </div>
           )}
+        </SearchableSetting>
+      </section>
+    ) : null,
+    matchesSettingsSearch(searchQuery, GENERAL_GEMINI_SEARCH_ENTRIES) ? (
+      <section key="gemini" id="general-gemini" className="space-y-4 scroll-mt-6">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">Gemini</h3>
+          <p className="text-xs text-muted-foreground">Configure Gemini provider settings.</p>
+        </div>
+
+        <SearchableSetting
+          title="Use Gemini CLI credentials"
+          description="Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google. This uses credentials issued to the Gemini CLI app, not Orca. May break if Google updates the CLI. Use at your own risk."
+          keywords={[
+            'gemini',
+            'cli',
+            'oauth',
+            'credentials',
+            'experimental',
+            'rate limit',
+            'status bar'
+          ]}
+          className="flex items-center justify-between gap-4 px-1 py-2"
+        >
+          <div className="space-y-0.5">
+            <Label>Use Gemini CLI credentials (experimental)</Label>
+            <p className="text-xs text-muted-foreground">
+              Extracts OAuth credentials from your local Gemini CLI installation to authenticate
+              with Google. This uses credentials issued to the Gemini CLI app, not Orca. May break
+              if Google updates the CLI. Use at your own risk.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={settings.geminiCliOAuthEnabled}
+            onClick={() =>
+              updateSettings({
+                geminiCliOAuthEnabled: !settings.geminiCliOAuthEnabled
+              })
+            }
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors ${
+              settings.geminiCliOAuthEnabled ? 'bg-foreground' : 'bg-muted-foreground/30'
+            }`}
+          >
+            <span
+              className={`pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform ${
+                settings.geminiCliOAuthEnabled ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </SearchableSetting>
+      </section>
+    ) : null,
+    matchesSettingsSearch(searchQuery, GENERAL_OPENCODE_SEARCH_ENTRIES) ? (
+      <section key="opencode-go" id="general-opencode-go" className="space-y-4 scroll-mt-6">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">OpenCode Go</h3>
+          <p className="text-xs text-muted-foreground">Configure OpenCode Go provider settings.</p>
+        </div>
+
+        <SearchableSetting
+          title="OpenCode Go Session Cookie"
+          description="Paste your opencode.ai session cookie for rate limit fetching."
+          keywords={['opencode', 'cookie', 'session', 'rate limit', 'status bar']}
+          className="space-y-2"
+        >
+          <Label>OpenCode Go session cookie</Label>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              value={settings.opencodeSessionCookie}
+              onChange={(e) => updateSettings({ opencodeSessionCookie: e.target.value })}
+              placeholder="Fe26.2**… token or auth=Fe26.2**… header"
+              spellCheck={false}
+              className="flex-1 text-xs"
+            />
+            {settings.opencodeSessionCookie && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => updateSettings({ opencodeSessionCookie: '' })}
+                className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Paste either the raw token value (e.g. <code className="text-xs">Fe26.2**…</code>) or
+            the full cookie header (e.g. <code className="text-xs">auth=Fe26.2**…</code>). Find it
+            in your browser&apos;s DevTools → Network → any opencode.ai request → Cookie header.
+          </p>
+        </SearchableSetting>
+
+        <SearchableSetting
+          title="OpenCode Go Workspace ID"
+          description="Optional workspace ID override if the automatic lookup fails."
+          keywords={['opencode', 'workspace', 'id', 'wrk', 'rate limit', 'status bar']}
+          className="space-y-2"
+        >
+          <Label>Workspace ID override</Label>
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              value={settings.opencodeWorkspaceId}
+              onChange={(e) => updateSettings({ opencodeWorkspaceId: e.target.value })}
+              placeholder="wrk_…  (leave blank for automatic lookup)"
+              spellCheck={false}
+              className="flex-1 text-xs"
+            />
+            {settings.opencodeWorkspaceId && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => updateSettings({ opencodeWorkspaceId: '' })}
+                className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Find this in the URL after logging into opencode.ai (e.g.{' '}
+            <code className="text-xs">opencode.ai/workspace/wrk_…/go</code>).
+          </p>
         </SearchableSetting>
       </section>
     ) : null,
