@@ -1469,7 +1469,8 @@ export default function TaskPage(): React.JSX.Element {
       openModal('new-workspace-composer', {
         linkedWorkItem,
         prefilledName: getLinkedWorkItemSuggestedName(item),
-        initialRepoId: item.repoId
+        initialRepoId: item.repoId,
+        telemetrySource: 'sidebar'
       })
     },
     [openModal]
@@ -1482,7 +1483,8 @@ export default function TaskPage(): React.JSX.Element {
       // setup before the worktree is created. Earlier the "Use" CTA created
       // and activated the worktree synchronously, which was disorienting —
       // the worktree appeared in the sidebar before the user had a chance
-      // to review it. The composer already owns the prefill flow.
+      // to review it. The composer already owns the prefill flow. Telemetry
+      // attribution flows via `openComposerForItem` (sets telemetrySource).
       openComposerForItem(item)
     },
     [openComposerForItem]
@@ -1759,7 +1761,8 @@ export default function TaskPage(): React.JSX.Element {
       }
       openModal('new-workspace-composer', {
         linkedWorkItem,
-        prefilledName: getLinkedWorkItemSuggestedName(issue)
+        prefilledName: getLinkedWorkItemSuggestedName(issue),
+        telemetrySource: 'sidebar'
       })
     },
     [openModal]
@@ -1770,7 +1773,7 @@ export default function TaskPage(): React.JSX.Element {
       // Why: same rationale as handleUseWorkItem — open the New Workspace
       // dialog pre-filled rather than yolo-creating the worktree, so the
       // user can confirm name / agent / setup before the worktree lands in
-      // the sidebar.
+      // the sidebar. Telemetry attribution flows via openComposerForLinearItem.
       openComposerForLinearItem(issue)
     },
     [openComposerForLinearItem]

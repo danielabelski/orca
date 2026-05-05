@@ -385,4 +385,3 @@ CPU and worktrees within a repo by their CPU.
 - No new persisted UI prefs (the per-tab visibility split is gone, not
   replaced with a per-section toggle).
 - No remote memory sampling — that's a separate, much bigger project.
-

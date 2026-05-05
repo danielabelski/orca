@@ -149,6 +149,7 @@ import type {
   CodexUsageSummary
 } from '../shared/codex-usage-types'
 import type { TelemetryConsentState } from '../shared/telemetry-consent-types'
+import type { AgentKind, LaunchSource, RequestKind } from '../shared/telemetry-events'
 
 export type BrowserApi = {
   registerGuest: (args: {
@@ -449,6 +450,11 @@ export type PreloadApi = {
       // Preserved from the deleted index.d.ts PtyApi duplicate during the
       // single-source-of-truth collapse (see docs/preload-typecheck-hole.md §1).
       shellOverride?: string
+      // Why: telemetry-plan.md§Agent launch semantics — main emits
+      // `agent_started` only after the PTY/session is created successfully,
+      // so the renderer threads the launch metadata through this field and
+      // the IPC handler fires the event from the spawn-success branch.
+      telemetry?: { agent_kind: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
     }) => Promise<{
       id: string
       snapshot?: string

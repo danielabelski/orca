@@ -149,7 +149,7 @@ export function useIpcEvents(): void {
         if (store.activeModal === 'new-workspace-composer') {
           return
         }
-        store.openModal('new-workspace-composer')
+        store.openModal('new-workspace-composer', { telemetrySource: 'shortcut' })
       })
     )
 
