@@ -14,8 +14,25 @@ import type {
   UpdateStatus,
   WorktreeCardProperty
 } from '../../../../shared/types'
+import {
+  SIDEKICK_SIZE_DEFAULT,
+  SIDEKICK_SIZE_MAX,
+  SIDEKICK_SIZE_MIN
+} from '../../../../shared/types'
 import { PER_REPO_FETCH_LIMIT } from '../../../../shared/work-items'
+import {
+  DEFAULT_STATUS_BAR_ITEMS,
+  DEFAULT_WORKTREE_CARD_PROPERTIES
+} from '../../../../shared/constants'
+import type { OrcaHookScriptKind } from '../../lib/orca-hook-trust'
+import { DEFAULT_SIDEKICK_ID, isBundledSidekickId } from '../../components/sidekick/sidekick-models'
+import { revokeCustomSidekickBlobUrl } from '../../components/sidekick/sidekick-blob-cache'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
+
+function clampSidekickSize(size: number): number {
+  if (!Number.isFinite(size)) {return SIDEKICK_SIZE_DEFAULT}
+  return Math.max(SIDEKICK_SIZE_MIN, Math.min(SIDEKICK_SIZE_MAX, Math.round(size)))
+}
 
 // Why: mirrors the preset→query mapping used by TaskPage's preset buttons.
 // Keeping a local copy here avoids a store ↔ lib circular import while letting
@@ -36,11 +53,6 @@ function presetToQuery(presetId: TaskViewPresetId | null): string {
       return 'is:open'
   }
 }
-import {
-  DEFAULT_STATUS_BAR_ITEMS,
-  DEFAULT_WORKTREE_CARD_PROPERTIES
-} from '../../../../shared/constants'
-
 // Why: persisted UI state pre-dated the consolidation of `memory` + `sessions`
 // into a single `resource-usage` entry. Rewrite legacy ids in place and
 // de-duplicate. We leave unknown ids alone so a downgrade→upgrade cycle
@@ -56,9 +68,6 @@ function migrateStatusBarItems(items: readonly string[] | undefined): StatusBarI
   }
   return out as StatusBarItem[]
 }
-import type { OrcaHookScriptKind } from '../../lib/orca-hook-trust'
-import { DEFAULT_SIDEKICK_ID, isBundledSidekickId } from '../../components/sidekick/sidekick-models'
-import { revokeCustomSidekickBlobUrl } from '../../components/sidekick/sidekick-blob-cache'
 
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_LEFT_SIDEBAR_WIDTH = 500
@@ -265,6 +274,11 @@ export type UISlice = {
   customSidekicks: CustomSidekick[]
   addCustomSidekick: (model: CustomSidekick) => void
   removeCustomSidekick: (id: string) => void
+  /** Sidekick overlay size in CSS pixels (square). User-adjustable from the
+   *  status-bar menu so a too-big imported sprite isn't a stuck-on-screen
+   *  problem. */
+  sidekickSize: number
+  setSidekickSize: (size: number) => void
   pendingRevealWorktreeId: string | null
   revealWorktreeInSidebar: (worktreeId: string) => void
   clearPendingRevealWorktreeId: () => void
@@ -583,6 +597,13 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set({ sidekickId: id })
   },
 
+  sidekickSize: SIDEKICK_SIZE_DEFAULT,
+  setSidekickSize: (size) => {
+    const clamped = clampSidekickSize(size)
+    window.api.ui.set({ sidekickSize: clamped }).catch(console.error)
+    set({ sidekickSize: clamped })
+  },
+
   customSidekicks: [],
   addCustomSidekick: (model) =>
     set((s) => {
@@ -597,13 +618,18 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         return s
       }
       const next = s.customSidekicks.filter((m) => m.id !== id)
-      window.api.ui.set({ customSidekicks: next }).catch(console.error)
       // Why: if the user removes the currently-active custom sidekick, fall
       // back to the bundled default so the overlay doesn't render nothing.
       const fallback = s.sidekickId === id ? DEFAULT_SIDEKICK_ID : s.sidekickId
-      if (fallback !== s.sidekickId) {
-        window.api.ui.set({ sidekickId: fallback }).catch(console.error)
+      // Why: send a single combined IPC update so customSidekicks and
+      // sidekickId persist atomically when both change.
+      const ipcPayload: { customSidekicks: CustomSidekick[]; sidekickId?: string } = {
+        customSidekicks: next
       }
+      if (fallback !== s.sidekickId) {
+        ipcPayload.sidekickId = fallback
+      }
+      window.api.ui.set(ipcPayload).catch(console.error)
       // Why: revoke the cached blob: URL so the underlying Blob is released;
       // otherwise it stays in memory for the rest of the session.
       revokeCustomSidekickBlobUrl(id)
@@ -611,8 +637,10 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
       // fails, the orphaned image stays in userData; each import uses a fresh
       // UUID so the file won't be hit again, and the renderer's metadata
       // index no longer references it.
-      window.api.sidekick.delete(id, target.fileName).catch(console.error)
-      return { customSidekicks: next, sidekickId: fallback }
+      window.api.sidekick.delete(id, target.fileName, target.kind).catch(console.error)
+      const partial: Partial<UISlice> = { customSidekicks: next }
+      if (fallback !== s.sidekickId) {partial.sidekickId = fallback}
+      return partial
     }),
 
   pendingRevealWorktreeId: null,
@@ -670,6 +698,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         // they enable the experimental flag. Only an explicit Hide sidekick
         // dismissal persists a `false` value.
         sidekickVisible: ui.sidekickVisible ?? true,
+        sidekickSize: clampSidekickSize(ui.sidekickSize ?? SIDEKICK_SIZE_DEFAULT),
         customSidekicks: Array.isArray(ui.customSidekicks) ? ui.customSidekicks : [],
         // Why: accept the persisted id if it matches a bundled sidekick or a
         // known custom one; otherwise fall back so the overlay never renders
