@@ -16,6 +16,8 @@ import {
   KeyboardInsert,
   Keypress,
   LimitParam,
+  ProfileCreate,
+  ProfileDelete,
   Screenshot,
   Scroll,
   Select,
@@ -104,6 +106,21 @@ export const BROWSER_CORE_METHODS: RpcMethod[] = [
     name: 'browser.tabClose',
     params: TabClose,
     handler: async (params, { runtime }) => runtime.browserTabClose(params)
+  }),
+  defineMethod({
+    name: 'browser.profileList',
+    params: null,
+    handler: async (_params, { runtime }) => runtime.browserProfileList()
+  }),
+  defineMethod({
+    name: 'browser.profileCreate',
+    params: ProfileCreate,
+    handler: async (params, { runtime }) => runtime.browserProfileCreate(params)
+  }),
+  defineMethod({
+    name: 'browser.profileDelete',
+    params: ProfileDelete,
+    handler: async (params, { runtime }) => runtime.browserProfileDelete(params)
   }),
   defineMethod({
     name: 'browser.hover',

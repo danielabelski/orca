@@ -59,6 +59,9 @@ Orchestration:
 Browser Automation:
   tab create                Create a new browser tab (navigates to --url)
   tab list                  List open browser tabs
+  tab profile list          List browser session profiles
+  tab profile create        Create a browser session profile
+  tab profile delete        Delete a browser session profile
   tab switch                Switch the active browser tab by --index or --page
   tab close                 Close a browser tab by --index/--page or the current tab
   snapshot                  Accessibility snapshot with element refs (e.g. @e1, @e2)
@@ -183,6 +186,7 @@ Browser Options:
   --amount <pixels>         Scroll distance in pixels (default: viewport height)
   --index <n>               Tab index (from \`tab list\`)
   --page <id>               Stable browser page id (preferred for concurrent workflows)
+  --profile <id>            Browser profile id (see \`orca tab profile list\`)
   --format <png|jpeg>       Screenshot image format
   --from <ref>              Drag source element ref
   --to <ref>                Drag target element ref
@@ -202,6 +206,8 @@ Examples:
   $ orca terminal list --worktree path:/Users/me/orca/workspaces/orca/cli-test-1 --json
   $ orca terminal send --terminal term_123 --text "hi" --enter
   $ orca terminal wait --terminal term_123 --for exit --timeout-ms 60000 --json
+  $ orca tab profile list
+  $ orca tab profile create --label Work
   $ orca tab create --url https://example.com
   $ orca snapshot
   $ orca click --element e3
@@ -306,6 +312,7 @@ export function formatFlagHelp(flag: string): string {
     amount: '--amount <pixels>      Scroll distance in pixels',
     index: '--index <n>            Tab index to switch to',
     page: '--page <id>            Stable browser page id from `orca tab list --json`',
+    profile: '--profile <id>        Browser profile id',
     format: '--format <png|jpeg>    Screenshot image format'
   }
 

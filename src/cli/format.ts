@@ -1,4 +1,5 @@
 import type {
+  BrowserProfileListResult,
   BrowserScreenshotResult,
   BrowserSnapshotResult,
   BrowserTabListResult,
@@ -244,6 +245,19 @@ export function formatTabList(result: BrowserTabListResult): string {
     .map((t) => {
       const marker = t.active ? '* ' : '  '
       return `${marker}[${t.index}] ${t.browserPageId}  ${t.title} — ${t.url}`
+    })
+    .join('\n')
+}
+
+export function formatBrowserProfileList(result: BrowserProfileListResult): string {
+  if (result.profiles.length === 0) {
+    return 'No browser profiles found.'
+  }
+  return result.profiles
+    .map((profile) => {
+      const marker = profile.scope === 'default' ? '* ' : '  '
+      const source = profile.source?.browserFamily ?? 'none'
+      return `${marker}${profile.id}  ${profile.label}  ${profile.scope}  source:${source}`
     })
     .join('\n')
 }

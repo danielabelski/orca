@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: shared type definitions for all runtime RPC methods live in one file for discoverability and import simplicity. */
 import type { TerminalPaneLayoutNode } from './types'
-import type { GitWorktreeInfo, Repo } from './types'
+import type { BrowserSessionProfile, GitWorktreeInfo, Repo } from './types'
 
 export type RuntimeGraphStatus = 'ready' | 'reloading' | 'unavailable'
 
@@ -268,6 +268,19 @@ export type BrowserTabListResult = {
 export type BrowserTabSwitchResult = {
   switched: number
   browserPageId: string
+}
+
+export type BrowserProfileListResult = {
+  profiles: BrowserSessionProfile[]
+}
+
+export type BrowserProfileCreateResult = {
+  profile: BrowserSessionProfile | null
+}
+
+export type BrowserProfileDeleteResult = {
+  deleted: boolean
+  profileId: string
 }
 
 export type BrowserHoverResult = {

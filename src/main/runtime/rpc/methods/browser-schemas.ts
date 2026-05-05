@@ -153,6 +153,23 @@ export const Exec = BrowserTarget.extend({
   command: requiredString('Missing required --command')
 })
 
+export const ProfileCreate = z.object({
+  label: requiredString('Missing required --label'),
+  scope: z
+    .unknown()
+    .transform((value) => {
+      if (value === 'imported') {
+        return 'imported'
+      }
+      return 'isolated'
+    })
+    .pipe(z.enum(['isolated', 'imported']))
+})
+
+export const ProfileDelete = z.object({
+  profileId: requiredString('Missing required --profile')
+})
+
 export const Get = BrowserTarget.extend({
   what: requiredString('Missing required --what'),
   selector: OptionalString
