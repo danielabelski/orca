@@ -115,6 +115,10 @@ function readDeprecatedExperimentFlag(parsed: PersistedState | undefined): boole
   )
 }
 
+function readLegacySidekickFlag(parsed: PersistedState | undefined): boolean | undefined {
+  return (parsed?.settings as { experimentalSidekick?: boolean } | undefined)?.experimentalSidekick
+}
+
 export class Store {
   private state: PersistedState
   private writeTimer: ReturnType<typeof setTimeout> | null = null
@@ -180,6 +184,10 @@ export class Store {
           settings: {
             ...defaults.settings,
             ...parsed.settings,
+            // Why: v1.3.42 renamed the cosmetic sidekick setting to pet. Carry
+            // the old persisted flag forward once so enabled users don't lose it.
+            experimentalPet:
+              parsed.settings?.experimentalPet ?? readLegacySidekickFlag(parsed) ?? false,
             terminalMacOptionAsAlt: migratedOptionAsAlt,
             terminalMacOptionAsAltMigrated: true,
             notifications: {

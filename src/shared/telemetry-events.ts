@@ -158,7 +158,7 @@ export const SETTINGS_CHANGED_WHITELIST = [
   'editorAutoSave',
   'openLinksInApp',
   'experimentalMobile',
-  'experimentalSidekick',
+  'experimentalPet',
   'experimentalWorktreeSymlinks',
   'geminiCliOAuthEnabled'
 ] as const satisfies readonly BooleanGlobalSettingsKey[]

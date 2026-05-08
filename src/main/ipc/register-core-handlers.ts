@@ -25,7 +25,7 @@ import { registerTelemetryHandlers } from './telemetry'
 import { registerBrowserHandlers } from './browser'
 import { browserSessionRegistry } from '../browser/browser-session-registry'
 import { registerShellHandlers } from './shell'
-import { registerSidekickHandlers } from './sidekick'
+import { registerPetHandlers } from './pet'
 import { registerUIHandlers } from './ui'
 import { registerCodexAccountHandlers } from './codex-accounts'
 import { registerAgentHookHandlers } from './agent-hooks'
@@ -94,7 +94,7 @@ export function registerCoreHandlers(
   browserSessionRegistry.applyPendingCookieImport()
   browserSessionRegistry.restorePersistedUserAgent()
   registerShellHandlers()
-  registerSidekickHandlers()
+  registerPetHandlers()
   registerSessionHandlers(store)
   registerUIHandlers(store)
   registerFilesystemHandlers(store)

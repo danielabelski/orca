@@ -1216,11 +1216,14 @@ export type GlobalSettings = {
    *  on read into [5_000ms, 60min] to defend against bad config.
    *  See docs/mobile-fit-hold.md. */
   mobileAutoRestoreFitMs: number | null
-  /** Experimental: floating animated sidekick (claude.webp) in the bottom-right
+  /** Experimental: floating animated pet (claude.webp) in the bottom-right
    *  corner. Opt-in because it's a cosmetic joke feature; users who leave it
    *  off never mount the overlay. Toggling takes effect immediately in the
    *  current session (no relaunch) because it is purely renderer-side. */
-  experimentalSidekick: boolean
+  experimentalPet: boolean
+  /** Legacy persisted key from before the sidekick -> pet rename. Read only
+   *  during migration; new writes use experimentalPet. */
+  experimentalSidekick?: boolean
   /** Experimental: when creating a worktree, automatically symlink a
    *  user-configured set of files/folders from the primary checkout (e.g.
    *  `.env`, `node_modules`) into the new worktree. Opt-in while the
@@ -1421,23 +1424,29 @@ export type PersistedUIState = {
    *  suppress the nag — no further thresholds, no notifications. */
   starNagCompleted?: boolean
   trustedOrcaHooks?: PersistedTrustedOrcaHooks
-  /** Whether the experimental sidekick overlay is currently visible. Separate
-   *  from the experimentalSidekick settings flag so "Hide sidekick" from the
+  /** Whether the experimental pet overlay is currently visible. Separate
+   *  from the experimentalPet settings flag so "Hide pet" from the
    *  status-bar menu is a reversible dismiss (re-show without re-enabling the
-   *  feature). Absent = treated as true so existing users see the sidekick
+   *  feature). Absent = treated as true so existing users see the pet
    *  the first time they enable the experimental flag. */
-  sidekickVisible?: boolean
-  /** Active sidekick id: one of the bundled ids or a custom UUID from
-   *  customSidekicks. Unknown ids fall back to the default at read time so
-   *  removing a custom sidekick the user had selected doesn't leave the
+  petVisible?: boolean
+  /** Active pet id: one of the bundled ids or a custom UUID from
+   *  customPets. Unknown ids fall back to the default at read time so
+   *  removing a custom pet the user had selected doesn't leave the
    *  overlay rendering nothing. */
+  petId?: string
+  /** User-uploaded pet images. Bytes live under the legacy
+   *  userData/sidekicks/custom/ folder; this field is the metadata index so
+   *  custom pets ride the existing PersistedUIState save pipeline. */
+  customPets?: CustomPet[]
+  /** On-screen size of the pet overlay in CSS pixels (square box).
+   *  Clamped to [PET_SIZE_MIN, PET_SIZE_MAX] when read. */
+  petSize?: number
+  /** Legacy persisted keys from before the sidekick -> pet rename. Read only
+   *  during migration; new writes use the pet* names above. */
+  sidekickVisible?: boolean
   sidekickId?: string
-  /** User-uploaded sidekick images. Bytes live under userData/sidekicks/custom/;
-   *  this field is the metadata index so custom sidekicks ride the existing
-   *  PersistedUIState save pipeline. */
-  customSidekicks?: CustomSidekick[]
-  /** On-screen size of the sidekick overlay in CSS pixels (square box).
-   *  Clamped to [SIDEKICK_SIZE_MIN, SIDEKICK_SIZE_MAX] when read. */
+  customSidekicks?: CustomPet[]
   sidekickSize?: number
   /** Page-position state for Tasks. Source/repo/team/project selections keep
    *  using their existing settings paths; this only restores transient tabs
@@ -1445,15 +1454,15 @@ export type PersistedUIState = {
   taskResumeState?: TaskResumeState
 }
 
-export const SIDEKICK_SIZE_MIN = 60
-export const SIDEKICK_SIZE_MAX = 360
-export const SIDEKICK_SIZE_DEFAULT = 180
+export const PET_SIZE_MIN = 60
+export const PET_SIZE_MAX = 360
+export const PET_SIZE_DEFAULT = 180
 
-/** Metadata for a user-uploaded sidekick image. `id` is the stable identifier;
+/** Metadata for a user-uploaded pet image. `id` is the stable identifier;
  *  the on-disk filename (preserving the original extension) lives in `fileName`.
  *  The renderer never learns the absolute path — it asks main for the bytes
- *  via sidekick:read using (id, fileName). */
-export type CustomSidekick = {
+ *  via pet:read using (id, fileName). */
+export type CustomPet = {
   id: string
   label: string
   fileName: string

@@ -2,7 +2,14 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getDefaultUIState } from '../../shared/constants'
 
-import { ArrowLeft, ArrowRight, Minimize2, MoreHorizontal, PanelLeft, PanelRight } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Minimize2,
+  MoreHorizontal,
+  PanelLeft,
+  PanelRight
+} from 'lucide-react'
 import logo from '../../../resources/logo.svg'
 import { SYNC_FIT_PANES_EVENT, TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
@@ -75,10 +82,7 @@ function WindowControls(): React.JSX.Element {
         {maximized ? (
           // Restore icon (two overlapping squares)
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-            <path
-              d="M2 0v2H0v8h8V8h2V0H2zm6 9H1V3h7v6zM9 7H8V2H3V1h6v6z"
-              fill="currentColor"
-            />
+            <path d="M2 0v2H0v8h8V8h2V0H2zm6 9H1V3h7v6zM9 7H8V2H3V1h6v6z" fill="currentColor" />
           </svg>
         ) : (
           // Maximize icon (single square outline)
@@ -97,10 +101,7 @@ function WindowControls(): React.JSX.Element {
         onClick={() => window.api.ui.requestClose()}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-          <path
-            d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4-4-4z"
-            fill="currentColor"
-          />
+          <path d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4-4-4z" fill="currentColor" />
         </svg>
       </button>
     </div>
@@ -115,7 +116,7 @@ const WorktreeJumpPalette = lazy(() => import('./components/WorktreeJumpPalette'
 const NewWorkspaceComposerModal = lazy(() => import('./components/NewWorkspaceComposerModal'))
 // Why: lazy-loaded so the WebP asset + overlay module aren't fetched unless
 // the user opts into the experimental flag.
-const SidekickOverlay = lazy(() => import('./components/sidekick/SidekickOverlay'))
+const PetOverlay = lazy(() => import('./components/pet/PetOverlay'))
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -205,8 +206,8 @@ function App(): React.JSX.Element {
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const isFullScreen = useAppStore((s) => s.isFullScreen)
   const settings = useAppStore((s) => s.settings)
-  const sidekickEnabled = useAppStore((s) => s.settings?.experimentalSidekick === true)
-  const sidekickVisible = useAppStore((s) => s.sidekickVisible)
+  const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
+  const petVisible = useAppStore((s) => s.petVisible)
   const canGoBackWorktree = useAppStore(canGoBackWorktreeHistory)
   const canGoForwardWorktree = useAppStore(canGoForwardWorktreeHistory)
   const titlebarLeftControlsRef = useRef<HTMLDivElement | null>(null)
@@ -1140,13 +1141,13 @@ function App(): React.JSX.Element {
         {mountedLazyModalIds.has('quick-open') ? <QuickOpen /> : null}
         {mountedLazyModalIds.has('worktree-palette') ? <WorktreeJumpPalette /> : null}
       </Suspense>
-      {/* Why: mount SidekickOverlay only when the experimental flag is on AND
-          the user hasn't hit "Hide sidekick" in the status-bar menu. Both
-          conditions must be true — see design doc (sidekick-overlay.md) on why
+      {/* Why: mount PetOverlay only when the experimental flag is on AND
+          the user hasn't hit "Hide pet" in the status-bar menu. Both
+          conditions must be true — see design doc (pet-overlay.md) on why
           the two toggles are kept independent. */}
-      {sidekickEnabled && sidekickVisible ? (
+      {petEnabled && petVisible ? (
         <Suspense fallback={null}>
-          <SidekickOverlay />
+          <PetOverlay />
         </Suspense>
       ) : null}
       <UpdateCard />

@@ -10,7 +10,7 @@ import type {
   BaseRefDefaultResult,
   BrowserViewportOverride,
   CreateWorktreeArgs,
-  CustomSidekick,
+  CustomPet,
   FsChangedPayload,
   GetRateLimitResult,
   GitHubAssignableUser,
@@ -1003,14 +1003,13 @@ const api = {
       ipcRenderer.invoke('shell:copyFile', args)
   },
 
-  sidekick: {
-    import: (): Promise<CustomSidekick | null> => ipcRenderer.invoke('sidekick:import'),
-    importPetBundle: (): Promise<CustomSidekick | null> =>
-      ipcRenderer.invoke('sidekick:importPetBundle'),
+  pet: {
+    import: (): Promise<CustomPet | null> => ipcRenderer.invoke('pet:import'),
+    importPetBundle: (): Promise<CustomPet | null> => ipcRenderer.invoke('pet:importPetBundle'),
     read: (id: string, fileName: string, kind?: 'image' | 'bundle'): Promise<ArrayBuffer | null> =>
-      ipcRenderer.invoke('sidekick:read', id, fileName, kind),
+      ipcRenderer.invoke('pet:read', id, fileName, kind),
     delete: (id: string, fileName: string, kind?: 'image' | 'bundle'): Promise<void> =>
-      ipcRenderer.invoke('sidekick:delete', id, fileName, kind)
+      ipcRenderer.invoke('pet:delete', id, fileName, kind)
   },
 
   browser: {

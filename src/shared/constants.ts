@@ -204,7 +204,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     mobileAutoRestoreFitMs: null,
     // Why: off by default — opt-in cosmetic joke feature. Leaving the default
     // false keeps the overlay unmounted for users who never enable it.
-    experimentalSidekick: false,
+    experimentalPet: false,
     experimentalWorktreeSymlinks: false,
     // Why: hydrate an empty default so the renderer's optional-chained reads
     // (`settings?.githubProjects?.activeProject`) land on a stable shape
