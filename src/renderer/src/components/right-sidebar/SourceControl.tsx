@@ -22,7 +22,6 @@ import {
   GitMerge,
   GitPullRequestArrow,
   MessageSquare,
-  Pencil,
   Send,
   Trash,
   TriangleAlert,
@@ -217,7 +216,7 @@ function SourceControlInner(): React.JSX.Element {
   const openAllDiffs = useAppStore((s) => s.openAllDiffs)
   const openBranchAllDiffs = useAppStore((s) => s.openBranchAllDiffs)
   const deleteDiffComment = useAppStore((s) => s.deleteDiffComment)
-  const setEditingDiffCommentId = useAppStore((s) => s.setEditingDiffCommentId)
+  const setScrollToDiffCommentId = useAppStore((s) => s.setScrollToDiffCommentId)
   // Why: pass activeWorktreeId directly (even when null/undefined) so the
   // slice's getDiffComments returns its stable EMPTY_COMMENTS sentinel. An
   // inline `[]` fallback would allocate a new array each store update, break
@@ -1035,6 +1034,80 @@ function SourceControlInner(): React.JSX.Element {
     [activeWorktreeId, branchSummary, openBranchDiff, worktreePath]
   )
 
+  // Why: a note's filePath is the same relative path used by GitStatusEntry /
+  // GitBranchChangeEntry, so we can route the click to whichever diff surface
+  // currently owns that file. Prefer the `unstaged` entry when a path is also
+  // staged — diff comments are authored against the working-tree (unstaged)
+  // diff card. Fall back to the branch compare, and finally just open the
+  // file as a normal editor tab so the user still gets navigation when
+  // neither side has the path anymore. When `commentId` is supplied and the
+  // route lands on a diff surface, also stamp scrollToDiffCommentId so the
+  // diff decorator scrolls that note into view; we clear any prior request
+  // first, so the editor-tab fallback then leaves the global null and a
+  // future DiffViewer mount can't accidentally consume a stale id.
+  const handleOpenComment = useCallback(
+    (filePath: string, commentId?: string) => {
+      if (!activeWorktreeId || !worktreePath) {
+        return
+      }
+      // Defensively clear any dangling prior scroll request before routing
+      // this click; only the diff branches below will re-stamp it.
+      setScrollToDiffCommentId(null)
+      const matches = entries.filter((e) => e.path === filePath)
+      const uncommitted =
+        matches.find((e) => e.area === 'unstaged') ??
+        matches.find((e) => e.area === 'untracked') ??
+        matches[0]
+      if (uncommitted) {
+        handleOpenDiff(uncommitted)
+        if (commentId) {
+          setScrollToDiffCommentId(commentId)
+        }
+        return
+      }
+      const branchEntry = branchEntries.find((e) => e.path === filePath)
+      if (branchEntry && branchSummary?.status === 'ready') {
+        openCommittedDiff(branchEntry)
+        if (commentId) {
+          setScrollToDiffCommentId(commentId)
+        }
+        return
+      }
+      // Why: fall through to a normal editor tab when neither the working-tree
+      // nor branch-compare diff has the file (e.g. the change has since been
+      // committed and merged, but the note still references the file). Force
+      // the editor tab into 'changes' mode and stamp scrollToDiffCommentId so
+      // the DiffViewer that EditorContent renders in changes mode picks up
+      // the scroll request — same surface the user can flip into manually
+      // via the editor's Edit/Changes toggle.
+      const absPath = joinPath(worktreePath, filePath)
+      const language = detectLanguage(filePath)
+      openFile({
+        filePath: absPath,
+        relativePath: filePath,
+        worktreeId: activeWorktreeId,
+        language,
+        mode: 'edit'
+      })
+      if (commentId) {
+        setEditorViewMode(absPath, 'changes')
+        setScrollToDiffCommentId(commentId)
+      }
+    },
+    [
+      activeWorktreeId,
+      branchEntries,
+      branchSummary,
+      entries,
+      handleOpenDiff,
+      openCommittedDiff,
+      openFile,
+      setEditorViewMode,
+      setScrollToDiffCommentId,
+      worktreePath
+    ]
+  )
+
   const handleStage = useCallback(
     async (filePath: string) => {
       if (!worktreePath) {
@@ -1334,7 +1407,7 @@ function SourceControlInner(): React.JSX.Element {
               <DiffCommentsInlineList
                 comments={diffCommentsForActive}
                 onDelete={(id) => void deleteDiffComment(activeWorktreeId, id)}
-                onEdit={(id) => setEditingDiffCommentId(id)}
+                onOpen={(filePath, commentId) => handleOpenComment(filePath, commentId)}
               />
             )}
           </div>
@@ -2024,14 +2097,14 @@ function SectionHeader({
 function DiffCommentsInlineList({
   comments,
   onDelete,
-  onEdit
+  onOpen
 }: {
   comments: DiffComment[]
   onDelete: (commentId: string) => void
-  // Why: clicking edit doesn't open an editor inline in the sidebar — the user
-  // chose "edit in the diff card" so the parent routes the click through the
-  // UI slice, which the diff card consumes to enter its own editor.
-  onEdit: (commentId: string) => void
+  // Why: clicking the note row navigates the user to that file's diff (or
+  // editor as a fallback) and, when a `commentId` is supplied, scrolls the
+  // diff to that specific note via the scrollToDiffCommentId UI slice.
+  onOpen: (filePath: string, commentId?: string) => void
 }): React.JSX.Element {
   // Why: group by filePath so the inline list mirrors the structure in the
   // Notes tab — a compact section per file with line-number prefixes.
@@ -2082,26 +2155,44 @@ function DiffCommentsInlineList({
     <div className="bg-muted/20">
       {groups.map(([filePath, list]) => (
         <div key={filePath} className="px-3 py-1.5">
-          <div className="truncate text-[10px] font-medium text-muted-foreground">{filePath}</div>
+          <button
+            type="button"
+            className="block w-full truncate text-left text-[10px] font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => onOpen(filePath)}
+            title={`Open ${filePath}`}
+          >
+            {filePath}
+          </button>
           <ul className="mt-1 space-y-1">
             {list.map((c) => (
               <li
                 key={c.id}
                 className="group flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/40"
               >
-                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none tabular-nums text-muted-foreground">
-                  L{c.lineNumber}
-                </span>
-                <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-foreground">
-                  {c.body}
-                </div>
+                <button
+                  type="button"
+                  // Why: a single inner button is the click/keyboard target so
+                  // the row's action buttons (copy/delete) can stay as
+                  // siblings without nesting interactive elements — that
+                  // pattern violates ARIA's no-interactive-descendants rule
+                  // for buttons and lets bubbled key events from the children
+                  // fire the row's open handler.
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded text-left"
+                  onClick={() => onOpen(c.filePath, c.id)}
+                  title={`Open ${c.filePath} (line ${c.lineNumber})`}
+                  aria-label={`Open note on line ${c.lineNumber}`}
+                >
+                  <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none tabular-nums text-muted-foreground">
+                    L{c.lineNumber}
+                  </span>
+                  <span className="block min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-foreground">
+                    {c.body}
+                  </span>
+                </button>
                 <button
                   type="button"
                   className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                  onClick={(ev) => {
-                    ev.stopPropagation()
-                    void handleCopyOne(c)
-                  }}
+                  onClick={() => void handleCopyOne(c)}
                   title="Copy note"
                   aria-label={`Copy note on line ${c.lineNumber}`}
                 >
@@ -2109,23 +2200,8 @@ function DiffCommentsInlineList({
                 </button>
                 <button
                   type="button"
-                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                  onClick={(ev) => {
-                    ev.stopPropagation()
-                    onEdit(c.id)
-                  }}
-                  title="Edit note in diff"
-                  aria-label={`Edit note on line ${c.lineNumber}`}
-                >
-                  <Pencil className="size-3" />
-                </button>
-                <button
-                  type="button"
                   className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                  onClick={(ev) => {
-                    ev.stopPropagation()
-                    onDelete(c.id)
-                  }}
+                  onClick={() => onDelete(c.id)}
                   title="Delete note"
                   aria-label={`Delete note on line ${c.lineNumber}`}
                 >
