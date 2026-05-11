@@ -87,6 +87,7 @@ describe('deployAndLaunchRelay', () => {
     const mockExecCommand = vi.mocked(execCommand)
     mockExecCommand.mockResolvedValueOnce('Linux x86_64') // uname -sm
     mockExecCommand.mockResolvedValueOnce('/home/user') // echo $HOME
+    mockExecCommand.mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe
     mockExecCommand.mockResolvedValueOnce('DEAD') // socket probe
     mockExecCommand.mockResolvedValueOnce('READY') // socket poll
 
@@ -100,6 +101,7 @@ describe('deployAndLaunchRelay', () => {
     const mockExecCommand = vi.mocked(execCommand)
     mockExecCommand.mockResolvedValueOnce('Linux x86_64')
     mockExecCommand.mockResolvedValueOnce('/home/user')
+    mockExecCommand.mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe
     mockExecCommand.mockResolvedValueOnce('DEAD') // socket probe
     mockExecCommand.mockResolvedValueOnce('READY') // socket poll
 
@@ -115,6 +117,7 @@ describe('deployAndLaunchRelay', () => {
     const mockExecCommand = vi.mocked(execCommand)
     mockExecCommand.mockResolvedValueOnce('Linux x86_64')
     mockExecCommand.mockResolvedValueOnce('/home/user')
+    mockExecCommand.mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
     mockExecCommand.mockResolvedValueOnce('DEAD')
     mockExecCommand.mockResolvedValueOnce('READY')
 
@@ -159,10 +162,12 @@ describe('deployAndLaunchRelay', () => {
     mockExecCommand
       .mockResolvedValueOnce('Linux x86_64') // uname A
       .mockResolvedValueOnce('/home/user') // $HOME A
+      .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe A
       .mockResolvedValueOnce('DEAD') // probe A
       .mockResolvedValueOnce('READY') // poll A
       .mockResolvedValueOnce('Linux x86_64') // uname B
       .mockResolvedValueOnce('/home/user') // $HOME B
+      .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe B
       .mockResolvedValueOnce('DEAD') // probe B
       .mockResolvedValueOnce('READY') // poll B
 

@@ -57,6 +57,7 @@ import { deployAndLaunchRelay } from './ssh-relay-deploy'
 import { execCommand } from './ssh-relay-deploy-helpers'
 import { parseUnameToRelayPlatform } from './relay-protocol'
 import {
+  acquireInstallLock,
   abandonInstall,
   finalizeInstall,
   isRelayAlreadyInstalled
@@ -233,9 +234,12 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // Why: pin commonjs so a future Node default flip doesn't silently
     // break `require('node-pty')`.
     expect(parsed.type).toBe('commonjs')
+    expect(parsed.dependencies).toEqual({ '@parcel/watcher': '*', 'node-pty': '*' })
 
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
-    const npmInstallIdx = execCalls.findIndex((c) => c.includes('npm install node-pty'))
+    const npmInstallIdx = execCalls.findIndex(
+      (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
+    )
     expect(npmInstallIdx).toBeGreaterThanOrEqual(0)
     // Pin actual ordering: number of execCommand calls observed at the moment
     // ws.end() ran for package.json must be < the index of `npm install`.
@@ -261,7 +265,7 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     expect(vi.mocked(finalizeInstall)).not.toHaveBeenCalled()
 
     const warnMessages = warnSpy.mock.calls.map((args) => String(args[0] ?? ''))
-    expect(warnMessages.some((m) => m.includes('[ssh-relay][NPTY-INSTALL-FAIL]'))).toBe(true)
+    expect(warnMessages.some((m) => m.includes('[ssh-relay][NATIVE-DEPS-INSTALL-FAIL]'))).toBe(true)
   })
 
   it('warns clearly when node-pty installs but require() fails (built-but-unloadable)', async () => {
@@ -298,7 +302,9 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // test pass while exercising a different failure path.
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
     const probeCallIdx = execCalls.findIndex((c) => c.includes('require("node-pty")'))
-    const npmInstallIdx = execCalls.findIndex((c) => c.includes('npm install node-pty'))
+    const npmInstallIdx = execCalls.findIndex(
+      (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
+    )
     expect(probeCallIdx, 'probe must have been invoked').toBeGreaterThanOrEqual(0)
     // Probe must come strictly AFTER `npm install` — otherwise we'd be
     // probing into an empty install dir and this whole failure mode
@@ -309,7 +315,9 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // Channel failure must NOT be conflated with "node-pty missing" or with
     // "npm install failed".
     expect(warnMessages.some((m) => m.includes('[ssh-relay][NPTY-MISSING]'))).toBe(false)
-    expect(warnMessages.some((m) => m.includes('[ssh-relay][NPTY-INSTALL-FAIL]'))).toBe(false)
+    expect(warnMessages.some((m) => m.includes('[ssh-relay][NATIVE-DEPS-INSTALL-FAIL]'))).toBe(
+      false
+    )
 
     expect(vi.mocked(finalizeInstall)).not.toHaveBeenCalled()
     // Lock must be released so a future reconnect can retry.
@@ -333,7 +341,9 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // reason.
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
     const probeIdx = execCalls.findIndex((c) => c.includes('require("node-pty")'))
-    const npmInstallIdx = execCalls.findIndex((c) => c.includes('npm install node-pty'))
+    const npmInstallIdx = execCalls.findIndex(
+      (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
+    )
     expect(probeIdx).toBeGreaterThan(npmInstallIdx)
 
     const warnMessages = warnSpy.mock.calls.map((args) => String(args[0] ?? ''))
@@ -365,7 +375,9 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // probe would silently break spawn-helper bits; one that probes before
     // npm install would test an empty dir.
     const all = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
-    const npmIdx = all.findIndex((c) => c.includes('npm install node-pty'))
+    const npmIdx = all.findIndex(
+      (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
+    )
     const chmodPrebuildsIdx = all.findIndex(
       (c) => c.includes('spawn-helper') && c.includes('chmod +x')
     )
@@ -420,7 +432,7 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     expect(vi.mocked(abandonInstall)).not.toHaveBeenCalled()
   })
 
-  it('includes the platform tuple in NPTY-MISSING and NPTY-INSTALL-FAIL logs', async () => {
+  it('includes the platform tuple in NPTY-MISSING and native install failure logs', async () => {
     // Platform tuple lets bug reports be triaged for prebuild availability
     // without asking the user to dig out their arch.
     const conn = makeMockConnection(sftpCapture)
@@ -458,5 +470,46 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     const second = sftpCapture.contents[secondPath]
 
     expect(second).toBe(first)
+  })
+
+  it('repairs an existing complete relay dir that is missing @parcel/watcher', async () => {
+    vi.mocked(isRelayAlreadyInstalled).mockResolvedValue(true)
+    const conn = makeMockConnection(sftpCapture)
+    feed([
+      'Linux x86_64',
+      '/home/u',
+      'MISSING', // first native-deps probe before lock
+      'MISSING', // re-probe after lock
+      '', // npm install native deps
+      '', // chmod prebuilds
+      'ORCA-NPTY-PROBE-OK\n',
+      '', // rm probe stderr
+      'DEAD',
+      'READY'
+    ])
+
+    await deployAndLaunchRelay(conn)
+
+    expect(vi.mocked(acquireInstallLock)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(finalizeInstall)).toHaveBeenCalledTimes(1)
+    const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
+    expect(
+      execCalls.some(
+        (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
+      )
+    ).toBe(true)
+  })
+
+  it('does not mutate an existing relay dir when required native deps are present', async () => {
+    vi.mocked(isRelayAlreadyInstalled).mockResolvedValue(true)
+    const conn = makeMockConnection(sftpCapture)
+    feed(['Linux x86_64', '/home/u', 'ORCA-NATIVE-DEPS-OK', 'DEAD', 'READY'])
+
+    await deployAndLaunchRelay(conn)
+
+    expect(vi.mocked(acquireInstallLock)).not.toHaveBeenCalled()
+    expect(vi.mocked(finalizeInstall)).not.toHaveBeenCalled()
+    const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
+    expect(execCalls.some((c) => c.includes('npm install'))).toBe(false)
   })
 })

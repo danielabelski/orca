@@ -117,7 +117,9 @@ async function deployAndLaunchRelayInner(
   const alreadyInstalled = await isRelayAlreadyInstalled(conn, remoteRelayDir)
   console.log(`[ssh-relay] Already installed at ${fullVersion}: ${alreadyInstalled}`)
 
-  if (!alreadyInstalled) {
+  if (alreadyInstalled) {
+    await repairInstalledNativeDeps(conn, remoteRelayDir, platform)
+  } else {
     // Why: serialize concurrent first-installs of the same version against
     // each other via an atomic mkdir lock. The losing caller polls and either
     // re-checks `alreadyInstalled` (now true) or steals a stale lock.
@@ -132,7 +134,7 @@ async function deployAndLaunchRelayInner(
         console.log('[ssh-relay] Upload complete')
 
         onProgress?.('Installing native dependencies...')
-        console.log('[ssh-relay] Installing node-pty...')
+        console.log('[ssh-relay] Installing native dependencies...')
         await installNativeDeps(conn, remoteRelayDir, platform)
         console.log('[ssh-relay] Native deps installed')
 
@@ -219,10 +221,54 @@ async function uploadRelay(
   }
 }
 
-// Why: node-pty is a native addon that can't be bundled by esbuild. It must
-// be compiled on the remote host against its Node.js version and OS. We
-// write a minimal package.json + run `npm install node-pty` in the relay
-// directory so `require('node-pty')` resolves to the local node_modules.
+const RELAY_NATIVE_DEPS = ['node-pty', '@parcel/watcher'] as const
+
+async function hasRequiredNativeDeps(conn: SshConnection, remoteDir: string): Promise<boolean> {
+  const nodePath = await resolveRemoteNodePath(conn)
+  const nodeBinDir = nodePath.replace(/\/node$/, '')
+  const escapedDir = shellEscape(remoteDir)
+  const escapedBinDir = shellEscape(nodeBinDir)
+  const escapedNode = shellEscape(nodePath)
+  try {
+    const probe = await execCommand(
+      conn,
+      `export PATH=${escapedBinDir}:$PATH && cd ${escapedDir} && (${escapedNode} -e 'require.resolve("node-pty"); require.resolve("@parcel/watcher"); console.log("ORCA-NATIVE-DEPS-OK")' 2>/dev/null || echo MISSING)`
+    )
+    return probe.includes('ORCA-NATIVE-DEPS-OK')
+  } catch {
+    return false
+  }
+}
+
+async function repairInstalledNativeDeps(
+  conn: SshConnection,
+  remoteDir: string,
+  platform: RelayPlatform
+): Promise<void> {
+  if (await hasRequiredNativeDeps(conn, remoteDir)) {
+    return
+  }
+
+  console.warn(`[ssh-relay] Repairing missing native deps at ${remoteDir}`)
+  await acquireInstallLock(conn, remoteDir)
+  try {
+    // Why: older complete relay dirs were created before @parcel/watcher was
+    // installed. Re-probe under the lock so only one reconnect mutates the dir.
+    if (!(await hasRequiredNativeDeps(conn, remoteDir))) {
+      await installNativeDeps(conn, remoteDir, platform)
+      await finalizeInstall(conn, remoteDir)
+    } else {
+      await abandonInstall(conn, remoteDir)
+    }
+  } catch (err) {
+    await abandonInstall(conn, remoteDir)
+    throw err
+  }
+}
+
+// Why: node-pty and @parcel/watcher are native addons that can't be bundled by
+// esbuild. They must be installed on the remote host against its Node.js version
+// and OS so dynamic imports/require calls resolve from the relay dir.
 //
 // TODO(#1693): VS Code ships per-platform tarballs with node-pty pre-built
 // from CI and skips `npm install` on the remote entirely. That approach
@@ -251,7 +297,8 @@ async function installNativeDeps(
     name: 'orca-relay',
     version: '1.0.0',
     private: true,
-    type: 'commonjs'
+    type: 'commonjs',
+    dependencies: Object.fromEntries(RELAY_NATIVE_DEPS.map((name) => [name, '*']))
   })}\n`
   const sftpPkg = await conn.sftp()
   try {
@@ -269,9 +316,10 @@ async function installNativeDeps(
   }
 
   try {
+    const installArgs = RELAY_NATIVE_DEPS.map((dep) => shellEscape(dep)).join(' ')
     await execCommand(
       conn,
-      `export PATH=${escapedBinDir}:$PATH && cd ${escapedDir} && npm install node-pty 2>&1`
+      `export PATH=${escapedBinDir}:$PATH && cd ${escapedDir} && npm install ${installArgs} 2>&1`
     )
   } catch (err) {
     // Don't write .install-complete on hard fail; reconnect retries on a
@@ -279,7 +327,7 @@ async function installNativeDeps(
     // searchable.
     const msg = (err as Error).message
     console.warn(
-      `[ssh-relay][NPTY-INSTALL-FAIL] npm install node-pty failed at ${remoteDir} (${platform}): ${msg}`
+      `[ssh-relay][NATIVE-DEPS-INSTALL-FAIL] npm install native deps failed at ${remoteDir} (${platform}): ${msg}`
     )
     throw err
   }
