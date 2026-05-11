@@ -1269,6 +1269,10 @@ export type GlobalSettings = {
   /** Legacy persisted key from before the sidekick -> pet rename. Read only
    *  during migration; new writes use experimentalPet. */
   experimentalSidekick?: boolean
+  /** Experimental: Slack-style Activity page that groups agent/worktree status
+   *  events by worktree. Opt-in while the UI and backend event model are still
+   *  being refined. */
+  experimentalActivity: boolean
   /** Experimental: when creating a worktree, automatically symlink a
    *  user-configured set of files/folders from the primary checkout (e.g.
    *  `.env`, `node_modules`) into the new worktree. Opt-in while the

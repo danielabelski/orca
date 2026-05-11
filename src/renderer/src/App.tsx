@@ -26,6 +26,7 @@ import { useAppStore } from './store'
 import { useShallow } from 'zustand/react/shallow'
 import { useIpcEvents } from './hooks/useIpcEvents'
 import RetainedAgentsSyncGate from './components/dashboard/RetainedAgentsSyncGate'
+import { ActivityTitlebarControls } from './components/activity/ActivityTitlebarControls'
 import Sidebar from './components/Sidebar'
 import Terminal from './components/Terminal'
 import { shutdownBufferCaptures } from './components/terminal-pane/shutdown-buffer-captures'
@@ -127,6 +128,7 @@ function WindowControls(): React.JSX.Element {
 
 const Landing = lazy(() => import('./components/Landing'))
 const TaskPage = lazy(() => import('./components/TaskPage'))
+const ActivityPrototypePage = lazy(() => import('./components/activity/ActivityPrototypePage'))
 const Settings = lazy(() => import('./components/settings/Settings'))
 const QuickOpen = lazy(() => import('./components/QuickOpen'))
 const WorktreeJumpPalette = lazy(() => import('./components/WorktreeJumpPalette'))
@@ -168,6 +170,7 @@ function App(): React.JSX.Element {
       toggleRightSidebar: s.toggleRightSidebar,
       setRightSidebarOpen: s.setRightSidebarOpen,
       setRightSidebarTab: s.setRightSidebarTab,
+      setActiveView: s.setActiveView,
       updateSettings: s.updateSettings,
       pruneLastVisitedTimestamps: s.pruneLastVisitedTimestamps,
       seedActiveWorktreeLastVisitedIfMissing: s.seedActiveWorktreeLastVisitedIfMissing
@@ -196,6 +199,7 @@ function App(): React.JSX.Element {
   const isFullScreen = useAppStore((s) => s.isFullScreen)
   const settings = useAppStore((s) => s.settings)
   const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
+  const activityEnabled = settings?.experimentalActivity === true
   const petVisible = useAppStore((s) => s.petVisible)
   const canGoBackWorktree = useAppStore(canGoBackWorktreeHistory)
   const canGoForwardWorktree = useAppStore(canGoForwardWorktreeHistory)
@@ -569,13 +573,14 @@ function App(): React.JSX.Element {
     !hasTabBar &&
     effectiveActiveTabExpanded
   const showSidebar = activeView !== 'settings'
-  // Why: when a worktree is active (split groups always enabled), the
-  // full-width titlebar is replaced by a sidebar-width left header so the
-  // terminal + tab groups extend to the very top of the window.
-  const workspaceActive = activeView !== 'settings' && activeWorktreeId !== null
-  // Why: suppress right sidebar controls on the tasks page since that surface
-  // is intentionally distraction-free (no right sidebar).
-  const showRightSidebarControls = activeView !== 'settings' && activeView !== 'tasks'
+  // Why: only the terminal workspace replaces the full-width titlebar with
+  // split-column chrome. Full-page navigation views keep the draggable app
+  // titlebar so their page-level controls can live in that window strip.
+  const workspaceActive = activeView === 'terminal' && activeWorktreeId !== null
+  // Why: suppress right sidebar controls on full-page navigation surfaces
+  // since those surfaces intentionally own the full content area.
+  const showRightSidebarControls =
+    activeView !== 'settings' && activeView !== 'tasks' && activeView !== 'activity'
 
   const handleToggleExpand = (): void => {
     if (!effectiveActiveTabId) {
@@ -660,9 +665,9 @@ function App(): React.JSX.Element {
       // (contentEditable) or a browser guest webContents, both of which bypass
       // this renderer-side window keydown listener.
 
-      // Why: the tasks page should not be able to reveal the right sidebar at
-      // all, because that surface is intentionally distraction-free.
-      if (activeView === 'tasks') {
+      // Why: full-page navigation surfaces should not reveal the right sidebar;
+      // they are designed as distraction-free content areas.
+      if (activeView === 'tasks' || activeView === 'activity') {
         return
       }
 
@@ -892,12 +897,18 @@ function App(): React.JSX.Element {
   ) : null
 
   useEffect(() => {
-    if (activeView === 'tasks' && rightSidebarOpen) {
-      // Why: hide the right sidebar immediately when entering the tasks page
-      // so a previous open state can't bleed into that distraction-free view.
+    if ((activeView === 'tasks' || activeView === 'activity') && rightSidebarOpen) {
+      // Why: hide the right sidebar immediately when entering full-page
+      // navigation views so previous side-panel state cannot occlude them.
       actions.setRightSidebarOpen(false)
     }
   }, [activeView, rightSidebarOpen, actions])
+
+  useEffect(() => {
+    if (settings && !activityEnabled && activeView === 'activity') {
+      actions.setActiveView('terminal')
+    }
+  }, [activeView, activityEnabled, actions, settings])
 
   return (
     <div
@@ -939,10 +950,14 @@ function App(): React.JSX.Element {
                 >
                   {titlebarLeftControls}
                 </div>
-                <div
-                  id="titlebar-tabs"
-                  className={`flex flex-1 min-w-0 self-stretch${activeView !== 'terminal' || !activeWorktreeId ? ' invisible pointer-events-none' : ''}`}
-                />
+                {activeView === 'activity' && activityEnabled ? (
+                  <ActivityTitlebarControls />
+                ) : (
+                  <div
+                    id="titlebar-tabs"
+                    className={`flex flex-1 min-w-0 self-stretch${activeView !== 'terminal' || !activeWorktreeId ? ' invisible pointer-events-none' : ''}`}
+                  />
+                )}
                 {showTitlebarExpandButton && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1055,6 +1070,9 @@ function App(): React.JSX.Element {
                   <Suspense fallback={null}>
                     {activeView === 'settings' ? <Settings /> : null}
                     {activeView === 'tasks' ? <TaskPage /> : null}
+                    {activeView === 'activity' && activityEnabled ? (
+                      <ActivityPrototypePage />
+                    ) : null}
                     {activeView === 'terminal' && !activeWorktreeId ? <Landing /> : null}
                   </Suspense>
                 </div>
