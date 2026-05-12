@@ -1084,7 +1084,14 @@ export type PreloadApi = {
       }) => void
     ) => () => void
     onCreateTerminal: (
-      callback: (data: { worktreeId: string; command?: string; title?: string }) => void
+      callback: (data: {
+        requestId?: string
+        worktreeId: string
+        command?: string
+        title?: string
+        ptyId?: string
+        activate?: boolean
+      }) => void
     ) => () => void
     onRequestTerminalCreate: (
       callback: (data: {

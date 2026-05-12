@@ -115,6 +115,7 @@ export type RuntimeTerminalCreate = {
   handle: string
   worktreeId: string
   title: string | null
+  surface?: 'background' | 'visible'
 }
 
 export type RuntimeTerminalSplit = {

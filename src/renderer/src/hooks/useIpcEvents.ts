@@ -220,26 +220,60 @@ export function useIpcEvents(): void {
     )
 
     unsubs.push(
-      window.api.ui.onCreateTerminal(({ worktreeId, command, title }) => {
-        const store = useAppStore.getState()
-        store.setActiveView('terminal')
-        store.setActiveWorktree(worktreeId)
-        // Why: CLI-driven terminal creation is a user-initiated worktree switch
-        // and must stamp focus recency for Cmd+J. Doesn't route through
-        // activateAndRevealWorktree because it has custom terminal-creation
-        // logic; see docs/cmd-j-empty-query-ordering.md.
-        store.markWorktreeVisited(worktreeId)
-        const tab = store.createTab(worktreeId)
-        store.setActiveTabType('terminal')
-        store.setActiveTab(tab.id)
-        store.revealWorktreeInSidebar(worktreeId)
-        if (title) {
-          store.setTabCustomTitle(tab.id, title)
+      window.api.ui.onCreateTerminal(
+        ({ requestId, worktreeId, command, title, ptyId, activate }) => {
+          try {
+            const store = useAppStore.getState()
+            const shouldActivate = activate !== false
+            if (shouldActivate) {
+              store.setActiveView('terminal')
+              store.setActiveWorktree(worktreeId)
+              // Why: CLI-driven terminal focus is a user-initiated worktree switch
+              // and must stamp focus recency for Cmd+J. Doesn't route through
+              // activateAndRevealWorktree because it has custom terminal-creation
+              // logic; see docs/cmd-j-empty-query-ordering.md.
+              store.markWorktreeVisited(worktreeId)
+            }
+            const tab = ptyId
+              ? ((store.tabsByWorktree[worktreeId] ?? []).find(
+                  (candidate) =>
+                    candidate.ptyId === ptyId ||
+                    (store.ptyIdsByTabId[candidate.id] ?? []).includes(ptyId)
+                ) ??
+                store.createTab(worktreeId, undefined, undefined, {
+                  initialPtyId: ptyId,
+                  activate: shouldActivate
+                }))
+              : store.createTab(worktreeId)
+            if (shouldActivate) {
+              store.setActiveTabType('terminal')
+              store.setActiveTab(tab.id)
+              store.revealWorktreeInSidebar(worktreeId)
+            }
+            if (title) {
+              store.setTabCustomTitle(tab.id, title)
+            }
+            if (command) {
+              store.queueTabStartupCommand(tab.id, { command })
+            }
+            if (requestId) {
+              window.api.ui.replyTerminalCreate({
+                requestId,
+                tabId: tab.id,
+                title: title ?? tab.title
+              })
+            }
+          } catch (err) {
+            if (!requestId) {
+              throw err
+            }
+            window.api.ui.replyTerminalCreate({
+              requestId,
+              error: err instanceof Error ? err.message : 'Terminal reveal failed'
+            })
+          }
         }
-        if (command) {
-          store.queueTabStartupCommand(tab.id, { command })
-        }
-      })
+      )
     )
 
     // Why: CLI-driven terminal creation sends a request and waits for the
