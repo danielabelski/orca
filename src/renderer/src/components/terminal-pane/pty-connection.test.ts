@@ -249,6 +249,7 @@ describe('connectPanePty', () => {
         pty: {
           signal: vi.fn(),
           ackColdRestore: vi.fn(),
+          onClearBufferRequest: vi.fn(() => vi.fn()),
           onSerializeBufferRequest: vi.fn(() => vi.fn()),
           declarePendingPaneSerializer: vi.fn().mockResolvedValue(1),
           settlePaneSerializer: vi.fn().mockResolvedValue(undefined),

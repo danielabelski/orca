@@ -125,6 +125,10 @@ import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
 import type { AgentStatusIpcPayload } from '../shared/agent-status-types'
 import type { RuntimeStatus, RuntimeSyncWindowGraph } from '../shared/runtime-types'
 import type {
+  RuntimeMobileMarkdownRequest,
+  RuntimeMobileMarkdownResponse
+} from '../shared/mobile-markdown-document'
+import type {
   DeveloperPermissionId,
   DeveloperPermissionRequestResult,
   DeveloperPermissionState
@@ -517,6 +521,7 @@ export type PreloadApi = {
         opts?: { scrollbackRows?: number; altScreenForcesZeroRows?: boolean }
       }) => void
     ) => () => void
+    onClearBufferRequest: (callback: (data: { ptyId: string }) => void) => () => void
     sendSerializedBuffer: (
       requestId: string,
       snapshot: { data: string; cols: number; rows: number; lastTitle?: string } | null
@@ -1097,6 +1102,7 @@ export type PreloadApi = {
       callback: (data: {
         requestId: string
         worktreeId?: string
+        afterTabId?: string
         command?: string
         title?: string
       }) => void
@@ -1118,7 +1124,22 @@ export type PreloadApi = {
     onRenameTerminal: (
       callback: (data: { tabId: string; title: string | null }) => void
     ) => () => void
-    onFocusTerminal: (callback: (data: { tabId: string; worktreeId: string }) => void) => () => void
+    onFocusTerminal: (
+      callback: (data: { tabId: string; worktreeId: string; leafId?: string | null }) => void
+    ) => () => void
+    onFocusEditorTab: (
+      callback: (data: { tabId: string; worktreeId: string }) => void
+    ) => () => void
+    onCloseSessionTab: (
+      callback: (data: { tabId: string; worktreeId: string }) => void
+    ) => () => void
+    onOpenFileFromMobile: (
+      callback: (data: { worktreeId: string; filePath: string; relativePath: string }) => void
+    ) => () => void
+    onMobileMarkdownRequest: (
+      callback: (request: RuntimeMobileMarkdownRequest) => void
+    ) => () => void
+    respondMobileMarkdownRequest: (response: RuntimeMobileMarkdownResponse) => void
     onCloseTerminal: (
       callback: (data: { tabId: string; paneRuntimeId?: number }) => void
     ) => () => void

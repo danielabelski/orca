@@ -491,28 +491,35 @@ export function connectPanePty(
       if (disposed) {
         return
       }
-      const unregisterSerializer = registerPtySerializer(ptyId, async (opts) => {
-        try {
-          await waitForTerminalOutputParsed(pane.terminal)
-          // Why: alt-screen TUIs (vim, claude-code) hold transient state in
-          // the alternate screen. The hydration path requests
-          // altScreenForcesZeroRows so normal-buffer scrollback isn't bled
-          // into the seed when the user is mid-TUI; the read-fallback path
-          // omits it because it wants the user's currently-visible content.
-          const alt = pane.terminal.buffer.active.type === 'alternate'
-          const data =
-            opts?.altScreenForcesZeroRows && alt
-              ? pane.serializeAddon.serialize({ scrollback: 0 })
-              : pane.serializeAddon.serialize({ scrollback: opts?.scrollbackRows })
-          return {
-            data,
-            cols: pane.terminal.cols,
-            rows: pane.terminal.rows
+      const unregisterSerializer = registerPtySerializer(
+        ptyId,
+        async (opts) => {
+          try {
+            await waitForTerminalOutputParsed(pane.terminal)
+            // Why: alt-screen TUIs (vim, claude-code) hold transient state in
+            // the alternate screen. The hydration path requests
+            // altScreenForcesZeroRows so normal-buffer scrollback isn't bled
+            // into the seed when the user is mid-TUI; the read-fallback path
+            // omits it because it wants the user's currently-visible content.
+            const alt = pane.terminal.buffer.active.type === 'alternate'
+            const data =
+              opts?.altScreenForcesZeroRows && alt
+                ? pane.serializeAddon.serialize({ scrollback: 0 })
+                : pane.serializeAddon.serialize({ scrollback: opts?.scrollbackRows })
+            return {
+              data,
+              cols: pane.terminal.cols,
+              rows: pane.terminal.rows
+            }
+          } catch {
+            return null
           }
-        } catch {
-          return null
+        },
+        () => {
+          discardTerminalOutput(pane.terminal)
+          pane.terminal.clear()
         }
-      })
+      )
       const unregisterTitleSource = registerPtyTitleSource(ptyId, (handler) =>
         pane.terminal.onTitleChange(handler)
       )

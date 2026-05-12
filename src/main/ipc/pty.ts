@@ -858,6 +858,17 @@ export function registerPtyHandlers(
         return null
       }
     },
+    clearBuffer: async (ptyId) => {
+      // Why: desktop xterm owns local scrollback, while daemon/SSH providers
+      // own their own retained buffers. Clear both surfaces so mobile
+      // resubscribe snapshots do not resurrect cleared history.
+      mainWindow.webContents.send('pty:clearBuffer:request', { ptyId })
+      try {
+        await getProviderForPty(ptyId).clearBuffer(ptyId)
+      } catch {
+        /* best effort: renderer clear still handles local PTYs */
+      }
+    },
     listProcesses: async () => {
       const providerSessions = await Promise.all([
         localProvider.listProcesses(),

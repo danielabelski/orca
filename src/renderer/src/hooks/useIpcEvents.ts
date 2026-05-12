@@ -25,9 +25,12 @@ import {
 } from '../../../shared/agent-status-types'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
+import { focusRuntimeTerminalSurface } from '@/runtime/sync-runtime-graph'
 import { setFitOverride, hydrateOverrides } from '@/lib/pane-manager/mobile-fit-overrides'
 import { setDriverForPty } from '@/lib/pane-manager/mobile-driver-state'
 import { destroyPersistentWebview } from '@/components/browser-pane/webview-registry'
+import { attachMobileMarkdownBridge } from '@/runtime/mobile-markdown-bridge'
+import { detectLanguage } from '@/lib/language-detect'
 
 export { resolveZoomTarget } from './resolve-zoom-target'
 
@@ -36,6 +39,8 @@ const ZOOM_STEP = 0.5
 export function useIpcEvents(): void {
   useEffect(() => {
     const unsubs: (() => void)[] = []
+
+    unsubs.push(attachMobileMarkdownBridge())
 
     unsubs.push(
       window.api.repos.onChanged(() => {
@@ -297,6 +302,31 @@ export function useIpcEvents(): void {
           // focus recency for Cmd+J. See docs/cmd-j-empty-query-ordering.md.
           store.markWorktreeVisited(worktreeId)
           const tab = store.createTab(worktreeId)
+          if (data.afterTabId) {
+            const createdUnifiedTab = useAppStore
+              .getState()
+              .unifiedTabsByWorktree[worktreeId]?.find((item) => item.entityId === tab.id)
+            const anchorUnifiedTab = useAppStore
+              .getState()
+              .unifiedTabsByWorktree[worktreeId]?.find((item) => item.id === data.afterTabId)
+            if (
+              createdUnifiedTab &&
+              anchorUnifiedTab &&
+              createdUnifiedTab.groupId === anchorUnifiedTab.groupId
+            ) {
+              const group = useAppStore
+                .getState()
+                .groupsByWorktree[worktreeId]?.find((item) => item.id === createdUnifiedTab.groupId)
+              const order = (group?.tabOrder ?? []).filter((id) => id !== createdUnifiedTab.id)
+              const anchorIndex = order.indexOf(anchorUnifiedTab.id)
+              order.splice(
+                anchorIndex === -1 ? order.length : anchorIndex + 1,
+                0,
+                createdUnifiedTab.id
+              )
+              useAppStore.getState().reorderUnifiedTabs(createdUnifiedTab.groupId, order)
+            }
+          }
           store.setActiveTabType('terminal')
           store.setActiveTab(tab.id)
           store.revealWorktreeInSidebar(worktreeId)
@@ -334,7 +364,7 @@ export function useIpcEvents(): void {
     )
 
     unsubs.push(
-      window.api.ui.onFocusTerminal(({ tabId, worktreeId }) => {
+      window.api.ui.onFocusTerminal(({ tabId, worktreeId, leafId }) => {
         const store = useAppStore.getState()
         store.setActiveWorktree(worktreeId)
         // Why: CLI-driven focus is a user-initiated switch; stamp focus
@@ -342,6 +372,57 @@ export function useIpcEvents(): void {
         store.markWorktreeVisited(worktreeId)
         store.setActiveView('terminal')
         store.setActiveTab(tabId)
+        store.revealWorktreeInSidebar(worktreeId)
+        if (!focusRuntimeTerminalSurface(tabId, leafId)) {
+          focusTerminalTabSurface(tabId)
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onFocusEditorTab(({ tabId, worktreeId }) => {
+        const store = useAppStore.getState()
+        const tab = (store.unifiedTabsByWorktree[worktreeId] ?? []).find(
+          (item) => item.id === tabId
+        )
+        if (!tab) {
+          return
+        }
+        store.setActiveWorktree(worktreeId)
+        store.markWorktreeVisited(worktreeId)
+        store.setActiveView('terminal')
+        store.focusGroup(worktreeId, tab.groupId)
+        store.activateTab(tab.id)
+        store.setActiveFile(tab.entityId)
+        store.setActiveTabType('editor')
+        store.revealWorktreeInSidebar(worktreeId)
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onCloseSessionTab(({ tabId }) => {
+        useAppStore.getState().closeUnifiedTab(tabId)
+      })
+    )
+
+    unsubs.push(
+      window.api.ui.onOpenFileFromMobile(({ worktreeId, filePath, relativePath }) => {
+        const store = useAppStore.getState()
+        const basename = relativePath.split(/[\\/]/).pop() || relativePath
+        store.setActiveWorktree(worktreeId)
+        store.markWorktreeVisited(worktreeId)
+        store.setActiveView('terminal')
+        // Why: mobile only sends a desktop-backed path. The renderer owns
+        // editor tab creation so grouped tab order and markdown bridges update
+        // through the same store path as desktop File Explorer.
+        store.openFile({
+          filePath,
+          relativePath,
+          worktreeId,
+          language: detectLanguage(basename),
+          mode: 'edit'
+        })
+        store.setActiveTabType('editor')
         store.revealWorktreeInSidebar(worktreeId)
       })
     )
