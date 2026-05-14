@@ -4,6 +4,7 @@ import type { Automation, AutomationRun } from './automations-types'
 import type { WorkspaceSource } from './telemetry-events'
 import type { GitHubProjectSettings } from './github-project-types'
 import type { VoiceSettings } from './speech-types'
+import type { GitLabProjectSettings } from './gitlab-types'
 
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
@@ -113,6 +114,16 @@ export type Worktree = {
   linkedIssue: number | null
   linkedPR: number | null
   linkedLinearIssue: string | null
+  // Why: parallel slots for GitLab work-item references. Kept as separate
+  // fields (rather than reusing linkedIssue / linkedPR with a provider
+  // discriminator) so the persistence layer is unambiguous when a user
+  // has both a GitHub and a GitLab remote on the same repo, and so the
+  // existing GitHub renderer code keeps reading linkedPR / linkedIssue
+  // unchanged. Optional on the type so existing test fixtures and
+  // persisted older worktrees that never carried these fields continue
+  // to typecheck and load without migration.
+  linkedGitLabMR?: number | null
+  linkedGitLabIssue?: number | null
   isArchived: boolean
   isUnread: boolean
   isPinned: boolean
@@ -152,6 +163,10 @@ export type WorktreeMeta = {
   linkedIssue: number | null
   linkedPR: number | null
   linkedLinearIssue: string | null
+  /** Optional for backward compatibility — see Worktree.linkedGitLabMR. */
+  linkedGitLabMR?: number | null
+  /** Optional for backward compatibility — see Worktree.linkedGitLabIssue. */
+  linkedGitLabIssue?: number | null
   isArchived: boolean
   isUnread: boolean
   isPinned: boolean
@@ -739,6 +754,36 @@ export type ClassifiedError = {
 // can continue using the short local name.
 export type GitHubOwnerRepo = { owner: string; repo: string }
 
+// Why: GitLab-specific types live in `./gitlab-types` so they can grow
+// independently from the central types file (which is touched by every
+// upstream feature). Re-exported here so existing call sites
+// (`from '../shared/types'`) keep working without changes.
+export type {
+  GitLabAssignableUser,
+  GitLabCommentResult,
+  GitLabIssueInfo,
+  GitLabIssueState,
+  GitLabIssueUpdate,
+  GitLabMRFile,
+  GitLabPagedResult,
+  GitLabPipelineJob,
+  GitLabProjectRef,
+  GitLabProjectSettings,
+  GitLabReaction,
+  GitLabTodo,
+  GitLabTodoTargetType,
+  GitLabViewer,
+  GitLabWorkItem,
+  GitLabWorkItemDetails,
+  ListMergeRequestsResult,
+  MRCheckDetail,
+  MRComment,
+  MRInfo,
+  MRListState,
+  MRMergeableState,
+  MRState
+} from './gitlab-types'
+
 /**
  * GitHub API rate-limit buckets surfaced in the TaskPage header so users can
  * see remaining budget before they hit the wall. `core` = REST (5000/hr),
@@ -1269,7 +1314,7 @@ export type GlobalSettings = {
   defaultTaskViewPreset: TaskViewPresetId
   /** Why: persists the user's last-used task source so the Tasks page
    *  reopens to the same provider instead of always defaulting to GitHub. */
-  defaultTaskSource: 'github' | 'linear'
+  defaultTaskSource: 'github' | 'linear' | 'gitlab'
   /** Why: persists the user's repo selection in the cross-repo tasks view.
    *  `null` means sticky-all — every eligible repo is selected, including
    *  repos added in future sessions, so the "All repos" label stays
@@ -1342,6 +1387,10 @@ export type GlobalSettings = {
    *  landed won't have the key; `getDefaultSettings()` hydrates the empty
    *  default via the persistence merge. */
   githubProjects?: GitHubProjectSettings
+  /** GitLab project preferences — pinned + recent project paths.
+   *  Optional for backward compatibility with profiles saved before
+   *  GitLab support; the persistence merge fills the empty default. */
+  gitlabProjects?: GitLabProjectSettings
   /** Anonymous product-telemetry state. Optional because the one-shot
    *  migration in `Store.load()` is what populates it on first boot of the
    *  telemetry release; before migration runs, the field is absent. After
