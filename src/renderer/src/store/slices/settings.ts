@@ -55,9 +55,7 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
         // and avoid materializing a `voice` key when neither current nor incoming
         // settings define one.
         const mergedVoice =
-          updates.voice !== undefined
-            ? { ...s.settings.voice, ...updates.voice }
-            : s.settings.voice
+          updates.voice !== undefined ? { ...s.settings.voice, ...updates.voice } : s.settings.voice
         return {
           settings: {
             ...s.settings,

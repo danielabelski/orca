@@ -44,6 +44,7 @@ import RightSidebar from './components/right-sidebar'
 import { StatusBar } from './components/status-bar/StatusBar'
 import { UpdateCard } from './components/UpdateCard'
 import { StarNagCard } from './components/StarNagCard'
+import { FeatureTourNudge } from './components/feature-wall/FeatureTourNudge'
 import { TelemetryFirstLaunchSurface } from './components/TelemetryFirstLaunchSurface'
 import { ZoomOverlay } from './components/ZoomOverlay'
 import { shouldShowOnboarding } from './components/onboarding/should-show-onboarding'
@@ -161,6 +162,7 @@ const Settings = lazy(() => import('./components/settings/Settings'))
 const QuickOpen = lazy(() => import('./components/QuickOpen'))
 const WorktreeJumpPalette = lazy(() => import('./components/WorktreeJumpPalette'))
 const NewWorkspaceComposerModal = lazy(() => import('./components/NewWorkspaceComposerModal'))
+const FeatureWallModal = lazy(() => import('./components/feature-wall/FeatureWallModal'))
 // Why: lazy-loaded so the WebP asset + overlay module aren't fetched unless
 // the user opts into the experimental flag.
 const PetOverlay = lazy(() => import('./components/pet/PetOverlay'))
@@ -979,7 +981,8 @@ function App(): React.JSX.Element {
     if (
       activeModal !== 'quick-open' &&
       activeModal !== 'worktree-palette' &&
-      activeModal !== 'new-workspace-composer'
+      activeModal !== 'new-workspace-composer' &&
+      activeModal !== 'feature-wall'
     ) {
       return
     }
@@ -1343,6 +1346,7 @@ function App(): React.JSX.Element {
       <Suspense fallback={null}>
         {mountedLazyModalIds.has('quick-open') ? <QuickOpen /> : null}
         {mountedLazyModalIds.has('worktree-palette') ? <WorktreeJumpPalette /> : null}
+        {mountedLazyModalIds.has('feature-wall') ? <FeatureWallModal /> : null}
       </Suspense>
       {/* Why: mount PetOverlay only when the experimental flag is on AND
           the user hasn't hit "Hide pet" in the status-bar menu. Both
@@ -1354,6 +1358,7 @@ function App(): React.JSX.Element {
         </Suspense>
       ) : null}
       <UpdateCard />
+      <FeatureTourNudge />
       <StarNagCard />
       {/* Why: the existing-user opt-in banner mounts at App root so it
           renders once per renderer session, not per view. It gates

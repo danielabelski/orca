@@ -3,6 +3,10 @@ const { execFileSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
+const featureWallResources = {
+  from: 'resources/onboarding/feature-wall',
+  to: 'onboarding/feature-wall'
+}
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
@@ -18,7 +22,10 @@ module.exports = {
     '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md,README.md}',
     '!{.env,.env.*,.npmrc,pnpm-lock.yaml}',
     '!tsconfig.json',
-    '!config/*'
+    '!config/*',
+    // Why: feature-wall media is copied via extraResources so runtime can read
+    // it from process.resourcesPath; exclude the source copy from app.asar.
+    '!resources/onboarding/feature-wall/**'
   ],
   // Why: the CLI entry-point lives in out/cli/ but imports shared modules
   // from out/shared/ (e.g. runtime-bootstrap). Both directories must be
@@ -85,7 +92,8 @@ module.exports = {
       {
         from: 'native/computer-use-windows/runtime.ps1',
         to: 'computer-use-windows/runtime.ps1'
-      }
+      },
+      featureWallResources
     ]
   },
   nsis: {
@@ -137,7 +145,8 @@ module.exports = {
       {
         from: 'native/computer-use-macos/.build/release/Orca Computer Use.app',
         to: 'Orca Computer Use.app'
-      }
+      },
+      featureWallResources
     ],
     target: [
       {
@@ -172,7 +181,8 @@ module.exports = {
       {
         from: 'native/computer-use-linux/runtime.py',
         to: 'computer-use-linux/runtime.py'
-      }
+      },
+      featureWallResources
     ],
     target: ['AppImage', 'deb'],
     maintainer: 'stablyai',

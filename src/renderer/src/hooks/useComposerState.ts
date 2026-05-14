@@ -1376,10 +1376,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   }, [closeModal, openSettingsPage, openSettingsTarget])
 
   const applyWorktreeMeta = useCallback(
-    async (
-      worktreeId: string,
-      meta: Partial<WorktreeMeta>
-    ): Promise<void> => {
+    async (worktreeId: string, meta: Partial<WorktreeMeta>): Promise<void> => {
       if (Object.keys(meta).length === 0) {
         return
       }

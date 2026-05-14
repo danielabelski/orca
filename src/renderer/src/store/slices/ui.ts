@@ -273,11 +273,15 @@ export type UISlice = {
     | 'add-repo'
     | 'quick-open'
     | 'worktree-palette'
+    | 'feature-wall'
     | 'new-workspace-composer'
     | 'confirm-orca-yaml-hooks'
   modalData: Record<string, unknown>
   openModal: (modal: UISlice['activeModal'], data?: Record<string, unknown>) => void
   closeModal: () => void
+  featureTourNudgeVisible: boolean
+  showFeatureTourNudge: () => void
+  dismissFeatureTourNudge: () => void
   trustedOrcaHooks: PersistedTrustedOrcaHooks
   markOrcaHookScriptConfirmed: (
     repoId: string,
@@ -554,8 +558,20 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
 
   activeModal: 'none',
   modalData: {},
-  openModal: (modal, data = {}) => set({ activeModal: modal, modalData: data }),
+  openModal: (modal, data = {}) =>
+    set((state) => ({
+      activeModal: modal,
+      modalData: data,
+      featureTourNudgeVisible: modal === 'feature-wall' ? false : state.featureTourNudgeVisible
+    })),
   closeModal: () => set({ activeModal: 'none', modalData: {} }),
+  featureTourNudgeVisible: false,
+  showFeatureTourNudge: () => {
+    if (get().activeModal !== 'feature-wall') {
+      set({ featureTourNudgeVisible: true })
+    }
+  },
+  dismissFeatureTourNudge: () => set({ featureTourNudgeVisible: false }),
 
   trustedOrcaHooks: {},
   markOrcaHookScriptConfirmed: (repoId, kind, contentHash) =>

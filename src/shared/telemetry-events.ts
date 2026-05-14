@@ -14,6 +14,7 @@
 // re-check string length.
 
 import { z } from 'zod'
+import { FEATURE_WALL_MAX_DWELL_MS } from './feature-wall-telemetry'
 
 import { AGENT_HOOK_TARGETS } from './agent-hook-types'
 import { ONBOARDING_FINAL_STEP } from './constants'
@@ -139,6 +140,25 @@ export type LaunchSource = z.infer<typeof launchSourceSchema>
 export const requestKindSchema = z.enum(['new', 'resume', 'followup'])
 export type RequestKind = z.infer<typeof requestKindSchema>
 
+export const featureWallTileIdSchema = z.enum([
+  'tile-01',
+  'tile-02',
+  'tile-03',
+  'tile-04',
+  'tile-05',
+  'tile-06',
+  'tile-07',
+  'tile-08',
+  'tile-09',
+  'tile-10',
+  'tile-11',
+  'tile-12'
+])
+export type FeatureWallTileIdTelemetry = z.infer<typeof featureWallTileIdSchema>
+
+export const featureWallOpenSourceSchema = z.enum(['help_menu', 'popup', 'unknown'])
+export type FeatureWallOpenSourceTelemetry = z.infer<typeof featureWallOpenSourceSchema>
+
 // `env_var` is deliberately absent — env-var and CI paths override consent at
 // runtime only (see consent.ts); they never mutate `optedIn` and therefore
 // never fire a `telemetry_opted_in/out` event. If a future path explicitly
@@ -240,6 +260,27 @@ const settingsChangedSchema = z
 
 const telemetryOptedInSchema = z.object({ via: optInViaSchema }).strict()
 const telemetryOptedOutSchema = z.object({ via: optInViaSchema }).strict()
+
+const featureWallOpenedSchema = z
+  .object({
+    source: featureWallOpenSourceSchema
+  })
+  .strict()
+const featureWallClosedSchema = z
+  .object({
+    dwell_ms: z.number().int().min(0).max(FEATURE_WALL_MAX_DWELL_MS)
+  })
+  .strict()
+const featureWallTileFocusedSchema = z
+  .object({
+    tile_id: featureWallTileIdSchema
+  })
+  .strict()
+const featureWallTileClickedSchema = z
+  .object({
+    tile_id: featureWallTileIdSchema
+  })
+  .strict()
 
 const addRepoSetupStepActionEventSchema = z
   .object({ action: addRepoSetupStepActionSchema, nth_repo_added: nthRepoAddedSchema })
@@ -578,6 +619,11 @@ export const eventSchemas = {
   telemetry_opted_in: telemetryOptedInSchema,
   telemetry_opted_out: telemetryOptedOutSchema,
 
+  feature_wall_opened: featureWallOpenedSchema,
+  feature_wall_closed: featureWallClosedSchema,
+  feature_wall_tile_focused: featureWallTileFocusedSchema,
+  feature_wall_tile_clicked: featureWallTileClickedSchema,
+
   onboarding_started: onboardingStartedSchema,
   onboarding_step_viewed: onboardingStepViewedSchema,
   onboarding_step_completed: onboardingStepCompletedSchema,
@@ -640,8 +686,12 @@ type _CohortExtendedRoster =
   | 'workspace_create_failed'
   | 'agent_started'
   | 'agent_error'
+// Why: `z.object({}).strict()` infers a string index signature, which would
+// make every key appear present. Ignore index-signature-only keys here so
+// strict empty event payloads do not get pulled into keyed telemetry rosters.
+type _KnownPayloadKeys<T> = string extends keyof T ? never : keyof T
 type _DerivedCohortExtendedEvents = {
-  [N in EventName]: 'nth_repo_added' extends keyof EventMap[N] ? N : never
+  [N in EventName]: 'nth_repo_added' extends _KnownPayloadKeys<EventMap[N]> ? N : never
 }[EventName]
 type _CohortExtendedRosterSync = _CohortExtendedRoster extends _DerivedCohortExtendedEvents
   ? _DerivedCohortExtendedEvents extends _CohortExtendedRoster
@@ -689,7 +739,7 @@ type _OnboardingCohortRoster =
   | 'onboarding_ghostty_import_clicked'
   | 'onboarding_ghostty_import_failed'
 type _DerivedOnboardingCohortEvents = {
-  [N in EventName]: 'cohort' extends keyof EventMap[N] ? N : never
+  [N in EventName]: 'cohort' extends _KnownPayloadKeys<EventMap[N]> ? N : never
 }[EventName]
 type _OnboardingCohortRosterSync = _OnboardingCohortRoster extends _DerivedOnboardingCohortEvents
   ? _DerivedOnboardingCohortEvents extends _OnboardingCohortRoster
