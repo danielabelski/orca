@@ -49,6 +49,7 @@ import { claudeHookService } from './claude/hook-service'
 import { codexHookService } from './codex/hook-service'
 import { geminiHookService } from './gemini/hook-service'
 import { cursorHookService } from './cursor/hook-service'
+import { droidHookService } from './droid/hook-service'
 import { getPtyIdForPaneKey, registerPaneKeyTeardownListener, getLocalPtyProvider } from './ipc/pty'
 import { AgentBrowserBridge } from './browser/agent-browser-bridge'
 import { browserManager } from './browser/browser-manager'
@@ -360,6 +361,11 @@ const SYNTHETIC_TITLE_PROFILES: Record<string, SyntheticTitleProfile> = {
     workingLabel: 'OpenCode',
     permissionLabel: 'OpenCode - action required',
     idleLabel: 'OpenCode ready'
+  },
+  droid: {
+    workingLabel: 'Droid',
+    permissionLabel: 'Droid - action required',
+    idleLabel: 'Droid ready'
   }
 }
 
@@ -520,7 +526,8 @@ app.whenReady().then(async () => {
     ['claude', () => claudeHookService.install()],
     ['codex', () => codexHookService.install()],
     ['gemini', () => geminiHookService.install()],
-    ['cursor', () => cursorHookService.install()]
+    ['cursor', () => cursorHookService.install()],
+    ['droid', () => droidHookService.install()]
   ])
 
   registerAppMenu({
