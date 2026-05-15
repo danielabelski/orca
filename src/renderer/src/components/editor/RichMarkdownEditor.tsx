@@ -11,6 +11,7 @@ import { RichMarkdownToolbar } from './RichMarkdownToolbar'
 import { encodeRawMarkdownHtmlForRichEditor } from './raw-markdown-html'
 import { useLocalImagePick } from './useLocalImagePick'
 import { createRichMarkdownExtensions } from './rich-markdown-extensions'
+import { getConnectionId } from '@/lib/connection-context'
 import { slashCommands, syncDocLinkMenu, syncSlashMenu } from './rich-markdown-commands'
 import type {
   DocLinkMenuRow,
@@ -35,7 +36,9 @@ import { normalizeSoftBreaks } from './rich-markdown-normalize'
 import { autoFocusRichEditor } from './rich-markdown-auto-focus'
 import { handleRichMarkdownCut } from './rich-markdown-cut-handler'
 import { openHttpLink } from '@/lib/http-link-routing'
+import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/local-path-open-guard'
 import { toast } from 'sonner'
+import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { isSingleEmptyTopLevelOrderedList } from './rich-markdown-list-continuation'
 import {
   absolutePathToFileUri as toFileUrlForOsEscape,
@@ -54,6 +57,7 @@ type RichMarkdownEditorProps = {
   content: string
   filePath: string
   worktreeId: string
+  runtimeEnvironmentId?: string | null
   scrollCacheKey: string
   onContentChange: (content: string) => void
   onDirtyStateHint: (dirty: boolean) => void
@@ -168,6 +172,7 @@ export default function RichMarkdownEditor({
   content,
   filePath,
   worktreeId,
+  runtimeEnvironmentId,
   scrollCacheKey,
   onContentChange,
   onDirtyStateHint,
@@ -179,6 +184,7 @@ export default function RichMarkdownEditor({
   headerSlot
 }: RichMarkdownEditorProps): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const settings = useAppStore((s) => s.settings)
   const editorFontZoomLevel = useAppStore((s) => s.editorFontZoomLevel)
   const activateMarkdownLink = useAppStore((s) => s.activateMarkdownLink)
   const worktreeRoot = useAppStore((s) => {
@@ -341,7 +347,12 @@ export default function RichMarkdownEditor({
           if (!src) {
             return false
           }
-          void activateMarkdownLink(src, { sourceFilePath: filePath, worktreeId, worktreeRoot })
+          void activateMarkdownLink(src, {
+            sourceFilePath: filePath,
+            worktreeId,
+            worktreeRoot,
+            runtimeEnvironmentId
+          })
           return true
         }
         if (clickedNode?.type.name === 'markdownDocLink') {
@@ -370,7 +381,20 @@ export default function RichMarkdownEditor({
           }
           if (classified.kind === 'external') {
             openHttpLink(classified.url, { forceSystemBrowser: true })
-          } else if (classified.kind === 'markdown') {
+            return true
+          }
+          if (
+            isLocalPathOpenBlocked(
+              settingsForRuntimeOwner(useAppStore.getState().settings, runtimeEnvironmentId),
+              { connectionId: getConnectionId(worktreeId) }
+            )
+          ) {
+            // Why: Shift-click opens through the client OS. Server-local paths
+            // from remote runtime/SSH worktrees are not meaningful on this client.
+            showLocalPathOpenBlockedToast()
+            return true
+          }
+          if (classified.kind === 'markdown') {
             void window.api.shell.pathExists(classified.absolutePath).then((exists) => {
               if (!exists) {
                 toast.error(`File not found: ${classified.relativePath}`)
@@ -383,7 +407,12 @@ export default function RichMarkdownEditor({
           }
           return true
         }
-        void activateMarkdownLink(href, { sourceFilePath: filePath, worktreeId, worktreeRoot })
+        void activateMarkdownLink(href, {
+          sourceFilePath: filePath,
+          worktreeId,
+          worktreeRoot,
+          runtimeEnvironmentId
+        })
         return true
       }
     },
@@ -497,22 +526,30 @@ export default function RichMarkdownEditor({
 
   useModifierHeldClass(rootRef, isMac)
 
-  // Why: the custom Image extension reads filePath from editor.storage to resolve
-  // relative image src values to file:// URLs for display. After updating the
-  // stored path we dispatch a no-op transaction so ProseMirror re-renders image
-  // nodes with the new resolved src (renderHTML reads storage at render time).
+  // Why: the custom Image extension reads filePath/runtimeContext from storage
+  // to resolve relative image src values. After updating storage we dispatch a
+  // no-op transaction so ProseMirror re-renders image nodes with the new source.
   useEffect(() => {
     if (editor) {
       isApplyingProgrammaticUpdateRef.current = true
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ;(editor.storage as any).image.filePath = filePath
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(editor.storage as any).image.runtimeContext = worktreeRoot
+          ? {
+              settings: settingsForRuntimeOwner(settings, runtimeEnvironmentId),
+              worktreeId,
+              worktreePath: worktreeRoot,
+              connectionId: getConnectionId(worktreeId)
+            }
+          : undefined
         editor.view.dispatch(editor.state.tr)
       } finally {
         isApplyingProgrammaticUpdateRef.current = false
       }
     }
-  }, [editor, filePath])
+  }, [editor, filePath, runtimeEnvironmentId, settings, worktreeId, worktreeRoot])
 
   // Why: the doc link NodeView reads the document list from storage to style
   // resolved vs. missing links. The no-op transaction with meta flag triggers
@@ -531,7 +568,7 @@ export default function RichMarkdownEditor({
     }
   }, [editor, markdownDocuments])
 
-  const handleLocalImagePick = useLocalImagePick(editor, filePath)
+  const handleLocalImagePick = useLocalImagePick(editor, filePath, worktreeId, runtimeEnvironmentId)
 
   useEffect(() => {
     handleLocalImagePickRef.current = handleLocalImagePick
@@ -546,7 +583,8 @@ export default function RichMarkdownEditor({
   } = useLinkBubble(editor, rootRef, linkBubble, setLinkBubble, setIsEditingLink, {
     sourceFilePath: filePath,
     worktreeId,
-    worktreeRoot
+    worktreeRoot,
+    runtimeEnvironmentId
   })
 
   useEffect(() => {
