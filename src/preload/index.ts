@@ -87,7 +87,10 @@ import type {
   PortForwardEntry,
   DetectedPort
 } from '../shared/ssh-types'
-import type { AgentStatusIpcPayload } from '../shared/agent-status-types'
+import type {
+  AgentStatusIpcPayload,
+  MigrationUnsupportedPtyEntry
+} from '../shared/agent-status-types'
 import type { SpeechModelManifest, SpeechModelState } from '../shared/speech-types'
 import type { TelemetryConsentState } from '../shared/telemetry-consent-types'
 import type { RefreshAgentsResult } from './api-types'
@@ -2080,6 +2083,7 @@ const api = {
           ptyId?: string
           activate?: boolean
           tabId?: string
+          leafId?: string
         }
       ) => callback(data)
       ipcRenderer.on('ui:createTerminal', listener)
@@ -2671,6 +2675,22 @@ const api = {
      *  knows which tabs exist. */
     getSnapshot: (): Promise<AgentStatusIpcPayload[]> =>
       ipcRenderer.invoke('agentStatus:getSnapshot'),
+    onMigrationUnsupported: (
+      callback: (entry: MigrationUnsupportedPtyEntry) => void
+    ): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, entry: MigrationUnsupportedPtyEntry) =>
+        callback(entry)
+      ipcRenderer.on('agentStatus:migrationUnsupported', listener)
+      return () => ipcRenderer.removeListener('agentStatus:migrationUnsupported', listener)
+    },
+    onMigrationUnsupportedClear: (callback: (data: { ptyId: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: { ptyId: string }) =>
+        callback(data)
+      ipcRenderer.on('agentStatus:migrationUnsupportedClear', listener)
+      return () => ipcRenderer.removeListener('agentStatus:migrationUnsupportedClear', listener)
+    },
+    getMigrationUnsupportedSnapshot: (): Promise<MigrationUnsupportedPtyEntry[]> =>
+      ipcRenderer.invoke('agentStatus:getMigrationUnsupportedSnapshot'),
     /** Drop the cached hook status for a paneKey on both sides — main-process
      *  cache (lastStatusByPaneKey) and on-disk last-status file. Fired from
      *  the renderer when the user dismisses a retained row so a relaunch

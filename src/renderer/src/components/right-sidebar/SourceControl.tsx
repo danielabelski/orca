@@ -462,7 +462,9 @@ function SourceControlInner(): React.JSX.Element {
   const branchName = activeWorktree?.branch.replace(/^refs\/heads\//, '') ?? 'HEAD'
   const hostedReviewCacheKey =
     activeRepo && branchName ? getHostedReviewCacheKey(activeRepo.path, branchName, settings) : null
-  const hostedReviewEntry = hostedReviewCacheKey ? hostedReviewCache[hostedReviewCacheKey] : undefined
+  const hostedReviewEntry = hostedReviewCacheKey
+    ? hostedReviewCache[hostedReviewCacheKey]
+    : undefined
   const hostedReview: HostedReviewInfo | null = hostedReviewCacheKey
     ? (hostedReviewEntry?.data ?? null)
     : null

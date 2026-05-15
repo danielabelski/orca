@@ -34,7 +34,10 @@ import { setDriverForPty, hydrateDrivers } from '@/lib/pane-manager/mobile-drive
 import { destroyPersistentWebview } from '@/components/browser-pane/webview-registry'
 import { attachMobileMarkdownBridge } from '@/runtime/mobile-markdown-bridge'
 import { detectLanguage } from '@/lib/language-detect'
+import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { collectLeafIdsInOrder } from '@/components/terminal-pane/layout-serialization'
 import { track } from '@/lib/telemetry'
+import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 
 export { resolveZoomTarget } from './resolve-zoom-target'
 
@@ -276,7 +279,7 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.ui.onCreateTerminal(
-        ({ requestId, worktreeId, command, title, ptyId, activate, tabId }) => {
+        ({ requestId, worktreeId, command, title, ptyId, activate, tabId, leafId }) => {
           try {
             if (isRuntimeEnvironmentActive()) {
               if (requestId) {
@@ -308,17 +311,15 @@ export function useIpcEvents(): void {
                   initialPtyId: ptyId,
                   activate: shouldActivate,
                   // Why: tabId hint comes from CLI-spawned PTYs whose env
-                  // already has paneKey=`${tabId}:1` baked in. Adopting the
-                  // tab under the same id keeps hook-event attribution working;
-                  // see docs/cli-terminal-hook-pane-key.md.
+                  // already has the pane key baked in. Adopting the tab under
+                  // the same id keeps hook-event attribution working.
                   ...(tabId !== undefined ? { id: tabId } : {})
                 }))
               : store.createTab(worktreeId)
             // Why: when an existing tab already owns this ptyId, we reuse it instead of
-            // minting a new one — but the PTY env already carries `paneKey=`${tabId}:1``
-            // from main. If the existing tab id doesn't match the hint, hook attribution
-            // will degrade for that PTY's lifetime. Warn so this is visible during
-            // development; in production this surfaces via `agent_hook_unattributed`.
+            // minting a new one — but the PTY env already carries a paneKey from main.
+            // If the existing tab id doesn't match the hint, hook attribution degrades
+            // for that PTY's lifetime. Warn so this is visible during development.
             if (tabId !== undefined && tab.id !== tabId) {
               console.warn(
                 `[onCreateTerminal] tabId hint ${tabId} ignored for ptyId ${ptyId}; existing tab ${tab.id} adopted instead (hook attribution will degrade for this terminal)`
@@ -331,6 +332,12 @@ export function useIpcEvents(): void {
             }
             if (title) {
               store.setTabCustomTitle(tab.id, title)
+            }
+            if (leafId && ptyId) {
+              // Why: CLI/runtime-spawned PTYs emit hook events before a hidden
+              // tab mounts TerminalPane, so the adopted UUID leaf must exist
+              // in layout state for paneKey validation to accept them.
+              store.setTabLayout(tab.id, singlePaneLayoutSnapshot(leafId, ptyId, title))
             }
             if (command) {
               store.queueTabStartupCommand(tab.id, { command })
@@ -455,7 +462,7 @@ export function useIpcEvents(): void {
         store.setActiveTab(tabId)
         store.revealWorktreeInSidebar(worktreeId)
         if (!focusRuntimeTerminalSurface(tabId, leafId)) {
-          focusTerminalTabSurface(tabId)
+          focusTerminalTabSurface(tabId, leafId)
         }
       })
     )
@@ -1178,6 +1185,22 @@ export function useIpcEvents(): void {
           for (const entry of entries) {
             applyAgentStatus(entry, { replay: true })
           }
+          const getMigrationUnsupportedSnapshot =
+            window.api.agentStatus.getMigrationUnsupportedSnapshot
+          if (typeof getMigrationUnsupportedSnapshot !== 'function') {
+            return
+          }
+          void getMigrationUnsupportedSnapshot().then((unsupportedEntries) => {
+            const unsupportedStore = useAppStore.getState()
+            if (!unsupportedStore.workspaceSessionReady) {
+              return
+            }
+            for (const entry of unsupportedEntries) {
+              if (entry.paneKey && resolvePaneKey(unsupportedStore, entry.paneKey).exists) {
+                unsupportedStore.setMigrationUnsupportedPty(entry)
+              }
+            }
+          })
         })
         .catch((err) => {
           // Why: keep snapshotRequestedForReadyWindow latched on failure. The
@@ -1196,6 +1219,27 @@ export function useIpcEvents(): void {
         applyAgentStatus(data)
       })
     )
+    const unsubscribeMigrationUnsupported = window.api.agentStatus.onMigrationUnsupported?.(
+      (entry) => {
+        const store = useAppStore.getState()
+        if (!store.workspaceSessionReady) {
+          return
+        }
+        if (entry.paneKey && resolvePaneKey(store, entry.paneKey).exists) {
+          store.setMigrationUnsupportedPty(entry)
+        }
+      }
+    )
+    if (unsubscribeMigrationUnsupported) {
+      unsubs.push(unsubscribeMigrationUnsupported)
+    }
+    const unsubscribeMigrationUnsupportedClear =
+      window.api.agentStatus.onMigrationUnsupportedClear?.(({ ptyId }) => {
+        useAppStore.getState().clearMigrationUnsupportedPty(ptyId)
+      })
+    if (unsubscribeMigrationUnsupportedClear) {
+      unsubs.push(unsubscribeMigrationUnsupportedClear)
+    }
 
     // Why: the main hook server is the durable source of truth. Pull a
     // snapshot only after workspace tabs are ready, so early startup pushes
@@ -1291,7 +1335,7 @@ export function useIpcEvents(): void {
   }, [])
 }
 
-/** Resolve a paneKey (tabId:paneId) to a liveness check, the current terminal
+/** Resolve a paneKey (tabId:leafId) to both a liveness check and the current
  *  title, and the connectionId of the repo that owns the pane's worktree.
  *  Walks tabsByWorktree to locate the tab, then resolves the owning worktree
  *  and repo via cached selector maps. Used for agent type inference when the
@@ -1306,16 +1350,19 @@ function resolvePaneKey(
   store: ReturnType<typeof useAppStore.getState>,
   paneKey: string
 ): { exists: boolean; title: string | undefined; repoConnectionId: string | null } {
-  const [tabId, paneIdRaw] = paneKey.split(':')
-  if (!tabId) {
+  const parsed = parsePaneKey(paneKey)
+  if (!parsed) {
     return { exists: false, title: undefined, repoConnectionId: null }
   }
-  // Why: split panes track per-pane titles in runtimePaneTitlesByTabId; prefer
-  // the pane's own title over the tab-level (last-winning) title so agent type
-  // inference attributes status to the correct pane.
-  const paneTitles = store.runtimePaneTitlesByTabId?.[tabId]
-  const paneIdNum = paneIdRaw !== undefined ? Number(paneIdRaw) : NaN
-  const rawPaneTitle = paneTitles && !Number.isNaN(paneIdNum) ? paneTitles[paneIdNum] : undefined
+  const { tabId, leafId } = parsed
+  const layout = store.terminalLayoutsByTabId?.[tabId]
+  const leafExists = collectLeafIdsInOrder(layout?.root).includes(leafId)
+  if (!leafExists) {
+    return { exists: false, title: undefined, repoConnectionId: null }
+  }
+  // Why: replay can remint numeric pane ids, so status title recovery must use
+  // persisted leaf-keyed titles when crossing from hook state into tab state.
+  const rawPaneTitle = layout?.titlesByLeafId?.[leafId]
   // Why: treat an empty-string paneTitle as "no title" so the tab-level
   // fallback still fires. `paneTitle ?? tabTitle` alone would short-circuit on
   // '' and also erase any previously-cached terminalTitle in the store
