@@ -141,7 +141,11 @@ import type { CliInstallStatus } from '../shared/cli-install-types'
 import type { E2EConfig } from '../shared/e2e-config'
 import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
 import type { AgentStatusIpcPayload } from '../shared/agent-status-types'
-import type { RuntimeStatus, RuntimeSyncWindowGraph } from '../shared/runtime-types'
+import type {
+  RuntimeStatus,
+  RuntimeSyncWindowGraph,
+  RuntimeTerminalDriverState
+} from '../shared/runtime-types'
 import type { ShellOpenLocalPathResult } from '../shared/shell-open-types'
 
 export type { ShellOpenLocalPathResult } from '../shared/shell-open-types'
@@ -1410,6 +1414,12 @@ export type PreloadApi = {
     getTerminalFitOverrides: () => Promise<
       { ptyId: string; mode: 'mobile-fit'; cols: number; rows: number }[]
     >
+    getTerminalDrivers: () => Promise<
+      {
+        ptyId: string
+        driver: RuntimeTerminalDriverState
+      }[]
+    >
     restoreTerminalFit: (ptyId: string) => Promise<{ restored: boolean }>
     onTerminalFitOverrideChanged: (
       callback: (event: {
@@ -1420,10 +1430,7 @@ export type PreloadApi = {
       }) => void
     ) => () => void
     onTerminalDriverChanged: (
-      callback: (event: {
-        ptyId: string
-        driver: { kind: 'idle' } | { kind: 'desktop' } | { kind: 'mobile'; clientId: string }
-      }) => void
+      callback: (event: { ptyId: string; driver: RuntimeTerminalDriverState }) => void
     ) => () => void
   }
   runtimeEnvironments: {

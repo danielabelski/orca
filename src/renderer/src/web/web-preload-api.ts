@@ -184,6 +184,7 @@ function createRuntimeApi(): NonNullable<Partial<PreloadApi>['runtime']> {
     getStatus: () => getRemoteRuntimeStatus(),
     call: ({ method, params }) => callRuntimeEnvelope(method, params),
     getTerminalFitOverrides: () => Promise.resolve([]),
+    getTerminalDrivers: () => Promise.resolve([]),
     restoreTerminalFit: () => Promise.resolve({ restored: false }),
     onTerminalFitOverrideChanged: () => noopUnsubscribe,
     onTerminalDriverChanged: () => noopUnsubscribe
