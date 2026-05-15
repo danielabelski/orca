@@ -15,6 +15,7 @@
     "prepare": "husky",
     "test": "vitest run --config config/vitest.config.ts",
     "check:feature-wall-assets": "node config/scripts/check-feature-wall-assets.mjs",
+    "verify:macos-entitlements": "node config/scripts/verify-macos-entitlements.mjs",
     "vendor:feature-wall-assets": "node config/scripts/vendor-feature-wall-assets.mjs",
     "tc:node": "tsgo --noEmit -p config/tsconfig.node.json",
     "tc:cli": "tsgo --noEmit -p config/tsconfig.tc.cli.json",
