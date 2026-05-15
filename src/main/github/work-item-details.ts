@@ -19,6 +19,7 @@ import {
   githubRepoContext
 } from './gh-utils'
 import { getWorkItem, getPRChecks, getPRComments } from './client'
+import { noteRateLimitSpend, rateLimitGuard } from './rate-limit'
 
 // Why: a PR "changed file" listing returned by the REST endpoint is paginated
 // at 100 per page; we cap at a reasonable total so a massive PR cannot starve
@@ -112,7 +113,11 @@ async function getIssueDetailsViaGraphQL(
   if (!ownerRepo) {
     return null
   }
+  if (rateLimitGuard('graphql').blocked) {
+    return null
+  }
   try {
+    noteRateLimitSpend('graphql')
     const { stdout } = await ghExecFileAsync(
       [
         'api',
@@ -441,7 +446,11 @@ async function getWorkItemParticipants(
   if (!ownerRepo) {
     return []
   }
+  if (rateLimitGuard('graphql').blocked) {
+    return []
+  }
   try {
+    noteRateLimitSpend('graphql')
     const { stdout } = await ghExecFileAsync(
       [
         'api',
@@ -498,6 +507,9 @@ async function getGitHubUsersByLogin(
   if (uniqueLogins.length === 0) {
     return []
   }
+  if (rateLimitGuard('graphql').blocked) {
+    return []
+  }
   const fields = uniqueLogins
     .map(
       (login, index) =>
@@ -505,6 +517,7 @@ async function getGitHubUsersByLogin(
     )
     .join('\n')
   try {
+    noteRateLimitSpend('graphql')
     const { stdout } = await ghExecFileAsync(
       ['api', 'graphql', '-f', `query=query { ${fields} }`],
       ghRepoExecOptions(githubRepoContext(repoPath, connectionId))

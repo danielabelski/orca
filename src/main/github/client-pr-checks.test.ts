@@ -6,6 +6,8 @@ const {
   getOwnerRepoMock,
   getIssueOwnerRepoMock,
   gitExecFileAsyncMock,
+  rateLimitGuardMock,
+  noteRateLimitSpendMock,
   acquireMock,
   releaseMock
 } = vi.hoisted(() => ({
@@ -14,6 +16,8 @@ const {
   getOwnerRepoMock: vi.fn(),
   getIssueOwnerRepoMock: vi.fn(),
   gitExecFileAsyncMock: vi.fn(),
+  rateLimitGuardMock: vi.fn(() => ({ blocked: false })),
+  noteRateLimitSpendMock: vi.fn(),
   acquireMock: vi.fn(),
   releaseMock: vi.fn()
 }))
@@ -37,6 +41,11 @@ vi.mock('../git/runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
 }))
 
+vi.mock('./rate-limit', () => ({
+  rateLimitGuard: rateLimitGuardMock,
+  noteRateLimitSpend: noteRateLimitSpendMock
+}))
+
 import { getPRChecks, _resetOwnerRepoCache } from './client'
 
 describe('getPRChecks', () => {
@@ -46,6 +55,9 @@ describe('getPRChecks', () => {
     getOwnerRepoMock.mockReset()
     getIssueOwnerRepoMock.mockReset()
     gitExecFileAsyncMock.mockReset()
+    rateLimitGuardMock.mockReset()
+    rateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRateLimitSpendMock.mockReset()
     acquireMock.mockReset()
     releaseMock.mockReset()
     acquireMock.mockResolvedValue(undefined)

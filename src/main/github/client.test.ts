@@ -1,6 +1,10 @@
 /* oxlint-disable max-lines -- Why: GitHub client fixtures cover local and SSH repo identity paths in one suite so mocked CLI behavior stays consistent. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+type RateLimitGuardResult =
+  | { blocked: false }
+  | { blocked: true; remaining: number; limit: number; resetAt: number }
+
 const {
   execFileAsyncMock,
   ghExecFileAsyncMock,
@@ -9,6 +13,8 @@ const {
   getOwnerRepoForRemoteMock,
   getRemoteUrlForRepoMock,
   gitExecFileAsyncMock,
+  rateLimitGuardMock,
+  noteRateLimitSpendMock,
   ghRepoExecOptionsMock,
   githubRepoContextMock,
   acquireMock,
@@ -21,6 +27,8 @@ const {
   getOwnerRepoForRemoteMock: vi.fn(),
   getRemoteUrlForRepoMock: vi.fn(),
   gitExecFileAsyncMock: vi.fn(),
+  rateLimitGuardMock: vi.fn<() => RateLimitGuardResult>(() => ({ blocked: false })),
+  noteRateLimitSpendMock: vi.fn(),
   ghRepoExecOptionsMock: vi.fn((context) =>
     context.connectionId ? {} : { cwd: context.repoPath }
   ),
@@ -59,7 +67,18 @@ vi.mock('../git/runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
 }))
 
-import { getPRForBranch, getPullRequestPushTarget, _resetOwnerRepoCache } from './client'
+vi.mock('./rate-limit', () => ({
+  rateLimitGuard: rateLimitGuardMock,
+  noteRateLimitSpend: noteRateLimitSpendMock
+}))
+
+import {
+  getPRComments,
+  getPRForBranch,
+  getPullRequestPushTarget,
+  resolveReviewThread,
+  _resetOwnerRepoCache
+} from './client'
 
 describe('getPRForBranch', () => {
   beforeEach(() => {
@@ -70,6 +89,9 @@ describe('getPRForBranch', () => {
     getOwnerRepoForRemoteMock.mockReset()
     getRemoteUrlForRepoMock.mockReset()
     gitExecFileAsyncMock.mockReset()
+    rateLimitGuardMock.mockReset()
+    rateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRateLimitSpendMock.mockReset()
     ghRepoExecOptionsMock.mockClear()
     githubRepoContextMock.mockClear()
     acquireMock.mockReset()
@@ -420,5 +442,69 @@ describe('getPRForBranch', () => {
       branchName: 'fix-sidebar'
     })
     expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('GitHub GraphQL rate-limit guard', () => {
+  beforeEach(() => {
+    execFileAsyncMock.mockReset()
+    ghExecFileAsyncMock.mockReset()
+    getOwnerRepoMock.mockReset()
+    getIssueOwnerRepoMock.mockReset()
+    getOwnerRepoForRemoteMock.mockReset()
+    getRemoteUrlForRepoMock.mockReset()
+    gitExecFileAsyncMock.mockReset()
+    rateLimitGuardMock.mockReset()
+    rateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRateLimitSpendMock.mockReset()
+    acquireMock.mockReset()
+    releaseMock.mockReset()
+    acquireMock.mockResolvedValue(undefined)
+    _resetOwnerRepoCache()
+  })
+
+  it('skips PR review-thread GraphQL fetch while preserving REST comments', async () => {
+    rateLimitGuardMock.mockReturnValue({
+      blocked: true,
+      remaining: 4,
+      limit: 5000,
+      resetAt: 1_800_000_000
+    })
+    getOwnerRepoMock.mockResolvedValueOnce({ owner: 'acme', repo: 'widgets' })
+    ghExecFileAsyncMock
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify([
+          {
+            id: 10,
+            user: { login: 'octo', avatar_url: 'https://avatar', type: 'User' },
+            body: 'top-level',
+            created_at: '2026-04-01T00:00:00Z',
+            html_url: 'https://github.com/acme/widgets/pull/7#issuecomment-10'
+          }
+        ])
+      })
+      .mockResolvedValueOnce({ stdout: '[]' })
+
+    const comments = await getPRComments('/repo-root', 7)
+
+    expect(comments).toHaveLength(1)
+    expect(comments[0].body).toBe('top-level')
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
+    expect(ghExecFileAsyncMock.mock.calls.some((call) => call[0][1] === 'graphql')).toBe(false)
+    expect(noteRateLimitSpendMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks review-thread resolve mutations before spawning gh when GraphQL is low', async () => {
+    rateLimitGuardMock.mockReturnValue({
+      blocked: true,
+      remaining: 4,
+      limit: 5000,
+      resetAt: 1_800_000_000
+    })
+
+    await expect(resolveReviewThread('/repo-root', 'thread-1', true)).resolves.toBe(false)
+
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
+    expect(noteRateLimitSpendMock).not.toHaveBeenCalled()
   })
 })

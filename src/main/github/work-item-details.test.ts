@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+type RateLimitGuardResult =
+  | { blocked: false }
+  | { blocked: true; remaining: number; limit: number; resetAt: number }
+
 const {
   ghExecFileAsyncMock,
   getOwnerRepoMock,
@@ -7,6 +11,8 @@ const {
   getWorkItemMock,
   getPRChecksMock,
   getPRCommentsMock,
+  rateLimitGuardMock,
+  noteRateLimitSpendMock,
   ghRepoExecOptionsMock,
   githubRepoContextMock,
   acquireMock,
@@ -18,6 +24,8 @@ const {
   getWorkItemMock: vi.fn(),
   getPRChecksMock: vi.fn(),
   getPRCommentsMock: vi.fn(),
+  rateLimitGuardMock: vi.fn<() => RateLimitGuardResult>(() => ({ blocked: false })),
+  noteRateLimitSpendMock: vi.fn(),
   ghRepoExecOptionsMock: vi.fn((context) =>
     context.connectionId ? {} : { cwd: context.repoPath }
   ),
@@ -45,6 +53,11 @@ vi.mock('./client', () => ({
   getPRComments: getPRCommentsMock
 }))
 
+vi.mock('./rate-limit', () => ({
+  rateLimitGuard: rateLimitGuardMock,
+  noteRateLimitSpend: noteRateLimitSpendMock
+}))
+
 import { getWorkItemDetails } from './work-item-details'
 
 describe('getWorkItemDetails', () => {
@@ -55,6 +68,9 @@ describe('getWorkItemDetails', () => {
     getWorkItemMock.mockReset()
     getPRChecksMock.mockReset()
     getPRCommentsMock.mockReset()
+    rateLimitGuardMock.mockReset()
+    rateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRateLimitSpendMock.mockReset()
     ghRepoExecOptionsMock.mockClear()
     githubRepoContextMock.mockClear()
     acquireMock.mockReset()
@@ -156,6 +172,38 @@ describe('getWorkItemDetails', () => {
       { cwd: '/repo-root' }
     )
     expect(details?.body).toBe('Issue body')
+  })
+
+  it('skips optional GraphQL issue detail calls when the cached GraphQL budget is low', async () => {
+    rateLimitGuardMock.mockReturnValue({
+      blocked: true,
+      remaining: 3,
+      limit: 5000,
+      resetAt: 1_800_000_000
+    })
+    getWorkItemMock.mockResolvedValueOnce({
+      id: 'issue:923',
+      type: 'issue',
+      number: 923,
+      title: 'Use upstream issues',
+      state: 'open',
+      url: 'https://github.com/stablyai/orca/issues/923',
+      labels: [],
+      updatedAt: '2026-04-01T00:00:00Z',
+      author: 'octocat'
+    })
+    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'stablyai', repo: 'orca' })
+    ghExecFileAsyncMock
+      .mockResolvedValueOnce({ stdout: JSON.stringify({ body: 'Issue body', assignees: [] }) })
+      .mockResolvedValueOnce({ stdout: '[]' })
+
+    const details = await getWorkItemDetails('/repo-root', 923, 'issue')
+
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
+    expect(ghExecFileAsyncMock.mock.calls.some((call) => call[0][1] === 'graphql')).toBe(false)
+    expect(noteRateLimitSpendMock).not.toHaveBeenCalled()
+    expect(details?.body).toBe('Issue body')
+    expect(details?.participants).toEqual([])
   })
 
   it('uses SSH connection context for issue details without local cwd', async () => {

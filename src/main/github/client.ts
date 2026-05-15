@@ -53,6 +53,7 @@ import {
   deriveCheckStatus
 } from './mappers'
 import { mapGraphQLReactionGroups, type GitHubGraphQLReactionGroup } from './comment-reactions'
+import { noteRateLimitSpend, rateLimitGuard } from './rate-limit'
 
 const ORCA_REPO = 'stablyai/orca'
 
@@ -1358,12 +1359,13 @@ export async function getPRComments(
       // permissions, transient network error) doesn't blank out all comments.
       // Each source is parsed independently; failed sources contribute zero
       // comments instead of aborting the entire fetch.
-      const [issueResult, threadsResult, reviewsResult] = await Promise.allSettled([
-        ghExecFileAsync(
-          ['api', ...cacheArgs, `${base}/issues/${prNumber}/comments?per_page=100`],
-          ghOptions
-        ),
-        ghExecFileAsync(
+      const reviewThreadsGuard = rateLimitGuard('graphql')
+      let reviewThreadsFetch: Promise<{ stdout: string; stderr: string } | null>
+      if (reviewThreadsGuard.blocked) {
+        reviewThreadsFetch = Promise.resolve(null)
+      } else {
+        noteRateLimitSpend('graphql')
+        reviewThreadsFetch = ghExecFileAsync(
           [
             'api',
             'graphql',
@@ -1377,7 +1379,14 @@ export async function getPRComments(
             `pr=${prNumber}`
           ],
           ghOptions
+        )
+      }
+      const [issueResult, threadsResult, reviewsResult] = await Promise.allSettled([
+        ghExecFileAsync(
+          ['api', ...cacheArgs, `${base}/issues/${prNumber}/comments?per_page=100`],
+          ghOptions
         ),
+        reviewThreadsFetch,
         // Why: review summaries (approve, request changes, general comments) live
         // under pulls/{n}/reviews, not under issue comments or review threads.
         // Without this, a reviewer who submits "LGTM" without inline threads
@@ -1442,7 +1451,7 @@ export async function getPRComments(
         reactionGroups?: GitHubGraphQLReactionGroup[] | null
       }
       const reviewComments: PRComment[] = []
-      if (threadsResult.status === 'fulfilled') {
+      if (threadsResult.status === 'fulfilled' && threadsResult.value) {
         const threadsData = JSON.parse(threadsResult.value.stdout) as {
           data: {
             repository: {
@@ -1494,7 +1503,9 @@ export async function getPRComments(
           }
         }
       } else {
-        console.warn('Failed to fetch review threads:', threadsResult.reason)
+        if (threadsResult.status === 'rejected') {
+          console.warn('Failed to fetch review threads:', threadsResult.reason)
+        }
       }
 
       // Parse review summaries (REST) — only include reviews with a body,
@@ -1572,8 +1583,16 @@ export async function resolveReviewThread(
   const mutation = resolve ? 'resolveReviewThread' : 'unresolveReviewThread'
   const query = `mutation($threadId: ID!) { ${mutation}(input: { threadId: $threadId }) { thread { isResolved } } }`
   const ghOptions = ghRepoExecOptions(githubRepoContext(repoPath, connectionId))
+  const guard = rateLimitGuard('graphql')
+  if (guard.blocked) {
+    console.warn(
+      `${mutation} skipped: GitHub GraphQL rate limit nearly exhausted (${guard.remaining}/${guard.limit})`
+    )
+    return false
+  }
   await acquire()
   try {
+    noteRateLimitSpend('graphql')
     await ghExecFileAsync(
       ['api', 'graphql', '-f', `query=${query}`, '-f', `threadId=${threadId}`],
       ghOptions
