@@ -88,12 +88,17 @@ import type {
   LinearIssue,
   LinearTeam,
   Repo,
+  TaskProvider,
   TaskViewPresetId
 } from '../../../shared/types'
 import { shouldSuppressEnterSubmit } from '@/lib/new-workspace-enter-guard'
 import { linearCreateIssue, linearGetIssue, linearListTeams } from '@/runtime/runtime-linear-client'
+import {
+  normalizeVisibleTaskProviders,
+  resolveVisibleTaskProvider
+} from '../../../shared/task-providers'
 
-type TaskSource = 'github' | 'linear' | 'gitlab'
+type TaskSource = TaskProvider
 
 type GitLabTaskFilter = 'opened' | 'merged' | 'closed' | 'all'
 
@@ -605,6 +610,14 @@ export default function TaskPage(): React.JSX.Element {
     linearStatus.activeWorkspaceId ??
     linearWorkspaces[0]?.id ??
     null
+  const visibleTaskProviders = useMemo(
+    () => normalizeVisibleTaskProviders(settings?.visibleTaskProviders),
+    [settings?.visibleTaskProviders]
+  )
+  const visibleSourceOptions = useMemo(
+    () => SOURCE_OPTIONS.filter((source) => visibleTaskProviders.includes(source.id)),
+    [visibleTaskProviders]
+  )
 
   // Why: seed the preset + query from the user's saved default synchronously
   // so the first fetch effect issues exactly one request keyed to the final
@@ -615,7 +628,9 @@ export default function TaskPage(): React.JSX.Element {
   const initialTaskQuery = getTaskPresetQuery(defaultTaskViewPreset)
 
   const defaultTaskSource = settings?.defaultTaskSource ?? 'github'
-  const [taskSource, setTaskSource] = useState<TaskSource>(pageData.taskSource ?? defaultTaskSource)
+  const [taskSource, setTaskSource] = useState<TaskSource>(
+    resolveVisibleTaskProvider(pageData.taskSource ?? defaultTaskSource, visibleTaskProviders)
+  )
   const taskResumeAppliedRef = useRef(false)
   const githubSearchPersistReadyRef = useRef(false)
   const linearSearchPersistReadyRef = useRef(false)
@@ -626,9 +641,15 @@ export default function TaskPage(): React.JSX.Element {
   // initializes once, so sync from the store when the value changes.
   useEffect(() => {
     if (pageData.taskSource) {
-      setTaskSource(pageData.taskSource)
+      setTaskSource(resolveVisibleTaskProvider(pageData.taskSource, visibleTaskProviders))
     }
-  }, [pageData.taskSource])
+  }, [pageData.taskSource, visibleTaskProviders])
+
+  useEffect(() => {
+    if (!visibleTaskProviders.includes(taskSource)) {
+      setTaskSource(resolveVisibleTaskProvider(settings?.defaultTaskSource, visibleTaskProviders))
+    }
+  }, [settings?.defaultTaskSource, taskSource, visibleTaskProviders])
 
   // Why: Project mode is a sub-tab within the GitHub source. Visible whenever
   // the user is on the GitHub task source — actual entry into Project mode is
@@ -876,7 +897,12 @@ export default function TaskPage(): React.JSX.Element {
       return
     }
 
-    setTaskSource(pageData.taskSource ?? settings.defaultTaskSource)
+    setTaskSource(
+      resolveVisibleTaskProvider(
+        pageData.taskSource ?? settings.defaultTaskSource,
+        visibleTaskProviders
+      )
+    )
     setRepoSelection(resolvedInitialSelection)
 
     const nextGithubMode = taskResumeState?.githubMode ?? 'items'
@@ -906,7 +932,14 @@ export default function TaskPage(): React.JSX.Element {
     // Tasks context exactly once so later source/filter clicks remain local.
     taskResumeAppliedRef.current = true
     setTaskResumeApplied(true)
-  }, [persistedUIReady, settings, pageData.taskSource, resolvedInitialSelection, taskResumeState])
+  }, [
+    persistedUIReady,
+    settings,
+    pageData.taskSource,
+    resolvedInitialSelection,
+    taskResumeState,
+    visibleTaskProviders
+  ])
 
   // Why: fetch the full team list from the Linear API so the selector shows
   // all teams the user belongs to, not just teams with issues in the current
@@ -1925,7 +1958,7 @@ export default function TaskPage(): React.JSX.Element {
                       </TooltipContent>
                     </Tooltip>
                     <div className="mx-1 h-5 w-px bg-border/50" aria-hidden />
-                    {SOURCE_OPTIONS.map((source) => {
+                    {visibleSourceOptions.map((source) => {
                       const active = taskSource === source.id
                       return (
                         <Tooltip key={source.id}>
