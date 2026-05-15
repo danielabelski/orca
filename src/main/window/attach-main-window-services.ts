@@ -10,7 +10,8 @@ import type { CreateWorktreeResult, WorktreeStartupLaunch } from '../../shared/t
 import { ORCA_BROWSER_PARTITION } from '../../shared/constants'
 import { registerRepoHandlers } from '../ipc/repos'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
-import { registerPtyHandlers } from '../ipc/pty'
+import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
+import { getLocalPtyProvider, registerPtyHandlers } from '../ipc/pty'
 import { registerDaemonManagementHandlers } from '../ipc/pty-management'
 import { registerSshHandlers } from '../ipc/ssh'
 import { registerRemoteWorkspaceHandlers } from '../ipc/remote-workspace'
@@ -44,6 +45,7 @@ export function attachMainWindowServices(
 ): void {
   registerRepoHandlers(mainWindow, store)
   registerWorktreeHandlers(mainWindow, store, runtime)
+  registerWorkspaceCleanupHandlers(store, { runtime, getLocalPtyProvider })
   registerPtyHandlers(
     mainWindow,
     runtime,

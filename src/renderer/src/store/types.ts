@@ -22,6 +22,7 @@ import type { DiffCommentsSlice } from './slices/diffComments'
 import type { DetectedAgentsSlice } from './slices/detected-agents'
 import type { WorktreeNavHistorySlice } from './slices/worktree-nav-history'
 import type { DictationSlice } from './slices/dictation'
+import type { WorkspaceCleanupSlice } from './slices/workspace-cleanup'
 
 export type AppState = RepoSlice &
   SparsePresetsSlice &
@@ -46,4 +47,5 @@ export type AppState = RepoSlice &
   DiffCommentsSlice &
   DetectedAgentsSlice &
   WorktreeNavHistorySlice &
-  DictationSlice
+  DictationSlice &
+  WorkspaceCleanupSlice

@@ -16,6 +16,10 @@ import type {
   WorktreeCardProperty
 } from '../../../../shared/types'
 import { PET_SIZE_DEFAULT, PET_SIZE_MAX, PET_SIZE_MIN } from '../../../../shared/types'
+import {
+  WORKSPACE_CLEANUP_CLASSIFIER_VERSION,
+  type WorkspaceCleanupDismissal
+} from '../../../../shared/workspace-cleanup'
 import { PER_REPO_FETCH_LIMIT } from '../../../../shared/work-items'
 import {
   DEFAULT_STATUS_BAR_ITEMS,
@@ -152,6 +156,40 @@ function sanitizeAcknowledgedAgentsByPaneKey(value: unknown): Record<string, num
   return out
 }
 
+function sanitizeWorkspaceCleanupDismissals(
+  value: unknown
+): Record<string, WorkspaceCleanupDismissal> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  const out: Record<string, WorkspaceCleanupDismissal> = {}
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue
+    }
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      continue
+    }
+    const input = raw as Record<string, unknown>
+    if (
+      typeof input.worktreeId !== 'string' ||
+      typeof input.dismissedAt !== 'number' ||
+      !Number.isFinite(input.dismissedAt) ||
+      typeof input.fingerprint !== 'string' ||
+      input.classifierVersion !== WORKSPACE_CLEANUP_CLASSIFIER_VERSION
+    ) {
+      continue
+    }
+    out[key] = {
+      worktreeId: input.worktreeId,
+      dismissedAt: input.dismissedAt,
+      fingerprint: input.fingerprint,
+      classifierVersion: input.classifierVersion
+    }
+  }
+  return out
+}
+
 function sanitizeTaskResumeState(value: unknown): TaskResumeState | undefined {
   if (!value || typeof value !== 'object') {
     return undefined
@@ -284,6 +322,7 @@ export type UISlice = {
     | 'add-repo'
     | 'quick-open'
     | 'worktree-palette'
+    | 'workspace-cleanup'
     | 'feature-wall'
     | 'new-workspace-composer'
     | 'confirm-orca-yaml-hooks'
@@ -895,6 +934,9 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         // the in-session cleanup in agent-status.ts can't accumulate forever.
         acknowledgedAgentsByPaneKey: sanitizeAcknowledgedAgentsByPaneKey(
           ui.acknowledgedAgentsByPaneKey
+        ),
+        workspaceCleanupDismissals: sanitizeWorkspaceCleanupDismissals(
+          ui.workspaceCleanup?.dismissals
         ),
         persistedUIReady: true
       }

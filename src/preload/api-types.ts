@@ -229,6 +229,13 @@ import type {
   AutomationRun,
   AutomationUpdateInput
 } from '../shared/automations-types'
+import type {
+  WorkspaceCleanupDismissArgs,
+  WorkspaceCleanupLocalProcessArgs,
+  WorkspaceCleanupLocalProcessResult,
+  WorkspaceCleanupScanArgs,
+  WorkspaceCleanupScanResult
+} from '../shared/workspace-cleanup'
 
 export type BrowserApi = {
   registerGuest: (args: {
@@ -551,6 +558,14 @@ export type PreloadApi = {
     onRemoteBranchConflict: (
       callback: (data: WorktreeRemoteBranchConflictEvent) => void
     ) => () => void
+  }
+  workspaceCleanup: {
+    scan: (args?: WorkspaceCleanupScanArgs) => Promise<WorkspaceCleanupScanResult>
+    dismiss: (args: WorkspaceCleanupDismissArgs) => Promise<void>
+    clearDismissals: () => Promise<void>
+    hasKillableLocalProcesses: (
+      args: WorkspaceCleanupLocalProcessArgs
+    ) => Promise<WorkspaceCleanupLocalProcessResult>
   }
   workspaceSpace: {
     analyze: () => Promise<WorkspaceSpaceAnalyzeResult>

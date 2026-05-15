@@ -494,6 +494,19 @@ const api = {
     }
   },
 
+  workspaceCleanup: {
+    scan: (args?: { worktreeId?: string; skipGitWorktreeIds?: string[] }): Promise<unknown> =>
+      ipcRenderer.invoke('workspaceCleanup:scan', args),
+    dismiss: (args: { dismissals: unknown[] }): Promise<void> =>
+      ipcRenderer.invoke('workspaceCleanup:dismiss', args),
+    clearDismissals: (): Promise<void> => ipcRenderer.invoke('workspaceCleanup:clearDismissals'),
+    hasKillableLocalProcesses: (args: {
+      worktreeId: string
+      connectionId?: string | null
+      worktreePath?: string
+    }): Promise<unknown> => ipcRenderer.invoke('workspaceCleanup:hasKillableLocalProcesses', args)
+  },
+
   workspaceSpace: {
     analyze: (): Promise<WorkspaceSpaceAnalyzeResult> =>
       ipcRenderer.invoke('workspaceSpace:analyze'),
