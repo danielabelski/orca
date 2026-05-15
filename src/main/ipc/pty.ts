@@ -38,11 +38,15 @@ import {
 } from '../../shared/telemetry-events'
 import { isRemoteAgentHooksEnabled } from '../../shared/agent-hook-relay'
 import { readShellStartupEnvVar } from '../pty/shell-startup-env'
-import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import {
+  isTerminalLeafId,
+  makePaneKey,
+  parseLegacyNumericPaneKey,
+  parsePaneKey
+} from '../../shared/stable-pane-id'
 import {
   clearMigrationUnsupportedPty,
-  clearMigrationUnsupportedPtysForPaneKey,
-  setMigrationUnsupportedPty
+  clearMigrationUnsupportedPtysForPaneKey
 } from '../agent-hooks/migration-unsupported-pty-state'
 
 // ─── Provider Registry ──────────────────────────────────────────────
@@ -117,28 +121,6 @@ function parseValidPaneKey(paneKey: unknown): ReturnType<typeof parsePaneKey> {
 
 function isValidPaneKey(paneKey: unknown): paneKey is string {
   return parseValidPaneKey(paneKey) !== null
-}
-
-function parseLegacyNumericPaneKey(
-  paneKey: unknown
-): { tabId: string; numericPaneId: string } | null {
-  if (typeof paneKey !== 'string' || paneKey.length > 256) {
-    return null
-  }
-  const trimmed = paneKey.trim()
-  const delimiter = trimmed.indexOf(':')
-  if (
-    delimiter <= 0 ||
-    delimiter !== trimmed.lastIndexOf(':') ||
-    delimiter === trimmed.length - 1
-  ) {
-    return null
-  }
-  const numericPaneId = trimmed.slice(delimiter + 1)
-  if (!/^\d+$/.test(numericPaneId)) {
-    return null
-  }
-  return { tabId: trimmed.slice(0, delimiter), numericPaneId }
 }
 
 function rememberPaneKeyForPty(ptyId: string, paneKey: unknown): string | null {
@@ -462,19 +444,31 @@ export function clearProviderPtyState(id: string): void {
   openCodeHookService.clearPty(id)
   piTitlebarExtensionService.clearPty(id)
   ptySizes.delete(id)
+  const paneKey = ptyPaneKey.get(id)
+  const stillOwnsPaneKey = paneKey ? paneKeyPtyId.get(paneKey) === id : false
   // Why: drop the memory-collector registration so a dead PTY does not keep
   // trying to resolve its (now-dead) pid on every snapshot. Safe no-op for
   // PTYs that were never registered (SSH-owned).
   unregisterPty(id)
   clearMigrationUnsupportedPty(id)
+  agentHookServer.clearPaneKeyAliasesForPty(id, {
+    shouldClearStablePaneKey: (stablePaneKey) => {
+      // Why: when this PTY never rebuilt ptyPaneKey after restart, alias
+      // ownership is our only proof. Once a newer PTY owns the same stable
+      // paneKey, alias teardown must not erase that newer status.
+      const stablePaneOwner = paneKeyPtyId.get(stablePaneKey)
+      if (stablePaneOwner && stablePaneOwner !== id) {
+        return false
+      }
+      return !paneKey || (stillOwnsPaneKey && stablePaneKey === paneKey)
+    }
+  })
   rendererSerializerByPtyId.delete(id)
   // Why: the hook server's per-paneKey caches (lastPrompt / lastTool) would
   // otherwise accumulate entries for dead panes over the process lifetime.
   // Use the spawn-time paneKey mapping since the server has no other way to
   // correlate a ptyId back to its paneKey.
-  const paneKey = ptyPaneKey.get(id)
   if (paneKey) {
-    const stillOwnsPaneKey = paneKeyPtyId.get(paneKey) === id
     if (stillOwnsPaneKey) {
       agentHookServer.clearPaneState(paneKey)
       paneKeyPtyId.delete(paneKey)
@@ -1151,15 +1145,16 @@ export function registerPtyHandlers(
         isTerminalLeafId(args.leafId)
           ? makePaneKey(args.tabId, args.leafId)
           : null
+      const stablePaneKey = verifiedPaneKey ?? migrationUnsupportedPaneKey
       const baseEnv = baseEnvWithAuth
-        ? { ...baseEnvWithAuth, ...(verifiedPaneKey ? { ORCA_PANE_KEY: verifiedPaneKey } : {}) }
+        ? { ...baseEnvWithAuth, ...(stablePaneKey ? { ORCA_PANE_KEY: stablePaneKey } : {}) }
         : undefined
-      if (baseEnv && !verifiedPaneKey) {
+      if (baseEnv && !stablePaneKey) {
         // Why: ORCA_PANE_KEY crosses into shells and hook registries. Only the
         // key proven to match this spawn's tab+leaf may leave the IPC boundary.
         delete baseEnv.ORCA_PANE_KEY
       }
-      const validatedPaneKey = verifiedPaneKey
+      const validatedPaneKey = stablePaneKey
       const validatedLeafId = verifiedLeafId ?? metadataLeafId
       let env: Record<string, string> | undefined = baseEnv
       const preAllocatedHandle =
@@ -1445,24 +1440,17 @@ export function registerPtyHandlers(
       const rememberedPaneKey = validatedPaneKey
         ? rememberPaneKeyForPty(result.id, validatedPaneKey)
         : null
-      if (validatedPaneKey) {
+      if (legacySpawnPaneKey && migrationUnsupportedPaneKey) {
+        agentHookServer.registerPaneKeyAlias(
+          legacySpawnPaneKey.paneKey,
+          migrationUnsupportedPaneKey,
+          result.id
+        )
+        clearMigrationUnsupportedPtysForPaneKey(migrationUnsupportedPaneKey)
+      } else if (validatedPaneKey) {
         if (!result.isReattach) {
           clearMigrationUnsupportedPtysForPaneKey(validatedPaneKey)
         }
-      } else if (migrationUnsupportedPaneKey && legacySpawnPaneKey) {
-        // Why: old live PTYs can still carry `${tabId}:${numericPaneId}` in
-        // ORCA_PANE_KEY. Only surface a migration row when this spawn also
-        // proves the owning UUID leaf through the renderer IPC metadata.
-        setMigrationUnsupportedPty({
-          ptyId: result.id,
-          ...(typeof args.worktreeId === 'string' ? { worktreeId: args.worktreeId } : {}),
-          tabId: legacySpawnPaneKey.tabId,
-          leafId: args.leafId,
-          paneKey: migrationUnsupportedPaneKey,
-          reason: 'legacy-numeric-pane-key',
-          source: args.connectionId ? 'ssh' : 'local',
-          updatedAt: Date.now()
-        })
       }
       // Why: register local PTYs (connectionId falsy) with the memory
       // collector so it can walk each PTY's process subtree and attribute

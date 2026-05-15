@@ -1804,6 +1804,13 @@ export type PersistedTrustedOrcaHookRepo = {
 
 export type PersistedTrustedOrcaHooks = Record<string, PersistedTrustedOrcaHookRepo>
 
+export type LegacyPaneKeyAliasEntry = {
+  ptyId: string
+  legacyPaneKey: string
+  stablePaneKey: string
+  updatedAt: number
+}
+
 // ─── Persistence shape ──────────────────────────────────────────────
 export type PersistedState = {
   schemaVersion: number
@@ -1822,6 +1829,7 @@ export type PersistedState = {
   sshTargets: SshTarget[]
   sshRemotePtyLeases: SshRemotePtyLease[]
   migrationUnsupportedPtyEntries: MigrationUnsupportedPtyEntry[]
+  legacyPaneKeyAliasEntries: LegacyPaneKeyAliasEntry[]
   automations: Automation[]
   automationRuns: AutomationRun[]
   onboarding: OnboardingState

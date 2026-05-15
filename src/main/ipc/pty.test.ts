@@ -21,6 +21,7 @@ const {
   openCodeClearPtyMock,
   buildAgentHookEnvMock,
   clearAgentHookPaneStateMock,
+  registerPaneKeyAliasMock,
   piBuildPtyEnvMock,
   piClearPtyMock,
   isPwshAvailableMock,
@@ -30,7 +31,8 @@ const {
   unregisterPtyMock,
   setMigrationUnsupportedPtyMock,
   clearMigrationUnsupportedPtyMock,
-  clearMigrationUnsupportedPtysForPaneKeyMock
+  clearMigrationUnsupportedPtysForPaneKeyMock,
+  clearPaneKeyAliasesForPtyMock
 } = vi.hoisted(() => ({
   handleMock: vi.fn(),
   onMock: vi.fn(),
@@ -50,6 +52,7 @@ const {
   openCodeClearPtyMock: vi.fn(),
   buildAgentHookEnvMock: vi.fn(),
   clearAgentHookPaneStateMock: vi.fn(),
+  registerPaneKeyAliasMock: vi.fn(),
   piBuildPtyEnvMock: vi.fn(),
   piClearPtyMock: vi.fn(),
   trackMock: vi.fn(),
@@ -58,7 +61,8 @@ const {
   unregisterPtyMock: vi.fn(),
   setMigrationUnsupportedPtyMock: vi.fn(),
   clearMigrationUnsupportedPtyMock: vi.fn(),
-  clearMigrationUnsupportedPtysForPaneKeyMock: vi.fn()
+  clearMigrationUnsupportedPtysForPaneKeyMock: vi.fn(),
+  clearPaneKeyAliasesForPtyMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -101,7 +105,9 @@ vi.mock('../opencode/hook-service', () => ({
 vi.mock('../agent-hooks/server', () => ({
   agentHookServer: {
     buildPtyEnv: buildAgentHookEnvMock,
-    clearPaneState: clearAgentHookPaneStateMock
+    clearPaneState: clearAgentHookPaneStateMock,
+    registerPaneKeyAlias: registerPaneKeyAliasMock,
+    clearPaneKeyAliasesForPty: clearPaneKeyAliasesForPtyMock
   }
 }))
 
@@ -206,6 +212,7 @@ describe('registerPtyHandlers', () => {
     openCodeClearPtyMock.mockReset()
     buildAgentHookEnvMock.mockReset()
     clearAgentHookPaneStateMock.mockReset()
+    registerPaneKeyAliasMock.mockReset()
     piBuildPtyEnvMock.mockReset()
     piClearPtyMock.mockReset()
     isPwshAvailableMock.mockReset()
@@ -216,6 +223,7 @@ describe('registerPtyHandlers', () => {
     setMigrationUnsupportedPtyMock.mockReset()
     clearMigrationUnsupportedPtyMock.mockReset()
     clearMigrationUnsupportedPtysForPaneKeyMock.mockReset()
+    clearPaneKeyAliasesForPtyMock.mockReset()
     mainWindow.webContents.on.mockReset()
     mainWindow.webContents.send.mockReset()
 
@@ -2326,9 +2334,10 @@ describe('registerPtyHandlers', () => {
     }
   })
 
-  it('registers only validated stable pane keys in the local PTY memory registry', async () => {
+  it('upgrades legacy numeric pane keys when the spawn metadata proves the stable leaf', async () => {
     registerPtyHandlers(mainWindow as never)
     const leafId = '11111111-1111-4111-8111-111111111111'
+    const stablePaneKey = makePaneKey('tab-1', leafId)
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,
@@ -2340,22 +2349,17 @@ describe('registerPtyHandlers', () => {
 
     expect(registerPtyMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        paneKey: null
+        paneKey: stablePaneKey
       })
     )
-    expect(setMigrationUnsupportedPtyMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ptyId: expect.any(String),
-        worktreeId: 'wt-1',
-        tabId: 'tab-1',
-        leafId,
-        paneKey: makePaneKey('tab-1', leafId),
-        reason: 'legacy-numeric-pane-key',
-        source: 'local'
-      })
+    expect(registerPaneKeyAliasMock).toHaveBeenCalledWith(
+      'tab-1:0',
+      stablePaneKey,
+      expect.any(String)
     )
+    expect(clearMigrationUnsupportedPtysForPaneKeyMock).toHaveBeenCalledWith(stablePaneKey)
+    expect(setMigrationUnsupportedPtyMock).not.toHaveBeenCalled()
 
-    const stablePaneKey = makePaneKey('tab-1', leafId)
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,
@@ -2420,6 +2424,31 @@ describe('registerPtyHandlers', () => {
     clearProviderPtyState(second.id)
     expect(getPtyIdForPaneKey(stablePaneKey)).toBeUndefined()
     expect(clearAgentHookPaneStateMock).toHaveBeenCalledWith(stablePaneKey)
+  })
+
+  it('does not let restart-era alias cleanup clear a newer pane-key owner', async () => {
+    registerPtyHandlers(mainWindow as never)
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    const stablePaneKey = makePaneKey('tab-1', leafId)
+
+    const current = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId,
+      env: { ORCA_PANE_KEY: stablePaneKey }
+    })) as { id: string }
+
+    expect(getPtyIdForPaneKey(stablePaneKey)).toBe(current.id)
+    clearPaneKeyAliasesForPtyMock.mockClear()
+
+    clearProviderPtyState('old-pty-without-forward-pane-key')
+
+    const cleanupOptions = clearPaneKeyAliasesForPtyMock.mock.calls.find(
+      ([ptyId]) => ptyId === 'old-pty-without-forward-pane-key'
+    )?.[1]
+    expect(cleanupOptions?.shouldClearStablePaneKey(stablePaneKey)).toBe(false)
   })
 
   it('prefers args.env.SHELL and normalizes the child env after fallback', async () => {

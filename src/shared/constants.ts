@@ -322,6 +322,7 @@ export function getDefaultPersistedState(homedir: string): PersistedState {
     sshTargets: [],
     sshRemotePtyLeases: [],
     migrationUnsupportedPtyEntries: [],
+    legacyPaneKeyAliasEntries: [],
     automations: [],
     automationRuns: [],
     onboarding: getDefaultOnboardingState()
