@@ -34,6 +34,7 @@ import {
 import {
   mergeWorktree,
   parseWorktreeId,
+  areWorktreePathsEqual,
   formatWorktreeRemovalError,
   isOrphanedWorktreeError
 } from './worktree-logic'
@@ -72,6 +73,7 @@ function resolveWorktreeMetaWithDiscoveryStamp(store: Store, worktreeId: string)
 
 const loggedUnavailableSshGitProviders = new Set<string>()
 const loggedWorktreeListFailures = new Set<string>()
+const loggedMalformedWorktreeMetaKeys = new Set<string>()
 
 function warnOnce(keySet: Set<string>, key: string, message: string, error?: unknown): void {
   if (keySet.has(key)) {
@@ -102,6 +104,68 @@ function rememberLocalWorktreeRoots(
   ])
 }
 
+type SshWorktreeMetaCandidate = {
+  path: string
+  meta: WorktreeMeta
+}
+
+type SshWorktreeMetaIndex = Map<string, SshWorktreeMetaCandidate[]>
+
+function createSshWorktreeMetaIndex(entries: [string, WorktreeMeta][]): SshWorktreeMetaIndex {
+  const index: SshWorktreeMetaIndex = new Map()
+  for (const [worktreeId, meta] of entries) {
+    let parsed: { repoId: string; worktreePath: string }
+    try {
+      parsed = parseWorktreeId(worktreeId)
+    } catch (err) {
+      warnOnce(
+        loggedMalformedWorktreeMetaKeys,
+        worktreeId,
+        `[worktrees] ignoring malformed persisted worktree metadata key "${worktreeId}"`,
+        err
+      )
+      continue
+    }
+
+    const candidates = index.get(parsed.repoId) ?? []
+    candidates.push({ path: parsed.worktreePath, meta })
+    index.set(parsed.repoId, candidates)
+  }
+  return index
+}
+
+function synthesizeSshGitWorktree(repo: Repo, path: string, meta: WorktreeMeta): GitWorktreeInfo {
+  return {
+    path,
+    head: '',
+    branch: '',
+    isBare: false,
+    isMainWorktree: areWorktreePathsEqual(path, repo.path),
+    ...(meta.sparseDirectories !== undefined ||
+    meta.sparseBaseRef !== undefined ||
+    meta.sparsePresetId !== undefined
+      ? { isSparse: true }
+      : {})
+  }
+}
+
+function listDisconnectedSshWorktrees(
+  repo: Repo,
+  metaIndex: SshWorktreeMetaIndex
+): ReturnType<typeof mergeWorktree>[] {
+  const byWorktreeId = new Map<string, ReturnType<typeof mergeWorktree>>()
+  for (const candidate of metaIndex.get(repo.id) ?? []) {
+    const worktree = mergeWorktree(
+      repo.id,
+      synthesizeSshGitWorktree(repo, candidate.path, candidate.meta),
+      candidate.meta
+    )
+    byWorktreeId.delete(worktree.id)
+    byWorktreeId.set(worktree.id, worktree)
+  }
+  return [...byWorktreeId.values()]
+}
+
 export function registerWorktreeHandlers(
   mainWindow: BrowserWindow,
   store: Store,
@@ -123,6 +187,9 @@ export function registerWorktreeHandlers(
 
   ipcMain.handle('worktrees:listAll', async () => {
     const repos = store.getRepos()
+    const sshWorktreeMetaIndex = repos.some((repo) => repo.connectionId)
+      ? createSshWorktreeMetaIndex(Object.entries(store.getAllWorktreeMeta()))
+      : new Map()
 
     // Why: repos are listed in parallel so total time = slowest repo, not
     // the sum of all repos. Each listRepoWorktrees spawns `git worktree list`.
@@ -140,10 +207,20 @@ export function registerWorktreeHandlers(
                 `${repo.connectionId}:${repo.id}`,
                 `[worktrees] SSH git provider unavailable; skipping worktree list for repo "${repo.displayName}" (${repo.id}) at ${repo.path} on connection ${repo.connectionId}`
               )
-              return []
+              return listDisconnectedSshWorktrees(repo, sshWorktreeMetaIndex)
             }
             loggedUnavailableSshGitProviders.delete(`${repo.connectionId}:${repo.id}`)
-            gitWorktrees = await provider.listWorktrees(repo.path)
+            try {
+              gitWorktrees = await provider.listWorktrees(repo.path)
+            } catch (err) {
+              warnOnce(
+                loggedWorktreeListFailures,
+                `${repo.id}:${repo.path}`,
+                `[worktrees] failed to list worktrees for repo "${repo.displayName}" (${repo.id}) at ${repo.path}`,
+                err
+              )
+              return listDisconnectedSshWorktrees(repo, sshWorktreeMetaIndex)
+            }
           } else {
             gitWorktrees = await listRepoWorktrees(repo)
           }
@@ -181,6 +258,9 @@ export function registerWorktreeHandlers(
     if (!repo) {
       return []
     }
+    const sshWorktreeMetaIndex = repo.connectionId
+      ? createSshWorktreeMetaIndex(Object.entries(store.getAllWorktreeMeta()))
+      : new Map()
 
     try {
       let gitWorktrees
@@ -188,22 +268,26 @@ export function registerWorktreeHandlers(
         gitWorktrees = [createFolderWorktree(repo)]
       } else if (repo.connectionId) {
         const provider = getSshGitProvider(repo.connectionId)
-        // Why: when SSH is disconnected the provider is null. Return [] so the
-        // renderer's fetchWorktrees guard (`worktrees.length === 0 && current.length > 0`)
-        // preserves its cached worktree list. This avoids a console error on every
-        // fetchAllWorktrees cycle while the connection is being (re-)established —
-        // worktrees will be properly populated when the SSH `connected` event fires
-        // and triggers a re-fetch.
         if (!provider) {
           warnOnce(
             loggedUnavailableSshGitProviders,
             `${repo.connectionId}:${repo.id}`,
             `[worktrees] SSH git provider unavailable; skipping worktree list for repo "${repo.displayName}" (${repo.id}) at ${repo.path} on connection ${repo.connectionId}`
           )
-          return []
+          return listDisconnectedSshWorktrees(repo, sshWorktreeMetaIndex)
         }
         loggedUnavailableSshGitProviders.delete(`${repo.connectionId}:${repo.id}`)
-        gitWorktrees = await provider.listWorktrees(repo.path)
+        try {
+          gitWorktrees = await provider.listWorktrees(repo.path)
+        } catch (err) {
+          warnOnce(
+            loggedWorktreeListFailures,
+            `${repo.id}:${repo.path}`,
+            `[worktrees] failed to list worktrees for repo "${repo.displayName}" (${repo.id}) at ${repo.path}`,
+            err
+          )
+          return listDisconnectedSshWorktrees(repo, sshWorktreeMetaIndex)
+        }
       } else {
         gitWorktrees = await listRepoWorktrees(repo)
       }
