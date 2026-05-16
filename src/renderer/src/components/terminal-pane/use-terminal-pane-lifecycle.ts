@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react'
 import type { IDisposable, Terminal } from '@xterm/xterm'
 import { PaneManager } from '@/lib/pane-manager/pane-manager'
+import { resolveTerminalCursorInactiveStyle } from '@/lib/pane-manager/pane-terminal-options'
 import { useAppStore } from '@/store'
 import {
   createFilePathLinkProvider,
@@ -741,6 +742,7 @@ export function useTerminalPaneLifecycle({
       terminalOptions: () => {
         const currentSettings = settingsRef.current
         const terminalFontWeights = resolveTerminalFontWeights(currentSettings?.terminalFontWeight)
+        const cursorStyle = currentSettings?.terminalCursorStyle ?? 'bar'
         return {
           fontSize: currentSettings?.terminalFontSize ?? 14,
           fontFamily: buildFontFamily(currentSettings?.terminalFontFamily ?? ''),
@@ -753,7 +755,8 @@ export function useTerminalPaneLifecycle({
               Math.round((currentSettings?.terminalScrollbackBytes ?? 10_000_000) / 200)
             )
           ),
-          cursorStyle: currentSettings?.terminalCursorStyle ?? 'bar',
+          cursorStyle,
+          cursorInactiveStyle: resolveTerminalCursorInactiveStyle(cursorStyle),
           cursorBlink: currentSettings?.terminalCursorBlink ?? true,
           macOptionIsMeta: effectiveMacOptionAsAltRef.current === 'true',
           lineHeight: currentSettings?.terminalLineHeight ?? 1,
