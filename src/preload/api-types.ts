@@ -87,6 +87,7 @@ import type {
   UpdateStatus,
   Worktree,
   WorktreeBaseStatusEvent,
+  WorktreeLineage,
   WorktreeMeta,
   WorktreeRemoteBranchConflictEvent,
   WorktreeSetupLaunch,
@@ -586,6 +587,12 @@ export type PreloadApi = {
     }) => Promise<{ baseBranch: string } | { error: string }>
     remove: (args: { worktreeId: string; force?: boolean; skipArchive?: boolean }) => Promise<void>
     updateMeta: (args: { worktreeId: string; updates: Partial<WorktreeMeta> }) => Promise<Worktree>
+    listLineage: () => Promise<Record<string, WorktreeLineage>>
+    updateLineage: (args: {
+      worktreeId: string
+      parentWorktreeId?: string
+      noParent?: boolean
+    }) => Promise<WorktreeLineage | null>
     persistSortOrder: (args: { orderedIds: string[] }) => Promise<void>
     onChanged: (callback: (data: { repoId: string }) => void) => () => void
     onBaseStatus: (callback: (data: WorktreeBaseStatusEvent) => void) => () => void

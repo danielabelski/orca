@@ -33,6 +33,7 @@ import type {
   Repo,
   SparsePreset,
   WorktreeMeta,
+  WorktreeLineage,
   GlobalSettings,
   OnboardingChecklistState,
   OnboardingOutcome,
@@ -1112,6 +1113,7 @@ export class Store {
         result = {
           ...defaults,
           ...parsed,
+          worktreeLineageById: parsed.worktreeLineageById ?? {},
           settings: {
             ...defaults.settings,
             ...parsed.settings,
@@ -1585,6 +1587,11 @@ export class Store {
         delete this.state.worktreeMeta[key]
       }
     }
+    for (const [childId, lineage] of Object.entries(this.state.worktreeLineageById)) {
+      if (childId.startsWith(prefix) || lineage.parentWorktreeId.startsWith(prefix)) {
+        delete this.state.worktreeLineageById[childId]
+      }
+    }
     this.scheduleSave()
   }
 
@@ -1867,6 +1874,9 @@ export class Store {
   setWorktreeMeta(worktreeId: string, meta: Partial<WorktreeMeta>): WorktreeMeta {
     const existing = this.state.worktreeMeta[worktreeId] || getDefaultWorktreeMeta()
     const updated = { ...existing, ...meta }
+    if (!updated.instanceId) {
+      updated.instanceId = randomUUID()
+    }
     this.state.worktreeMeta[worktreeId] = updated
     this.scheduleSave()
     return updated
@@ -1874,6 +1884,26 @@ export class Store {
 
   removeWorktreeMeta(worktreeId: string): void {
     delete this.state.worktreeMeta[worktreeId]
+    delete this.state.worktreeLineageById[worktreeId]
+    this.scheduleSave()
+  }
+
+  getWorktreeLineage(worktreeId: string): WorktreeLineage | undefined {
+    return this.state.worktreeLineageById[worktreeId]
+  }
+
+  getAllWorktreeLineage(): Record<string, WorktreeLineage> {
+    return this.state.worktreeLineageById
+  }
+
+  setWorktreeLineage(worktreeId: string, lineage: WorktreeLineage): WorktreeLineage {
+    this.state.worktreeLineageById[worktreeId] = lineage
+    this.scheduleSave()
+    return lineage
+  }
+
+  removeWorktreeLineage(worktreeId: string): void {
+    delete this.state.worktreeLineageById[worktreeId]
     this.scheduleSave()
   }
 
@@ -2559,6 +2589,7 @@ export class Store {
 
 function getDefaultWorktreeMeta(): WorktreeMeta {
   return {
+    instanceId: randomUUID(),
     displayName: '',
     comment: '',
     linkedIssue: null,

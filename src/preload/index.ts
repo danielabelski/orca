@@ -465,6 +465,15 @@ const api = {
       updates: Record<string, unknown>
     }): Promise<unknown> => ipcRenderer.invoke('worktrees:updateMeta', args),
 
+    listLineage: (): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke('worktrees:listLineage'),
+
+    updateLineage: (args: {
+      worktreeId: string
+      parentWorktreeId?: string
+      noParent?: boolean
+    }): Promise<unknown> => ipcRenderer.invoke('worktrees:updateLineage', args),
+
     persistSortOrder: (args: { orderedIds: string[] }): Promise<void> =>
       ipcRenderer.invoke('worktrees:persistSortOrder', args),
 

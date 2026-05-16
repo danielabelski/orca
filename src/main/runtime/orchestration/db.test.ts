@@ -132,6 +132,17 @@ describe('OrchestrationDb', () => {
       expect(task.deps).toBe('[]')
     })
 
+    it('persists the creating terminal handle for task-created worktrees', () => {
+      const d = createDb()
+      const task = d.createTask({
+        spec: 'spawn related workspace',
+        createdByTerminalHandle: 'term_creator'
+      })
+
+      expect(task.created_by_terminal_handle).toBe('term_creator')
+      expect(d.getTask(task.id)?.created_by_terminal_handle).toBe('term_creator')
+    })
+
     it('creates a task with deps as pending', () => {
       const d = createDb()
       const parent = d.createTask({ spec: 'parent' })

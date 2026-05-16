@@ -36,10 +36,10 @@ function generateId(prefix: string): string {
 // Why: v1 → v2 added `'heartbeat'` to messages.type CHECK + `last_heartbeat_at`
 // column (preamble-hardening PR). v2 → v3 adds `delivered_at` column so
 // push-on-idle can distinguish queued-but-undelivered from user-acknowledged
-// messages without touching the `read` bit (check-wait PR). Bumping together
-// since both PRs ship in the same release — existing on-disk DBs must clear
-// both gaps in one atomic migration.
-const SCHEMA_VERSION = 3
+// messages without touching the `read` bit (check-wait PR). v3 → v4 records
+// the terminal that created a task so task-record worktree creation can infer
+// the parent workspace even when no dispatch context exists.
+const SCHEMA_VERSION = 4
 
 export class OrchestrationDb {
   private db: Database.Database
@@ -83,6 +83,7 @@ export class OrchestrationDb {
       CREATE TABLE IF NOT EXISTS tasks (
         id            TEXT PRIMARY KEY,
         parent_id     TEXT,
+        created_by_terminal_handle TEXT,
         spec          TEXT NOT NULL,
         status        TEXT NOT NULL DEFAULT 'pending'
           CHECK(status IN (
@@ -227,6 +228,11 @@ export class OrchestrationDb {
           this.db.exec(`ALTER TABLE messages ADD COLUMN delivered_at TEXT`)
         }
       }
+      if (current < 4) {
+        if (!this.hasColumn('tasks', 'created_by_terminal_handle')) {
+          this.db.exec(`ALTER TABLE tasks ADD COLUMN created_by_terminal_handle TEXT`)
+        }
+      }
 
       this.db.pragma(`user_version = ${SCHEMA_VERSION}`)
       this.db.exec('COMMIT')
@@ -367,14 +373,28 @@ export class OrchestrationDb {
 
   // ── Tasks ──
 
-  createTask(task: { spec: string; deps?: string[]; parentId?: string }): TaskRow {
+  createTask(task: {
+    spec: string
+    deps?: string[]
+    parentId?: string
+    createdByTerminalHandle?: string
+  }): TaskRow {
     const id = generateId('task')
     const depsJson = JSON.stringify(task.deps ?? [])
     const hasDeps = (task.deps ?? []).length > 0
     const status: TaskStatus = hasDeps ? 'pending' : 'ready'
     this.db
-      .prepare('INSERT INTO tasks (id, parent_id, spec, status, deps) VALUES (?, ?, ?, ?, ?)')
-      .run(id, task.parentId ?? null, task.spec, status, depsJson)
+      .prepare(
+        'INSERT INTO tasks (id, parent_id, created_by_terminal_handle, spec, status, deps) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .run(
+        id,
+        task.parentId ?? null,
+        task.createdByTerminalHandle ?? null,
+        task.spec,
+        status,
+        depsJson
+      )
     return this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow
   }
 

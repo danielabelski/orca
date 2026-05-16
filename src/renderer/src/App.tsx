@@ -220,6 +220,7 @@ function App(): React.JSX.Element {
       toggleSidebar: s.toggleSidebar,
       fetchRepos: s.fetchRepos,
       fetchAllWorktrees: s.fetchAllWorktrees,
+      fetchWorktreeLineage: s.fetchWorktreeLineage,
       fetchSettings: s.fetchSettings,
       initGitHubCache: s.initGitHubCache,
       refreshAllGitHub: s.refreshAllGitHub,
@@ -320,6 +321,7 @@ function App(): React.JSX.Element {
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const groupBy = useAppStore((s) => s.groupBy)
+  const showWorkspaceLineage = useAppStore((s) => s.showWorkspaceLineage)
   const sortBy = useAppStore((s) => s.sortBy)
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
   const hideDefaultBranchWorkspace = useAppStore((s) => s.hideDefaultBranchWorkspace)
@@ -408,6 +410,7 @@ function App(): React.JSX.Element {
         await actions.fetchSettings()
         await actions.fetchRepos()
         await actions.fetchAllWorktrees()
+        await actions.fetchWorktreeLineage()
         const persistedUI = await window.api.ui.get()
         uiHydrated = hydratePersistedUIAfterStartupRead({
           persistedUI,
@@ -782,6 +785,7 @@ function App(): React.JSX.Element {
         sidebarWidth,
         rightSidebarWidth,
         groupBy,
+        showWorkspaceLineage,
         sortBy,
         showActiveOnly,
         hideDefaultBranchWorkspace,
@@ -801,6 +805,7 @@ function App(): React.JSX.Element {
     sidebarWidth,
     rightSidebarWidth,
     groupBy,
+    showWorkspaceLineage,
     sortBy,
     showActiveOnly,
     hideDefaultBranchWorkspace,

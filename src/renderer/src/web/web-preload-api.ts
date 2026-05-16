@@ -11,7 +11,8 @@ import type {
   Repo,
   SearchResult,
   StatsSummary,
-  Worktree
+  Worktree,
+  WorktreeLineage
 } from '../../../shared/types'
 import {
   getDefaultOnboardingState,
@@ -323,6 +324,23 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
           ...updates
         })
       ).worktree,
+    listLineage: async () =>
+      (
+        await callRuntimeResult<{ lineage: Record<string, WorktreeLineage> }>(
+          'worktree.lineageList'
+        )
+      ).lineage,
+    updateLineage: async ({ worktreeId, parentWorktreeId, noParent }) => {
+      cachedWorktrees = null
+      const result = await callRuntimeResult<{
+        worktree: Worktree & { lineage?: WorktreeLineage | null }
+      }>('worktree.set', {
+        worktree: worktreeId,
+        parentWorktree: parentWorktreeId,
+        noParent
+      })
+      return result.worktree.lineage ?? null
+    },
     persistSortOrder: async ({ orderedIds }) => {
       await callRuntimeResult('worktree.persistSortOrder', { orderedIds })
     },

@@ -7,6 +7,7 @@ import type {
   WorkspaceCreateTelemetrySource,
   Worktree,
   WorktreeBaseStatusEvent,
+  WorktreeLineage,
   WorktreeRemoteBranchConflictEvent,
   WorktreeMeta
 } from '../../../../shared/types'
@@ -20,6 +21,7 @@ export type WorktreeDeleteState = {
 
 export type WorktreeSlice = {
   worktreesByRepo: Record<string, Worktree[]>
+  worktreeLineageById: Record<string, WorktreeLineage>
   activeWorktreeId: string | null
   deleteStateByWorktreeId: Record<string, WorktreeDeleteState>
   baseStatusByWorktreeId: Record<string, WorktreeBaseStatusEvent>
@@ -62,6 +64,11 @@ export type WorktreeSlice = {
   hasHydratedWorktreePurge: boolean
   fetchWorktrees: (repoId: string) => Promise<void>
   fetchAllWorktrees: () => Promise<void>
+  fetchWorktreeLineage: () => Promise<void>
+  updateWorktreeLineage: (
+    worktreeId: string,
+    args: { parentWorktreeId?: string; noParent?: boolean }
+  ) => Promise<void>
   createWorktree: (
     repoId: string,
     name: string,
