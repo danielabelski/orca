@@ -45,6 +45,7 @@ type WorktreeCardProps = {
   isMultiSelected?: boolean
   selectedWorktrees?: readonly Worktree[]
   hideRepoBadge?: boolean
+  hideCiCheck?: boolean
   parentLabel?: string
   lineageState?: 'valid' | 'missing'
   lineageChildCount?: number
@@ -52,8 +53,8 @@ type WorktreeCardProps = {
   lineageChildren?: React.ReactNode
   onLineageToggle?: (event: React.MouseEvent<HTMLButtonElement>) => void
   onActivate?: () => void
-  onSelectionGesture?: (event: React.MouseEvent<HTMLDivElement>, worktreeId: string) => boolean
-  onContextMenuSelect?: (event: React.MouseEvent<HTMLDivElement>) => readonly Worktree[]
+  onSelectionGesture?: (event: React.MouseEvent<HTMLElement>, worktreeId: string) => boolean
+  onContextMenuSelect?: (event: React.MouseEvent<HTMLElement>) => readonly Worktree[]
 }
 
 function formatSparseDirectoryPreview(directories: string[]): string {
@@ -71,6 +72,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   onSelectionGesture,
   onContextMenuSelect,
   hideRepoBadge,
+  hideCiCheck = false,
   parentLabel,
   lineageState,
   lineageChildCount = 0,
@@ -193,7 +195,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const status = useWorktreeActivityStatus(worktree.id)
 
   const showPR = cardProps.includes('pr')
-  const showCI = cardProps.includes('ci')
+  const showCI = !hideCiCheck && cardProps.includes('ci')
   const showIssue = cardProps.includes('issue')
 
   // Skip hosted-review fetches when the corresponding card sections are hidden.
@@ -320,9 +322,13 @@ const WorktreeCard = React.memo(function WorktreeCard({
         event.preventDefault()
         return
       }
-      writeWorkspaceDragData(event.dataTransfer, worktree.id)
+      const dragIds =
+        isMultiSelected && selectedWorktrees && selectedWorktrees.length > 1
+          ? selectedWorktrees.map((item) => item.id)
+          : worktree.id
+      writeWorkspaceDragData(event.dataTransfer, dragIds)
     },
-    [isDeleting, worktree.id]
+    [isDeleting, isMultiSelected, selectedWorktrees, worktree.id]
   )
 
   // Why: the 'unread' card property is the user's opt-out. When off, we render
@@ -483,7 +489,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
 
           <div className="flex items-center gap-1 shrink-0">
             {/* CI Checks & PR state on the right */}
-            {cardProps.includes('ci') && hostedReview && hostedReview.status !== 'neutral' && (
+            {showCI && hostedReview && hostedReview.status !== 'neutral' && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center opacity-80 hover:opacity-100 transition-opacity">
