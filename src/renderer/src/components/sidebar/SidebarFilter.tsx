@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import { Check, FolderPlus, ListFilter, Server } from 'lucide-react'
+import { Activity, Check, FolderPlus, GitBranch, ListFilter, Server } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,14 +9,18 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import RepoDotLabel from '@/components/repo/RepoDotLabel'
 import { searchRepos } from '@/lib/repo-search'
 import { cn } from '@/lib/utils'
-
-const menuItemClassName =
-  'relative flex cursor-default items-center gap-2 rounded-[7px] px-2 py-1 text-[12px] leading-5 font-medium outline-hidden select-none hover:bg-black/8 hover:text-accent-foreground focus-visible:bg-black/8 focus-visible:text-accent-foreground dark:hover:bg-white/14 dark:focus-visible:bg-white/14'
 
 const SidebarFilter = React.memo(function SidebarFilter() {
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
@@ -86,10 +90,10 @@ const SidebarFilter = React.memo(function SidebarFilter() {
   const clearRepos = useCallback(() => setFilterRepoIds([]), [setFilterRepoIds])
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -111,34 +115,33 @@ const SidebarFilter = React.memo(function SidebarFilter() {
                 </span>
               )}
             </Button>
-          </PopoverTrigger>
+          </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={6}>
           {hasAnyFilter ? 'Edit filters' : 'Filter workspaces'}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent
-        side="right"
-        align="start"
-        sideOffset={8}
-        className="w-72 rounded-[11px] border-black/14 bg-[rgba(255,255,255,0.82)] p-1 text-black shadow-[0_16px_36px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-2xl dark:border-white/14 dark:bg-[rgba(0,0,0,0.72)] dark:text-white dark:shadow-[0_20px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)]"
-      >
-        <div className="space-y-0">
-          <ToggleRow
-            label="Active only"
-            checked={showActiveOnly}
-            onClick={() => setShowActiveOnly(!showActiveOnly)}
-          />
-          <ToggleRow
-            label="Hide default branch"
-            checked={hideDefaultBranchWorkspace}
-            onClick={() => setHideDefaultBranchWorkspace(!hideDefaultBranchWorkspace)}
-          />
-        </div>
+      <DropdownMenuContent side="right" align="start" sideOffset={8} className="w-72">
+        <DropdownMenuCheckboxItem
+          checked={showActiveOnly}
+          onCheckedChange={(checked) => setShowActiveOnly(Boolean(checked))}
+          onSelect={(event) => event.preventDefault()}
+        >
+          <Activity className="size-3.5" />
+          Active only
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={hideDefaultBranchWorkspace}
+          onCheckedChange={(checked) => setHideDefaultBranchWorkspace(Boolean(checked))}
+          onSelect={(event) => event.preventDefault()}
+        >
+          <GitBranch className="size-3.5" />
+          Hide default branch
+        </DropdownMenuCheckboxItem>
 
         {canFilterRepos && (
-          <div>
-            <div className="my-1 h-px bg-border/70" />
+          <>
+            <DropdownMenuSeparator />
             <div className="flex items-center justify-between px-2 py-1">
               <span className="text-[11px] font-semibold text-muted-foreground">
                 Repositories
@@ -180,6 +183,7 @@ const SidebarFilter = React.memo(function SidebarFilter() {
                 placeholder="Search repos..."
                 value={query}
                 onValueChange={setQuery}
+                onKeyDown={(event) => event.stopPropagation()}
                 className="h-8 py-2 text-xs"
                 wrapperClassName="mx-1 rounded-[7px] border border-border/70 px-2"
                 iconClassName="h-3.5 w-3.5"
@@ -219,71 +223,35 @@ const SidebarFilter = React.memo(function SidebarFilter() {
                 })}
               </CommandList>
             </Command>
-          </div>
+          </>
         )}
 
         {hasAnyFilter && (
           <>
-            <div className="my-1 h-px bg-border/70" />
-            <button
-              type="button"
-              onClick={clearAll}
-              className={cn('w-full text-left text-muted-foreground', menuItemClassName)}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault()
+                clearAll()
+              }}
+              className="text-muted-foreground"
             >
               Reset filters
-            </button>
+            </DropdownMenuItem>
           </>
         )}
 
         {/* Why: per design, "Add project" stays visible regardless of repo
             count so users can recover from the 0/1-repo state where the
             repo section is hidden. */}
-        <div className="my-1 h-px bg-border/70" />
-        <div>
-          <button
-            type="button"
-            onClick={() => addRepo()}
-            className={cn(
-              'flex w-full items-center gap-2 text-left text-muted-foreground',
-              menuItemClassName
-            )}
-          >
-            <FolderPlus className="size-3.5" />
-            Add project
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => addRepo()} className="text-muted-foreground">
+          <FolderPlus className="size-3.5" />
+          Add project
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 })
-
-type ToggleRowProps = {
-  label: string
-  checked: boolean
-  onClick: () => void
-}
-
-function ToggleRow({ label, checked, onClick }: ToggleRowProps) {
-  // Why: the popover is not a true menu, so we use a plain button with
-  // aria-pressed rather than role="menuitemcheckbox". The visible checkmark
-  // carries the state for sighted users.
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={checked}
-      className={cn(
-        menuItemClassName,
-        'w-full pl-7 text-left',
-        checked ? 'text-foreground' : 'text-muted-foreground'
-      )}
-    >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <Check className={cn('size-4', checked ? 'opacity-100' : 'opacity-0')} />
-      </span>
-      {label}
-    </button>
-  )
-}
 
 export default SidebarFilter
