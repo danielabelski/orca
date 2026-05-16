@@ -313,6 +313,7 @@ export type EditorSlice = {
 
   // Git status cache
   gitStatusByWorktree: Record<string, GitStatusEntry[]>
+  gitIgnoredPathsByWorktree: Record<string, string[]>
   gitConflictOperationByWorktree: Record<string, GitConflictOperation>
   trackedConflictPathsByWorktree: Record<string, Record<string, GitConflictKind>>
   trackConflictPath: (worktreeId: string, path: string, conflictKind: GitConflictKind) => void
@@ -1824,6 +1825,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
 
   // Git status
   gitStatusByWorktree: {},
+  gitIgnoredPathsByWorktree: {},
   gitConflictOperationByWorktree: {},
   trackedConflictPathsByWorktree: {},
   trackConflictPath: (worktreeId, path, conflictKind) =>
@@ -1912,7 +1914,20 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       const openFilesUnchanged = nextOpenFiles === s.openFiles
       const operationUnchanged = prevOperation === status.conflictOperation
 
-      if (statusUnchanged && trackedUnchanged && openFilesUnchanged && operationUnchanged) {
+      const prevIgnored = s.gitIgnoredPathsByWorktree[worktreeId]
+      const nextIgnored = status.ignoredPaths ?? []
+      const ignoredUnchanged =
+        prevIgnored !== undefined &&
+        prevIgnored.length === nextIgnored.length &&
+        prevIgnored.every((p, i) => p === nextIgnored[i])
+
+      if (
+        statusUnchanged &&
+        trackedUnchanged &&
+        openFilesUnchanged &&
+        operationUnchanged &&
+        ignoredUnchanged
+      ) {
         return s
       }
 
@@ -1921,6 +1936,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         gitStatusByWorktree: statusUnchanged
           ? s.gitStatusByWorktree
           : { ...s.gitStatusByWorktree, [worktreeId]: nextEntries },
+        gitIgnoredPathsByWorktree: ignoredUnchanged
+          ? s.gitIgnoredPathsByWorktree
+          : { ...s.gitIgnoredPathsByWorktree, [worktreeId]: nextIgnored },
         gitConflictOperationByWorktree: operationUnchanged
           ? s.gitConflictOperationByWorktree
           : { ...s.gitConflictOperationByWorktree, [worktreeId]: status.conflictOperation },

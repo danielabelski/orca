@@ -211,6 +211,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalScrollbackBytes: 10_000_000,
     openLinksInApp: true,
     rightSidebarOpenByDefault: true,
+    showGitIgnoredFiles: true,
     showTitlebarAppName: true,
     showTasksButton: true,
     ctrlTabOrderMode: 'mru',

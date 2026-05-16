@@ -1345,6 +1345,7 @@ export type GlobalSettings = {
    *  until the user explicitly wants worktree-scoped in-app browsing. */
   openLinksInApp: boolean
   rightSidebarOpenByDefault: boolean
+  showGitIgnoredFiles?: boolean
   /** Whether to show the Orca app name in the titlebar. */
   showTitlebarAppName: boolean
   /** Why: some users do not use the Tasks feature and prefer to keep the
@@ -1970,6 +1971,7 @@ export type GitStatusResult = {
   // Why: porcelain v2 status already includes upstream/ahead/behind metadata.
   // Folding it in lets refresh polling avoid a second pair of git subprocesses.
   upstreamStatus?: GitUpstreamStatus
+  ignoredPaths?: string[]
 }
 
 // Why: when hasUpstream is false, ahead/behind are placeholder zeros, not a
