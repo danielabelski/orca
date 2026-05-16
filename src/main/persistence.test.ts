@@ -232,6 +232,135 @@ describe('Store', () => {
     expect(store.getRepos()).toHaveLength(1)
   })
 
+  it('remaps persisted agent acknowledgement pane keys when terminal leaves migrate to UUIDs', async () => {
+    const acknowledgedAt = 1_700_000_000_000
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [makeRepo()],
+      worktreeMeta: {},
+      settings: {},
+      ui: {
+        acknowledgedAgentsByPaneKey: {
+          'tab1:0': acknowledgedAt,
+          'tab1:pane:1': acknowledgedAt - 1_000,
+          'other-tab:0': acknowledgedAt - 2_000
+        }
+      },
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {
+        activeRepoId: 'r1',
+        activeWorktreeId: 'repo1::/worktree',
+        activeTabId: 'tab1',
+        tabsByWorktree: {
+          'repo1::/worktree': [
+            makeTerminalTab({
+              id: 'tab1',
+              ptyId: 'pty1',
+              worktreeId: 'repo1::/worktree'
+            })
+          ]
+        },
+        terminalLayoutsByTabId: {
+          tab1: {
+            root: {
+              type: 'split',
+              direction: 'horizontal',
+              first: { type: 'leaf', leafId: '0' },
+              second: { type: 'leaf', leafId: 'pane:1' }
+            },
+            activeLeafId: '0',
+            expandedLeafId: null,
+            ptyIdsByLeafId: { '0': 'pty1', 'pane:1': 'pty2' }
+          }
+        }
+      }
+    })
+
+    const store = await createStore()
+    const layout = store.getWorkspaceSession().terminalLayoutsByTabId.tab1
+    const migratedLeafIds = Object.keys(layout.ptyIdsByLeafId ?? {})
+
+    expect(migratedLeafIds).toHaveLength(2)
+    expect(migratedLeafIds.every(isTerminalLeafId)).toBe(true)
+
+    const ui = store.getUI()
+    expect(ui.acknowledgedAgentsByPaneKey).toEqual({
+      [makePaneKey('tab1', migratedLeafIds[0])]: acknowledgedAt,
+      [makePaneKey('tab1', migratedLeafIds[1])]: acknowledgedAt - 1_000,
+      'other-tab:0': acknowledgedAt - 2_000
+    })
+  })
+
+  it('keeps the newest acknowledgement when legacy and migrated pane keys collide', async () => {
+    const legacyAcknowledgedAt = 1_700_000_000_000
+    const migratedAcknowledgedAt = legacyAcknowledgedAt + 5_000
+    const migratedPaneKey = makePaneKey('tab1', TEST_LEAF_1)
+
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [makeRepo()],
+      worktreeMeta: {},
+      settings: {},
+      ui: {
+        acknowledgedAgentsByPaneKey: {
+          'tab1:0': legacyAcknowledgedAt,
+          [migratedPaneKey]: migratedAcknowledgedAt
+        }
+      },
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {
+        activeRepoId: 'r1',
+        activeWorktreeId: 'repo1::/worktree',
+        activeTabId: 'tab1',
+        tabsByWorktree: {
+          'repo1::/worktree': [
+            makeTerminalTab({
+              id: 'tab1',
+              ptyId: 'pty1',
+              worktreeId: 'repo1::/worktree'
+            })
+          ]
+        },
+        terminalLayoutsByTabId: {
+          tab1: {
+            root: { type: 'leaf', leafId: TEST_LEAF_1 },
+            activeLeafId: TEST_LEAF_1,
+            expandedLeafId: null,
+            ptyIdsByLeafId: { [TEST_LEAF_1]: 'pty1' }
+          }
+        }
+      }
+    })
+
+    const store = await createStore()
+    store.setWorkspaceSession({
+      activeRepoId: 'r1',
+      activeWorktreeId: 'repo1::/worktree',
+      activeTabId: 'tab1',
+      tabsByWorktree: {
+        'repo1::/worktree': [
+          makeTerminalTab({
+            id: 'tab1',
+            ptyId: 'pty1',
+            worktreeId: 'repo1::/worktree'
+          })
+        ]
+      },
+      terminalLayoutsByTabId: {
+        tab1: {
+          root: { type: 'leaf', leafId: '0' },
+          activeLeafId: '0',
+          expandedLeafId: null,
+          ptyIdsByLeafId: { '0': 'pty1' }
+        }
+      }
+    })
+
+    expect(store.getUI().acknowledgedAgentsByPaneKey).toEqual({
+      [migratedPaneKey]: migratedAcknowledgedAt
+    })
+  })
+
   it('can clear an automation back to the project default branch', async () => {
     const store = await createStore()
     store.addRepo(makeRepo({ worktreeBaseRef: 'origin/main' }))
