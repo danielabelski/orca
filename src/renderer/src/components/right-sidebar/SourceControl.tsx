@@ -1243,12 +1243,20 @@ function SourceControlInner(): React.JSX.Element {
   )
 
   const hasUnstagedChanges = grouped.unstaged.length > 0 || grouped.untracked.length > 0
+  const hasPartiallyStagedChanges = useMemo(() => {
+    if (grouped.staged.length === 0 || grouped.unstaged.length === 0) {
+      return false
+    }
+    const unstagedPaths = new Set(grouped.unstaged.map((entry) => entry.path))
+    return grouped.staged.some((entry) => unstagedPaths.has(entry.path))
+  }, [grouped.staged, grouped.unstaged])
 
   const primaryAction: PrimaryAction = useMemo(
     () =>
       resolvePrimaryAction({
         stagedCount: grouped.staged.length,
         hasUnstagedChanges,
+        hasPartiallyStagedChanges,
         hasMessage: commitMessage.trim().length > 0,
         hasUnresolvedConflicts: unresolvedConflicts.length > 0,
         isCommitting,
@@ -1263,6 +1271,7 @@ function SourceControlInner(): React.JSX.Element {
       commitMessage,
       grouped.staged.length,
       hasUnstagedChanges,
+      hasPartiallyStagedChanges,
       isCommitting,
       isRemoteOperationActive,
       inFlightRemoteOpKind,
@@ -1279,6 +1288,7 @@ function SourceControlInner(): React.JSX.Element {
       resolveDropdownItems({
         stagedCount: grouped.staged.length,
         hasUnstagedChanges,
+        hasPartiallyStagedChanges,
         hasMessage: commitMessage.trim().length > 0,
         hasUnresolvedConflicts: unresolvedConflicts.length > 0,
         isCommitting,
@@ -1293,6 +1303,7 @@ function SourceControlInner(): React.JSX.Element {
       commitMessage,
       grouped.staged.length,
       hasUnstagedChanges,
+      hasPartiallyStagedChanges,
       isCommitting,
       isRemoteOperationActive,
       inFlightRemoteOpKind,
