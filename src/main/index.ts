@@ -57,6 +57,7 @@ import { geminiHookService } from './gemini/hook-service'
 import { cursorHookService } from './cursor/hook-service'
 import { droidHookService } from './droid/hook-service'
 import { grokHookService } from './grok/hook-service'
+import { hermesHookService } from './hermes/hook-service'
 import {
   getPtyIdForPaneKey,
   registerPaneKeyTeardownListener,
@@ -434,6 +435,11 @@ const SYNTHETIC_TITLE_PROFILES: Record<string, SyntheticTitleProfile> = {
     workingLabel: 'Droid',
     permissionLabel: 'Droid - action required',
     idleLabel: 'Droid ready'
+  },
+  hermes: {
+    workingLabel: 'Hermes',
+    permissionLabel: 'Hermes - action required',
+    idleLabel: 'Hermes ready'
   }
 }
 
@@ -722,7 +728,8 @@ app.whenReady().then(async () => {
     ['gemini', () => geminiHookService.install()],
     ['cursor', () => cursorHookService.install()],
     ['droid', () => droidHookService.install()],
-    ['grok', () => grokHookService.install()]
+    ['grok', () => grokHookService.install()],
+    ['hermes', () => hermesHookService.install()]
   ])
 
   registerAppMenu({
