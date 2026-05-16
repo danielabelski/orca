@@ -56,6 +56,7 @@ import {
 } from './components/floating-terminal/FloatingTerminalPanel'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from '@/lib/floating-terminal'
 import { DictationController } from './components/dictation/DictationController'
+import { CrashReportDialog } from './components/crash-report/CrashReportDialog'
 import RecentTabSwitcher from './components/tab-bar/RecentTabSwitcher'
 import { useGitStatusPolling } from './components/right-sidebar/useGitStatusPolling'
 import { useEditorExternalWatch } from './hooks/useEditorExternalWatch'
@@ -1536,6 +1537,7 @@ function App(): React.JSX.Element {
       <ZoomOverlay />
       <SshPassphraseDialog />
       <DeleteWorktreeDialog />
+      <CrashReportDialog />
       {onboarding && shouldShowOnboarding(onboarding) ? (
         <Suspense fallback={null}>
           <OnboardingFlow onboarding={onboarding} onOnboardingChange={setOnboarding} />

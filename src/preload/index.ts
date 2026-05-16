@@ -698,6 +698,20 @@ const api = {
       ipcRenderer.invoke('feedback:submit', args)
   },
 
+  crashReports: {
+    getLatestPending: () => ipcRenderer.invoke('crashReports:getLatestPending'),
+    dismiss: (args: { reportId: string }) => ipcRenderer.invoke('crashReports:dismiss', args),
+    copyLatestDiagnostics: (args?: { reportId?: string; notes?: string }) =>
+      ipcRenderer.invoke('crashReports:copyLatestDiagnostics', args),
+    submit: (args: {
+      reportId?: string
+      notes?: string
+      submitAnonymously?: boolean
+      githubLogin: string | null
+      githubEmail: string | null
+    }) => ipcRenderer.invoke('crashReports:submit', args)
+  },
+
   export: {
     htmlToPdf: (args: {
       html: string
@@ -1985,6 +1999,11 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent) => callback()
       ipcRenderer.on('ui:openFeatureTour', listener)
       return () => ipcRenderer.removeListener('ui:openFeatureTour', listener)
+    },
+    onOpenCrashReport: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('ui:openCrashReport', listener)
+      return () => ipcRenderer.removeListener('ui:openCrashReport', listener)
     },
     onShowFeatureTourNudge: (callback: () => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent) => callback()

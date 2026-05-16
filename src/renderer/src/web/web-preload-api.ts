@@ -94,6 +94,12 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       onChanged: () => noopUnsubscribe
     } satisfies Partial<WebSettingsApi> as unknown as WebSettingsApi,
     ui: createWebUiApi(),
+    crashReports: {
+      getLatestPending: () => Promise.resolve(null),
+      dismiss: () => Promise.resolve(null),
+      copyLatestDiagnostics: () => Promise.resolve({ ok: false, error: 'Unavailable on web.' }),
+      submit: () => Promise.resolve({ ok: false, status: null, error: 'Unavailable on web.' })
+    },
     session: {
       get: () => Promise.resolve(readJson(SESSION_STORAGE_KEY, getDefaultWorkspaceSession())),
       set: async (session) => {
@@ -707,6 +713,7 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     isMaximized: () => Promise.resolve(false),
     onOpenSettings: () => noopUnsubscribe,
     onOpenFeatureTour: () => noopUnsubscribe,
+    onOpenCrashReport: () => noopUnsubscribe,
     onShowFeatureTourNudge: () => noopUnsubscribe,
     onToggleLeftSidebar: () => noopUnsubscribe,
     onToggleRightSidebar: () => noopUnsubscribe,

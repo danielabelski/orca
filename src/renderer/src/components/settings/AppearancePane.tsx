@@ -334,9 +334,7 @@ export function AppearancePane({
           </div>
           <ToggleSwitchButton
             checked={settings.showTitlebarAppName}
-            onToggle={() =>
-              updateSettings({ showTitlebarAppName: !settings.showTitlebarAppName })
-            }
+            onToggle={() => updateSettings({ showTitlebarAppName: !settings.showTitlebarAppName })}
           />
         </SearchableSetting>
       </section>

@@ -68,6 +68,7 @@ type CreateMainWindowOptions = {
    *  latch must be cleared or later window closes will be misclassified as
    *  quit attempts. */
   onQuitAborted?: () => void
+  onRendererProcessGone?: (details: Electron.RenderProcessGoneDetails) => void
   /** Why: main-process startup must register IPC handlers before the renderer
    *  begins booting, or eager renderer calls can race into missing channels. */
   deferLoad?: boolean
@@ -485,6 +486,7 @@ export function createMainWindow(
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     rendererProcessGone = true
     resetMarkdownEditorFocus()
+    opts?.onRendererProcessGone?.(details)
     console.error('[window] Renderer process gone; close confirmation will be bypassed', details)
   })
   mainWindow.webContents.on('destroyed', resetMarkdownEditorFocus)
