@@ -10,6 +10,7 @@ import {
   useWorktreeMap
 } from '@/store/selectors'
 import WorktreeCard from './WorktreeCard'
+import WorktreeCardAgents from './WorktreeCardAgents'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -102,6 +103,7 @@ type VirtualizedWorktreeViewportProps = {
   activeWorktreeId: string | null
   groupBy: WorktreeGroupBy
   showWorkspaceLineage: boolean
+  showInlineAgentCards: boolean
   repoGroupOrdering: RepoGroupOrdering
   toggleGroup: (key: string) => void
   collapsedGroups: Set<string>
@@ -211,6 +213,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   activeWorktreeId,
   groupBy,
   showWorkspaceLineage,
+  showInlineAgentCards,
   repoGroupOrdering,
   toggleGroup,
   collapsedGroups,
@@ -903,6 +906,15 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                           </Tooltip>
                         </div>
                       ) : null}
+                      {showInlineAgentCards ? (
+                        // Why: nested lineage children use this compact
+                        // renderer instead of WorktreeCard, so their inline
+                        // agent rows must be mounted here explicitly.
+                        <WorktreeCardAgents
+                          worktreeId={child.worktree.id}
+                          className="mt-1 divide-y-0"
+                        />
+                      ) : null}
                     </div>
                   </div>
                 </WorktreeContextMenu>
@@ -1581,6 +1593,7 @@ const WorktreeList = React.memo(function WorktreeList() {
       activeWorktreeId={selectedSidebarWorktreeId}
       groupBy={groupBy}
       showWorkspaceLineage={showWorkspaceLineage}
+      showInlineAgentCards={cardProps.includes('inline-agents')}
       repoGroupOrdering={repoGroupOrdering}
       toggleGroup={toggleGroup}
       collapsedGroups={collapsedGroups}
