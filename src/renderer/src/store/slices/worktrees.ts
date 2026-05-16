@@ -16,6 +16,7 @@ import {
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '../../runtime/runtime-rpc-client'
+import { getHostedReviewCacheKey } from './hosted-review'
 export type { WorktreeSlice, WorktreeDeleteState } from './worktree-helpers'
 
 function arraysShallowEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -762,6 +763,14 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   },
 
   updateWorktreeMeta: async (worktreeId, updates) => {
+    const existingWorktree = findWorktreeById(get().worktreesByRepo, worktreeId)
+    const shouldRefreshHostedReview =
+      updates.linkedPR === null && existingWorktree?.linkedPR !== null
+    const reviewRepo = shouldRefreshHostedReview
+      ? get().repos.find((repo) => repo.id === existingWorktree?.repoId)
+      : undefined
+    const reviewBranch = existingWorktree?.branch.replace(/^refs\/heads\//, '')
+
     // Why: editing a comment is meaningful interaction with the worktree.
     // Without refreshing lastActivityAt, the time-decay score has decayed
     // since the previous sort, so a re-sort causes the worktree to drop in
@@ -771,13 +780,47 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
 
     set((s) => {
       const nextWorktrees = applyWorktreeUpdates(s.worktreesByRepo, worktreeId, enriched)
-      return nextWorktrees === s.worktreesByRepo
-        ? {}
-        : { worktreesByRepo: nextWorktrees, sortEpoch: s.sortEpoch + 1 }
+      const cacheKey =
+        reviewRepo && reviewBranch
+          ? getHostedReviewCacheKey(reviewRepo.path, reviewBranch, s.settings, reviewRepo.id)
+          : null
+      const hostedReviewCache = s.hostedReviewCache ?? {}
+      if (nextWorktrees === s.worktreesByRepo && !cacheKey) {
+        return {}
+      }
+
+      const nextHostedReviewCache =
+        cacheKey && hostedReviewCache[cacheKey]
+          ? (() => {
+              const next = { ...hostedReviewCache }
+              delete next[cacheKey]
+              return next
+            })()
+          : hostedReviewCache
+
+      return {
+        ...(nextWorktrees !== s.worktreesByRepo
+          ? { worktreesByRepo: nextWorktrees, sortEpoch: s.sortEpoch + 1 }
+          : {}),
+        ...(nextHostedReviewCache !== hostedReviewCache
+          ? { hostedReviewCache: nextHostedReviewCache }
+          : {})
+      }
     })
 
     try {
       await persistWorktreeMeta(get().settings, worktreeId, enriched)
+      if (reviewRepo && reviewBranch && typeof get().fetchHostedReviewForBranch === 'function') {
+        // Why: the old cache entry may have been populated solely by linkedPR.
+        // Force a no-linked refetch so an in-flight linked lookup cannot keep
+        // showing the manually removed PR.
+        void get().fetchHostedReviewForBranch(reviewRepo.path, reviewBranch, {
+          repoId: reviewRepo.id,
+          linkedGitHubPR: null,
+          linkedGitLabMR: existingWorktree?.linkedGitLabMR ?? null,
+          force: true
+        })
+      }
     } catch (err) {
       console.error('Failed to update worktree meta:', err)
       void get().fetchWorktrees(getRepoIdFromWorktreeId(worktreeId))
