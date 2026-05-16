@@ -1680,7 +1680,7 @@ export type PersistedUIState = {
   lastActiveWorktreeId: string | null
   sidebarWidth: number
   rightSidebarWidth: number
-  groupBy: 'none' | 'repo' | 'pr-status'
+  groupBy: 'flat' | 'none' | 'repo' | 'pr-status'
   showWorkspaceLineage?: boolean
   sortBy: 'name' | 'smart' | 'recent' | 'repo'
   showActiveOnly: boolean
@@ -1698,6 +1698,13 @@ export type PersistedUIState = {
   workspaceStatuses?: WorkspaceStatusDefinition[]
   workspaceBoardOpacity?: number
   workspaceBoardCompact?: boolean
+  /** One-shot migration flag for a short-lived build that persisted the
+   *  default workspace statuses in reverse workflow order. Once stamped,
+   *  user-authored status ordering is never inferred from IDs/labels again. */
+  _workspaceStatusesDefaultOrderMigrated?: boolean
+  /** One-shot migration flag for the old default blue/violet/emerald status
+   *  visuals. Once stamped, valid user-authored colors/icons are preserved. */
+  _workspaceStatusesDefaultVisualsMigrated?: boolean
   statusBarItems: StatusBarItem[]
   statusBarVisible: boolean
   dismissedUpdateVersion: string | null

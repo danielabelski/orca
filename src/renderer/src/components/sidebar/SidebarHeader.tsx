@@ -20,6 +20,7 @@ import SidebarFilter from './SidebarFilter'
 import WorkspaceKanbanDrawer from './WorkspaceKanbanDrawer'
 
 const GROUP_BY_OPTIONS = [
+  { id: 'flat', label: 'None' },
   { id: 'none', label: 'Status' },
   { id: 'pr-status', label: 'PR' },
   { id: 'repo', label: 'Repo' }
@@ -33,7 +34,7 @@ const PROPERTY_OPTIONS: { id: WorktreeCardProperty; label: string }[] = [
   { id: 'pr', label: 'Linked PR' },
   { id: 'comment', label: 'Comment' },
   // Why: toggles the inline "Agent activity" list rendered below each
-  // workspace card body (see WorktreeCard → WorktreeCardAgents). Off hides
+  // workspace card body (see WorktreeCard -> WorktreeCardAgents). Off hides
   // the list; there is no alternate surface.
   { id: 'inline-agents', label: 'Agent activity' }
 ]
@@ -226,7 +227,7 @@ const SidebarHeader = React.memo(function SidebarHeader() {
   return (
     <>
       <div
-        className="flex h-8 items-center justify-between px-2 gap-2"
+        className="mt-2 flex h-8 items-center justify-between px-2 gap-2"
         onPointerEnter={handleWorkspaceHeaderPointerEnter}
         onPointerLeave={handleWorkspaceHeaderPointerLeave}
       >
