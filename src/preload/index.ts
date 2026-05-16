@@ -1315,6 +1315,9 @@ const api = {
       override: BrowserViewportOverride | null
     }): Promise<boolean> => ipcRenderer.invoke('browser:setViewportOverride', args),
 
+    setAnnotationViewportBridge: (args): Promise<boolean> =>
+      ipcRenderer.invoke('browser:setAnnotationViewportBridge', args),
+
     onGuestLoadFailed: (
       callback: (args: {
         browserPageId: string

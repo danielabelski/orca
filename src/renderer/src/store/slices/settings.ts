@@ -85,6 +85,7 @@ function runtimeScopedStateReset(): Partial<AppState> {
     recentlyClosedEditorTabsByWorktree: {},
     browserTabsByWorktree: {},
     browserPagesByWorkspace: {},
+    browserAnnotationsByPageId: {},
     remoteBrowserPageHandlesByPageId: {},
     activeBrowserTabId: null,
     activeBrowserTabIdByWorktree: {},
