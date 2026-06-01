@@ -545,6 +545,13 @@ const WorktreeCard = React.memo(function WorktreeCard({
     },
     [metaReview, openTaskPage, repo]
   )
+  const handleUnlinkReview = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      void updateWorktreeMeta(worktree.id, { linkedPR: null })
+    },
+    [updateWorktreeMeta, worktree.id]
+  )
   const handleOpenLinearIssueInOrca = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -629,6 +636,13 @@ const WorktreeCard = React.memo(function WorktreeCard({
         onOpenLinearIssueInOrca={linearIssue?.url ? handleOpenLinearIssueInOrca : undefined}
         onOpenReviewInOrca={
           metaReview?.url && metaReview.provider === 'github' ? handleOpenReviewInOrca : undefined
+        }
+        // Why: branch lookup can show a PR without persisted metadata. Only
+        // expose unlink when this workspace has an explicit GitHub linkedPR.
+        onUnlinkReview={
+          metaReview?.provider === 'github' && worktree.linkedPR !== null
+            ? handleUnlinkReview
+            : undefined
         }
       >
         <div className="flex shrink-0 items-center gap-1">

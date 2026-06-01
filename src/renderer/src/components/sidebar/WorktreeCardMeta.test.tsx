@@ -45,4 +45,32 @@ describe('WorktreeCardDetailsHover', () => {
     expect(markup.indexOf('feature/local-branch')).toBeLessThan(markup.indexOf('PR #456'))
     expect(markup).toContain('Fix stale GH PR')
   })
+
+  it('shows an unlink action for linked PR details when provided', () => {
+    const markup = renderToStaticMarkup(
+      <WorktreeCardDetailsHover
+        issue={null}
+        linearIssue={null}
+        review={{
+          provider: 'github',
+          number: 456,
+          title: 'Fix stale GH PR',
+          state: 'open',
+          url: 'https://github.com/acme/orca/pull/456',
+          status: 'success',
+          updatedAt: '2026-05-17T00:00:00.000Z',
+          mergeable: 'MERGEABLE'
+        }}
+        comment={null}
+        onEditIssue={vi.fn()}
+        onEditComment={vi.fn()}
+        onUnlinkReview={vi.fn()}
+      >
+        <span>Linked PR</span>
+      </WorktreeCardDetailsHover>
+    )
+
+    expect(markup).toContain('aria-label="Unlink PR"')
+    expect(markup).toContain('Unlink PR')
+  })
 })

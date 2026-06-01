@@ -6,7 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { CircleDot, ExternalLink, GitMerge, MonitorUp, Pencil, StickyNote } from 'lucide-react'
+import {
+  CircleDot,
+  ExternalLink,
+  GitMerge,
+  MonitorUp,
+  Pencil,
+  StickyNote,
+  Unlink
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { SelectedTextCopyMenu } from '@/components/SelectedTextCopyMenu'
@@ -64,6 +72,7 @@ type WorktreeCardDetailsHoverProps = WorktreeCardMetaBadgesProps & {
   onOpenGitHubIssueInOrca?: (event: React.MouseEvent) => void
   onOpenLinearIssueInOrca?: (event: React.MouseEvent) => void
   onOpenReviewInOrca?: (event: React.MouseEvent) => void
+  onUnlinkReview?: (event: React.MouseEvent) => void
 }
 
 function hasComment(comment: string | null): boolean {
@@ -275,7 +284,8 @@ export function WorktreeCardDetailsHover({
   onEditComment,
   onOpenGitHubIssueInOrca,
   onOpenLinearIssueInOrca,
-  onOpenReviewInOrca
+  onOpenReviewInOrca,
+  onUnlinkReview
 }: WorktreeCardDetailsHoverProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
   const dismissAndRun = React.useCallback(
@@ -436,6 +446,14 @@ export function WorktreeCardDetailsHover({
                     {review.url && (
                       <MetadataActionIcon label={`View on ${reviewProvider}`} href={review.url}>
                         <ExternalLink className="size-3" />
+                      </MetadataActionIcon>
+                    )}
+                    {onUnlinkReview && (
+                      <MetadataActionIcon
+                        label={`Unlink ${reviewLabel}`}
+                        onClick={dismissAndRun(onUnlinkReview)}
+                      >
+                        <Unlink className="size-3" />
                       </MetadataActionIcon>
                     )}
                   </>

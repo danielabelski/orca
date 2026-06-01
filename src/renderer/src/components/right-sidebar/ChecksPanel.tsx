@@ -1,7 +1,17 @@
 /* eslint-disable max-lines -- Why: the checks panel co-locates PR header, checks, comments,
 merge actions, and conflict state in one component to keep the data flow straightforward. */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { LoaderCircle, ExternalLink, RefreshCw, Check, X, Pencil, GitMerge } from 'lucide-react'
+import {
+  LoaderCircle,
+  RefreshCw,
+  Check,
+  X,
+  Pencil,
+  GitMerge,
+  Ellipsis,
+  Link,
+  Unlink
+} from 'lucide-react'
 import { useAppStore } from '@/store'
 import {
   mergePRCommentIntoList,
@@ -12,6 +22,12 @@ import { getGitHubPRCacheKey, getGitHubRepoCacheKey } from '@/store/slices/githu
 import { useActiveWorktree, useRepoById } from '@/store/selectors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { isFolderRepo } from '../../../../shared/repo-kind'
 import HostedReviewActions from './HostedReviewActions'
 import {
@@ -101,6 +117,88 @@ type ChecksPanelReview = Pick<
   'provider' | 'number' | 'title' | 'state' | 'url' | 'status' | 'updatedAt' | 'mergeable'
 > &
   Partial<Pick<HostedReviewInfo, 'headSha' | 'conflictSummary'>>
+
+type ChecksPanelReviewHeaderProps = {
+  review: ChecksPanelReview
+  isRefreshing: boolean
+  canUnlinkPullRequest: boolean
+  onRefresh: () => void
+  onOpenReview: () => void
+  onUnlinkPullRequest: () => void
+  onLinkAnotherPullRequest: () => void
+}
+
+export function ChecksPanelReviewHeader({
+  review,
+  isRefreshing,
+  canUnlinkPullRequest,
+  onRefresh,
+  onOpenReview,
+  onUnlinkPullRequest,
+  onLinkAnotherPullRequest
+}: ChecksPanelReviewHeaderProps): React.JSX.Element {
+  const reviewNumberLabel = review.provider === 'gitlab' ? `!${review.number}` : `#${review.number}`
+  const ReviewIcon = review.provider === 'gitlab' ? GitMerge : PullRequestIcon
+  const reviewHostLabel = review.provider === 'gitlab' ? 'GitLab' : 'GitHub'
+  const showPullRequestMenu = review.provider === 'github'
+
+  return (
+    <div className="flex items-center gap-2">
+      <ReviewIcon className="size-4 text-muted-foreground shrink-0" />
+      <button
+        type="button"
+        className="rounded px-0.5 text-[12px] font-semibold text-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        title={`Open on ${reviewHostLabel}`}
+        onClick={onOpenReview}
+      >
+        {reviewNumberLabel}
+      </button>
+      <span
+        className={cn(
+          'text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
+          prStateColor(review.state)
+        )}
+      >
+        {review.state}
+      </span>
+      <div className="flex-1" />
+      <button
+        className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50"
+        title="Refresh"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+      >
+        <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
+      </button>
+      {showPullRequestMenu && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="More PR actions"
+              title="More PR actions"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Ellipsis className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem disabled={!canUnlinkPullRequest} onSelect={onUnlinkPullRequest}>
+              <Unlink className="size-3.5" />
+              unlink PR
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onLinkAnotherPullRequest}>
+              <Link className="size-3.5" />
+              Link another PR
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  )
+}
 
 function gitHubPRToChecksPanelReview(pr: PRInfo): ChecksPanelReview {
   return {
@@ -217,6 +315,7 @@ export default function ChecksPanel(): React.JSX.Element {
   const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
+  const openModal = useAppStore((s) => s.openModal)
 
   // Why: the sidebar stays mounted when closed (for performance). Gate
   // polling on visibility so we don't fetch checks/comments in the background
@@ -1880,6 +1979,27 @@ export default function ChecksPanel(): React.JSX.Element {
     }
   }, [activeReview])
 
+  const handleUnlinkPullRequest = useCallback(() => {
+    if (!activeWorktreeId || activeReview?.provider !== 'github' || linkedPR === null) {
+      return
+    }
+    void updateWorktreeMeta(activeWorktreeId, { linkedPR: null })
+  }, [activeReview?.provider, activeWorktreeId, linkedPR, updateWorktreeMeta])
+
+  const handleLinkAnotherPullRequest = useCallback(() => {
+    if (!activeWorktreeId || !activeWorktree || activeReview?.provider !== 'github') {
+      return
+    }
+    openModal('edit-meta', {
+      worktreeId: activeWorktreeId,
+      currentDisplayName: activeWorktree.displayName,
+      currentIssue: activeWorktree.linkedIssue,
+      currentPR: activeWorktree.linkedPR ?? activeReview.number,
+      currentComment: activeWorktree.comment,
+      focus: 'pr'
+    })
+  }, [activeReview, activeWorktree, activeWorktreeId, openModal])
+
   const pushBeforeCreatePullRequest = useCallback(async (): Promise<boolean> => {
     if (!activeWorktreeId || !activeWorktree?.path) {
       return false
@@ -2277,44 +2397,20 @@ export default function ChecksPanel(): React.JSX.Element {
   }
 
   const reviewShortLabel = activeReview.provider === 'gitlab' ? 'MR' : 'PR'
-  const reviewNumberLabel =
-    activeReview.provider === 'gitlab' ? `!${activeReview.number}` : `#${activeReview.number}`
-  const ReviewIcon = activeReview.provider === 'gitlab' ? GitMerge : PullRequestIcon
-  const reviewHostLabel = activeReview.provider === 'gitlab' ? 'GitLab' : 'GitHub'
-
   return (
     <div ref={setChecksPanelContentRef} className="flex-1 overflow-auto scrollbar-sleek">
       {/* Hosted review header */}
       <div className="px-3 py-3 border-b border-border space-y-2.5">
         {/* Review number + state badge + refresh + open link */}
-        <div className="flex items-center gap-2">
-          <ReviewIcon className="size-4 text-muted-foreground shrink-0" />
-          <span className="text-[12px] font-semibold text-foreground">{reviewNumberLabel}</span>
-          <span
-            className={cn(
-              'text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
-              prStateColor(activeReview.state)
-            )}
-          >
-            {activeReview.state}
-          </span>
-          <div className="flex-1" />
-          <button
-            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50"
-            title="Refresh"
-            onClick={() => void handleRefresh()}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
-          </button>
-          <button
-            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title={`Open on ${reviewHostLabel}`}
-            onClick={handleOpenPR}
-          >
-            <ExternalLink className="size-3.5" />
-          </button>
-        </div>
+        <ChecksPanelReviewHeader
+          review={activeReview}
+          isRefreshing={isRefreshing}
+          canUnlinkPullRequest={linkedPR !== null}
+          onRefresh={() => void handleRefresh()}
+          onOpenReview={handleOpenPR}
+          onUnlinkPullRequest={handleUnlinkPullRequest}
+          onLinkAnotherPullRequest={handleLinkAnotherPullRequest}
+        />
 
         {/* Review title */}
         {editingTitle ? (
