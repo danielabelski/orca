@@ -47,6 +47,10 @@ function buildBoundaryJson(): string {
   })
 }
 
+function buildSparseNonAsciiChunk(): string {
+  return `${'a'.repeat(8_192)}ç${'a'.repeat(16_383 - 8_192)}`
+}
+
 describe('writeUtf8FileInChunksSync', () => {
   it('writes large JSON byte-identically', () => {
     const json = buildLargeJson()
@@ -65,6 +69,16 @@ describe('writeUtf8FileInChunksSync', () => {
     writeUtf8FileInChunksSync(file, json)
 
     expect(readFileSync(file)).toEqual(Buffer.from(json, 'utf8'))
+  })
+
+  it('preserves sparse non-ASCII content that Electron Buffer.from can mis-encode', () => {
+    const contents = buildSparseNonAsciiChunk()
+    const file = getTempFile('sparse-non-ascii.txt')
+
+    expect(contents).toHaveLength(16_384)
+    writeUtf8FileInChunksSync(file, contents)
+
+    expect(readFileSync(file)).toEqual(Buffer.from(contents, 'utf8'))
   })
 
   it('honors private file modes', () => {
@@ -96,5 +110,14 @@ describe('writeUtf8FileInChunks', () => {
     await writeUtf8FileInChunks(file, json)
 
     expect(readFileSync(file)).toEqual(Buffer.from(json, 'utf8'))
+  })
+
+  it('preserves sparse non-ASCII content that Electron Buffer.from can mis-encode', async () => {
+    const contents = buildSparseNonAsciiChunk()
+    const file = getTempFile('sparse-non-ascii-async.txt')
+
+    await writeUtf8FileInChunks(file, contents)
+
+    expect(readFileSync(file)).toEqual(Buffer.from(contents, 'utf8'))
   })
 })

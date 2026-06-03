@@ -1,9 +1,12 @@
 import { closeSync, openSync, writeSync } from 'node:fs'
 import { open, type FileHandle } from 'node:fs/promises'
 
-// Why 16K code units: JS string slicing is code-unit based. This keeps each
-// UTF-8 Buffer comfortably below 64KiB even for non-ASCII JSON content.
-const UTF8_WRITE_CHUNK_CODE_UNITS = 16_384
+const UTF8_WRITE_BUFFER_BYTES = 16 * 1024
+const REPLACEMENT_CHARACTER = 0xfffd
+const HIGH_SURROGATE_START = 0xd800
+const HIGH_SURROGATE_END = 0xdbff
+const LOW_SURROGATE_START = 0xdc00
+const LOW_SURROGATE_END = 0xdfff
 
 type Utf8FileWriteOptions = {
   readonly mode?: number
@@ -14,8 +17,8 @@ type Utf8FileWriteOptions = {
  *
  * Why not writeFile/writeFileSync(path, contents): Electron's bundled Node can
  * abort the process when encoding a large string to UTF-8 in one filesystem
- * write. Each slice is encoded to a small Buffer first, so fs never receives a
- * large string and surrogate pairs stay intact.
+ * write. It can also mis-encode some sparse non-ASCII strings through
+ * Buffer.from(), so this path encodes small byte buffers manually.
  */
 export async function writeUtf8FileInChunks(
   path: string,
@@ -47,11 +50,8 @@ export function writeUtf8FileInChunksSync(
 }
 
 export function writeUtf8StringToFdInChunksSync(fd: number, contents: string): void {
-  let index = 0
-  while (index < contents.length) {
-    const end = getNextChunkEnd(contents, index)
-    writeBufferFullySync(fd, Buffer.from(contents.slice(index, end), 'utf8'))
-    index = end
+  for (const chunk of encodeUtf8Chunks(contents)) {
+    writeBufferFullySync(fd, chunk)
   }
 }
 
@@ -59,11 +59,8 @@ async function writeUtf8StringToHandleInChunks(
   handle: FileHandle,
   contents: string
 ): Promise<void> {
-  let index = 0
-  while (index < contents.length) {
-    const end = getNextChunkEnd(contents, index)
-    await writeBufferFully(handle, Buffer.from(contents.slice(index, end), 'utf8'))
-    index = end
+  for (const chunk of encodeUtf8Chunks(contents)) {
+    await writeBufferFully(handle, chunk)
   }
 }
 
@@ -75,13 +72,89 @@ function openPathForWriteSync(path: string, options: Utf8FileWriteOptions): numb
   return options.mode === undefined ? openSync(path, 'w') : openSync(path, 'w', options.mode)
 }
 
-function getNextChunkEnd(contents: string, index: number): number {
-  let end = Math.min(index + UTF8_WRITE_CHUNK_CODE_UNITS, contents.length)
-  const lastUnit = contents.charCodeAt(end - 1)
-  if (end < contents.length && lastUnit >= 0xd800 && lastUnit <= 0xdbff) {
-    end -= 1
+function* encodeUtf8Chunks(contents: string): Generator<Buffer> {
+  const buffer = Buffer.allocUnsafe(UTF8_WRITE_BUFFER_BYTES)
+  let offset = 0
+
+  const reserve = (byteCount: number): Buffer | null => {
+    if (offset + byteCount <= buffer.length) {
+      return null
+    }
+    const chunk = buffer.subarray(0, offset)
+    offset = 0
+    return chunk
   }
-  return end
+
+  for (let index = 0; index < contents.length; index++) {
+    const firstCodeUnit = contents.charCodeAt(index)
+
+    if (firstCodeUnit < 0x80) {
+      const chunk = reserve(1)
+      if (chunk) {
+        yield chunk
+      }
+      buffer[offset++] = firstCodeUnit
+      continue
+    }
+
+    if (firstCodeUnit < 0x800) {
+      const chunk = reserve(2)
+      if (chunk) {
+        yield chunk
+      }
+      buffer[offset++] = 0xc0 | (firstCodeUnit >> 6)
+      buffer[offset++] = 0x80 | (firstCodeUnit & 0x3f)
+      continue
+    }
+
+    if (firstCodeUnit >= HIGH_SURROGATE_START && firstCodeUnit <= HIGH_SURROGATE_END) {
+      const secondCodeUnit = contents.charCodeAt(index + 1)
+      if (secondCodeUnit >= LOW_SURROGATE_START && secondCodeUnit <= LOW_SURROGATE_END) {
+        const codePoint =
+          0x10000 +
+          ((firstCodeUnit - HIGH_SURROGATE_START) << 10) +
+          (secondCodeUnit - LOW_SURROGATE_START)
+        index++
+        const chunk = reserve(4)
+        if (chunk) {
+          yield chunk
+        }
+        buffer[offset++] = 0xf0 | (codePoint >> 18)
+        buffer[offset++] = 0x80 | ((codePoint >> 12) & 0x3f)
+        buffer[offset++] = 0x80 | ((codePoint >> 6) & 0x3f)
+        buffer[offset++] = 0x80 | (codePoint & 0x3f)
+        continue
+      }
+      const chunk = reserve(3)
+      if (chunk) {
+        yield chunk
+      }
+      writeThreeByteCodePoint(buffer, offset, REPLACEMENT_CHARACTER)
+      offset += 3
+      continue
+    }
+
+    const codePoint =
+      firstCodeUnit >= LOW_SURROGATE_START && firstCodeUnit <= LOW_SURROGATE_END
+        ? REPLACEMENT_CHARACTER
+        : firstCodeUnit
+    const chunk = reserve(3)
+    if (chunk) {
+      yield chunk
+    }
+    writeThreeByteCodePoint(buffer, offset, codePoint)
+    offset += 3
+  }
+
+  if (offset > 0) {
+    yield buffer.subarray(0, offset)
+  }
+}
+
+function writeThreeByteCodePoint(buffer: Buffer, offset: number, codePoint: number): void {
+  buffer[offset] = 0xe0 | (codePoint >> 12)
+  buffer[offset + 1] = 0x80 | ((codePoint >> 6) & 0x3f)
+  buffer[offset + 2] = 0x80 | (codePoint & 0x3f)
 }
 
 function writeBufferFullySync(fd: number, buffer: Buffer): void {
