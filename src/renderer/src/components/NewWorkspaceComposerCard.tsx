@@ -51,6 +51,7 @@ import SparseCheckoutPresetSelect from '@/components/sparse/SparseCheckoutPreset
 import SmartWorkspaceNameField, {
   type SmartWorkspaceNameSelection
 } from '@/components/new-workspace/SmartWorkspaceNameField'
+import type { SmartNameMode } from '@/components/new-workspace/smart-workspace-source-results'
 import ProjectCombobox from '@/components/new-workspace/ProjectCombobox'
 import type { SetupConfig } from '@/lib/new-workspace'
 import type { NewWorkspaceProjectOption } from '@/lib/new-workspace-project-options'
@@ -107,6 +108,7 @@ type NewWorkspaceComposerCardProps = {
   onSmartGitHubItemSelect: (item: GitHubWorkItem) => void
   onSmartGitLabItemSelect: (item: GitLabWorkItem) => void
   onSmartBranchSelect: (refName: string, localBranchName: string) => void
+  onSmartNameModeChange?: (mode: SmartNameMode) => void
   onSmartLinearIssueSelect: (issue: LinearIssue) => void
   smartNameSelection: SmartWorkspaceNameSelection | null
   onClearSmartNameSelection: () => void
@@ -571,6 +573,7 @@ export default function NewWorkspaceComposerCard({
   onSmartGitHubItemSelect,
   onSmartGitLabItemSelect,
   onSmartBranchSelect,
+  onSmartNameModeChange,
   onSmartLinearIssueSelect,
   smartNameSelection,
   onClearSmartNameSelection,
@@ -956,6 +959,7 @@ export default function NewWorkspaceComposerCard({
             repoBackedSearchRepos={repoBackedSearchRepos}
             allowCrossRepoProjectAdd={allowSmartNameAddProject}
             crossRepoSwitchTarget={smartNameRepoSwitchTarget}
+            onActiveSourceModeChange={onSmartNameModeChange}
             onPlainEnter={() => {
               // Why: Enter on the workspace name advances focus to the next
               // field (Agent combobox) rather than submitting, letting the user
