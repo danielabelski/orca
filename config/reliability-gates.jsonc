@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-11",
+  "updatedAt": "2026-07-12",
   "policy": {
     "maturityLevels": [
       "experimental",
@@ -16,6 +16,107 @@
     }
   },
   "gates": [
+    {
+      "id": "editor.live-log-append-stability",
+      "title": "Long live session logs retain their Monaco viewport while appending",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "editor-runtime",
+      "layer": "renderer-electron-contract",
+      "surfaces": ["Agent Session History View Log", "Monaco external-content reconciliation", "renderer crash containment"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local"],
+      "coverageNotes": "Focused tests and real-Monaco 9/50 MiB benchmarks are platform-independent. Local macOS Electron evidence opens a synthetic 9 MiB transcript through Agent Session History at fixed 900x720 viewport, 13px font, 1x zoom, and the measured 2,775,880px legacy-failure geometry, then verifies three five-second-cadence watcher appends with Find open and closed. Live Windows/Linux evidence remains uncollected.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/8432"],
+      "invariant": "Append-only external file growth changes only Monaco's model suffix, retaining the viewport, selection, Find state, and renderer liveness above the append point; arbitrary rewrites continue to replace the model content.",
+      "oracle": "Focused tests assert one post-mount content owner, actual outer lifecycle remount ordering across retained path models, exact end-of-model suffix edits with one model read, no-op equality, and full replacement for non-appends. With Node forced GC, real-Monaco benchmarks alternate 30 suffix and 30 replacement samples after five warmups on fresh equivalent models at 9 and 50 MiB, forcing GC and event-loop settlement between every arm. The Electron scenario alternates an e2e-only legacy setValue red control and the fixed watcher append from restored equivalent model/geometry at the measured legacy-failure cadence, asserting that the control disrupts anchor state while the fixed path preserves visible ranges, selection, complete Find state, scroll offset, renderer survival, and forced-GC heap/native-memory budgets.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/editor/monaco-content-sync.test.ts src/renderer/src/components/editor/MonacoEditor.content-owner.test.tsx src/renderer/src/components/editor/EditorContent.monaco-lifecycle.test.tsx",
+        "node --expose-gc ./node_modules/vitest/vitest.mjs bench src/renderer/src/components/editor/monaco-content-sync.bench.ts --pool=threads",
+        "pnpm run test:e2e -- tests/e2e/agent-session-log-tail-stability.spec.ts --workers=1"
+      ],
+      "testFiles": [
+        "src/renderer/src/components/editor/monaco-content-sync.test.ts",
+        "src/renderer/src/components/editor/MonacoEditor.content-owner.test.tsx",
+        "src/renderer/src/components/editor/EditorContent.monaco-lifecycle.test.tsx",
+        "src/renderer/src/components/editor/monaco-content-sync.bench.ts",
+        "tests/e2e/agent-session-log-tail-stability.spec.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/components/editor/monaco-content-sync.test.ts",
+          "assertions": [
+            "append-only drift reads the current model once and inserts only at the previous model end",
+            "identical content emits no edit and non-append drift retains full replacement plus undo stops",
+            "a stale retained target model reconciles on mount without explicit undo stops while prior-path content and undo history remain isolated"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/editor/MonacoEditor.content-owner.test.tsx",
+          "assertions": ["the Monaco wrapper receives defaultValue and no controlled value prop"]
+        },
+        {
+          "file": "src/renderer/src/components/editor/EditorContent.monaco-lifecycle.test.tsx",
+          "assertions": ["a same-pane path switch unmounts the prior outer Monaco before real mount reconciliation refreshes the stale target; the prior retained model content and undo sentinel remain untouched"]
+        },
+        {
+          "file": "src/renderer/src/components/editor/monaco-content-sync.bench.ts",
+          "assertions": ["with forced GC and deterministic settlement between every arm, fresh real-Monaco 9 MiB and 50 MiB models alternate 30 append and 30 replacement samples after five warmups; append p95 stays below 50/100ms and at least 2x faster"]
+        },
+        {
+          "file": "tests/e2e/agent-session-log-tail-stability.spec.ts",
+          "assertions": [
+            "production Agent Session History opens a synthetic 9 MiB View Log at the measured 2,775,880px legacy-failure geometry",
+            "an executable e2e-only legacy setValue control disrupts selection/Find/anchor state at each fixed-geometry five-second sample, then restores the equivalent model state before the fixed arm",
+            "three alternating watcher suffix appends preserve visible ranges, selection, scroll offset, Find open/query/active-match state, and exact suffix content",
+            "the renderer remains responsive with no render-process-gone event and forced-GC JS-heap/working-set/private-memory peak and retained budgets hold against paired legacy controls"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/editor/monaco-content-sync.test.ts src/renderer/src/components/editor/MonacoEditor.content-owner.test.tsx src/renderer/src/components/editor/EditorContent.monaco-lifecycle.test.tsx",
+          "result": "passed",
+          "durationSeconds": 5,
+          "summary": "Focused editor ownership, edit-shape, mount reconciliation, lifecycle-key, and actual same-pane retained-model remount tests passed."
+        },
+        {
+          "date": "2026-07-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "node --expose-gc ./node_modules/vitest/vitest.mjs bench src/renderer/src/components/editor/monaco-content-sync.bench.ts --pool=threads",
+          "result": "passed",
+          "durationSeconds": 75,
+          "summary": "Forced-GC, settled, alternating fresh-model Monaco p95: 9 MiB append 4.02-5.51ms versus replacement 81.42-83.76ms; 50 MiB append 22.72-26.60ms versus replacement 445.11-449.21ms."
+        },
+        {
+          "date": "2026-07-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm run test:e2e -- tests/e2e/agent-session-log-tail-stability.spec.ts --workers=1",
+          "result": "passed",
+          "durationSeconds": 78,
+          "summary": "The production View Log journey alternated retained e2e-only legacy-red controls with fixed appends from restored equivalent state; every control detected instability while the fixed path retained viewport, selection, complete Find state, renderer liveness, and normalized forced-GC/native memory budgets."
+        }
+      ],
+      "runtimeBudget": { "p95Seconds": 600, "scope": "local focused renderer tests plus one Electron production-journey scenario" },
+      "flakeHistory": { "status": "unknown", "evidence": "New deterministic gate with local macOS passes; CI soak history is not yet available." },
+      "redGreenEvidence": { "status": "complete", "evidence": "The retained Electron gate itself executes the former read-only wrapper setValue behavior behind MODE=e2e at fixed 900x720, 13px, 1x zoom, 2,775,880px content height, and five-second cadence. The control retains a flat incoming value like the former controlled IPC prop. Each legacy arm must disrupt selection, Find active-match state, visible range, or scroll anchor, then restore identical model length/tail/geometry and anchor state before the fixed watcher arm; every fixed arm must preserve them. Production builds never install the control. The original exact-file dev repro also recorded renderer exit code 5." },
+      "performanceBudget": { "required": true, "evidence": "Every update retrieves the model value once and performs at most one equality-or-prefix comparison; a matching append submits only the suffix. The registered Node command requires --expose-gc and --pool=threads so worker GC is available; alternating fresh real-Monaco arms force GC and deterministic event-loop settlement after every operation. Observed p95 ranges: 9 MiB append 4.02-5.51ms versus replacement 81.42-83.76ms; 50 MiB append 22.72-26.60ms versus replacement 445.11-449.21ms. Electron alternates each legacy replacement control and fixed watcher suffix from equivalent restored model state/geometry, samples forced-GC JS heap plus app.getAppMetrics renderer working set and OS private memory before/after/settled, asserts retained memory within max(20MiB,10%), and requires suffix peak deltas for jsHeapMb, workingSetMb, and privateMb not exceed the paired legacy controls." },
+      "promotionCriteria": [
+        "Collect stable soak history on macOS, Linux, and Windows.",
+        "Accumulate 100 consecutive deterministic gate passes or 14 days without unexplained flakes."
+      ],
+      "knownGaps": [
+        "No live Windows or Linux View Log evidence yet."
+      ],
+      "demotionRule": "Quarantine the Electron scenario if it flakes without a product or harness bug; demote if viewport/Find drift, renderer loss, p95 regression, or memory retention exceeds the registered budgets."
+    },
     {
       "id": "terminal-session.snapshot-freshness",
       "title": "Stale liveness snapshots cannot close newer PTY bindings",
