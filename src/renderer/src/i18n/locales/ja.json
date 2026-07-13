@@ -73,6 +73,7 @@
     "matchLabel": {
       "comment": "コメント",
       "issue": "Issue",
+      "mr": "MR",
       "port": "ポート",
       "pr": "PR"
     }

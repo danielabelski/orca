@@ -73,6 +73,7 @@
     "matchLabel": {
       "comment": "댓글",
       "issue": "이슈",
+      "mr": "MR",
       "port": "포트",
       "pr": "PR"
     }

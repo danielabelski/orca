@@ -73,6 +73,7 @@
     "matchLabel": {
       "comment": "评论",
       "issue": "议题",
+      "mr": "MR",
       "port": "端口",
       "pr": "PR"
     }

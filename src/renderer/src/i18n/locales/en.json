@@ -73,6 +73,7 @@
     "matchLabel": {
       "comment": "Comment",
       "issue": "Issue",
+      "mr": "MR",
       "port": "Port",
       "pr": "PR"
     }
