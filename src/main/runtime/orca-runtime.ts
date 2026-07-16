@@ -1236,7 +1236,7 @@ type RuntimePtyController = {
   serializeBuffer?(
     ptyId: string,
     opts?: { scrollbackRows?: number; altScreenForcesZeroRows?: boolean }
-  ): Promise<{ data: string; cols: number; rows: number; lastTitle?: string } | null>
+  ): Promise<{ data: string; cols: number; rows: number; seq?: number; lastTitle?: string } | null>
   /** Authoritative provider-owned snapshot for restored PTYs with no mounted renderer. */
   serializeProviderBuffer?(
     ptyId: string,
@@ -1246,6 +1246,13 @@ type RuntimePtyController = {
   // hydration when no renderer is authoritative for this PTY. See
   // docs/mobile-prefer-renderer-scrollback.md.
   hasRendererSerializer?(ptyId: string): boolean
+  getRendererSerializerGeneration?(ptyId: string): number
+  waitForRendererSerializer?(
+    ptyId: string,
+    afterGeneration: number,
+    timeoutMs?: number,
+    signal?: AbortSignal
+  ): Promise<boolean>
   getSize?(ptyId: string): { cols: number; rows: number } | null
 }
 
@@ -3301,7 +3308,13 @@ export class OrcaRuntimeService {
       }
 
       if (existing && (existing.ptyId !== ptyId || existing.ptyGeneration !== ptyGeneration)) {
-        this.invalidateLeafHandle(leafKey)
+        // Why: mobile can subscribe while the pane is waiting for its first PTY.
+        // Keep that handle usable after the recovery mount binds it.
+        const adoptedFirstPty =
+          existing.ptyId === null && this.adoptFirstPtyForLeafHandle(leafKey, ptyId, ptyGeneration)
+        if (!adoptedFirstPty) {
+          this.invalidateLeafHandle(leafKey)
+        }
       }
     }
 
@@ -6960,9 +6973,9 @@ export class OrcaRuntimeService {
     data: string
     cols: number
     rows: number
+    seq?: number
     cwd?: string | null
     lastTitle?: string
-    seq?: number
     source?: 'headless' | 'renderer'
     oscLinks?: TerminalOscLinkRange[]
     alternateScreen?: boolean
@@ -6972,6 +6985,10 @@ export class OrcaRuntimeService {
     return this.serializeTerminalBufferFromAvailableState(ptyId, opts)
   }
 
+  hasHeadlessTerminalState(ptyId: string): boolean {
+    return this.headlessTerminals.has(ptyId)
+  }
+
   serializeMainTerminalBuffer(
     ptyId: string,
     opts: { scrollbackRows?: number } = {}
@@ -6979,9 +6996,9 @@ export class OrcaRuntimeService {
     data: string
     cols: number
     rows: number
+    seq?: number
     cwd?: string | null
     lastTitle?: string
-    seq?: number
     source?: 'headless' | 'renderer'
     oscLinks?: TerminalOscLinkRange[]
     alternateScreen?: boolean
@@ -7417,13 +7434,14 @@ export class OrcaRuntimeService {
       : rendererSnapshot
   }
 
-  private async serializeRendererTerminalBuffer(
+  async serializeRendererTerminalBuffer(
     ptyId: string,
     opts: { scrollbackRows?: number } = {}
   ): Promise<{
     data: string
     cols: number
     rows: number
+    seq?: number
     cwd?: string | null
     lastTitle?: string
     source?: 'renderer'
@@ -7436,6 +7454,7 @@ export class OrcaRuntimeService {
       data: string
       cols: number
       rows: number
+      seq?: number
       cwd?: string | null
       lastTitle?: string
       oscLinks?: TerminalOscLinkRange[]
@@ -19219,6 +19238,88 @@ export class OrcaRuntimeService {
     })
   }
 
+  // Why: never-mounted tabs have no attached PTY or mobile snapshot; synthetic
+  // handles need the ptyId so the renderer can mount the exact owning tab.
+  requestRendererTerminalTabMount(handle: string): boolean {
+    const record = this.handles.get(handle)
+    if (!record?.worktreeId) {
+      return false
+    }
+    const tabId = record.tabId.startsWith('pty:') ? undefined : record.tabId
+    const ptyId = record.ptyId ?? undefined
+    if (!tabId && !ptyId) {
+      return false
+    }
+    try {
+      this.getAuthoritativeWindow().webContents.send('terminal:requestTabMount', {
+        worktreeId: record.worktreeId,
+        ...(tabId ? { tabId } : {}),
+        ...(ptyId ? { ptyId } : {})
+      })
+      return true
+    } catch {
+      // No authoritative window (shutdown/headless): the subscribe keeps its
+      // existing empty-snapshot fallback.
+      return false
+    }
+  }
+
+  getRendererTerminalSerializerGeneration(ptyId: string): number {
+    return this.ptyController?.getRendererSerializerGeneration?.(ptyId) ?? 0
+  }
+
+  getRendererTerminalSerializerGenerationForHandle(handle: string): number {
+    const ptyId = this.handles.get(handle)?.ptyId
+    return ptyId ? this.getRendererTerminalSerializerGeneration(ptyId) : 0
+  }
+
+  replaceHeadlessTerminalFromRendererSnapshotForRecovery(
+    ptyId: string,
+    snapshot: {
+      data: string
+      cols: number
+      rows: number
+      cwd?: string | null
+      oscLinks?: TerminalOscLinkRange[]
+    },
+    trailingOutput: { data: string; seq: number }[] = []
+  ): void {
+    if (!snapshot.data) {
+      return
+    }
+    // Why: a redraw byte can create a suffix-only model before the restored
+    // renderer settles. Replace it with the exact snapshot already sent mobile.
+    this.providerSnapshotPreferredPtys.add(ptyId)
+    this.disposeHeadlessTerminal(ptyId)
+    this.seedHeadlessTerminal(
+      ptyId,
+      snapshot.data,
+      { cols: snapshot.cols, rows: snapshot.rows },
+      { cwd: snapshot.cwd, oscLinks: snapshot.oscLinks }
+    )
+    for (const chunk of trailingOutput) {
+      this.trackHeadlessTerminalData(ptyId, chunk.data, chunk.seq)
+    }
+    // The seed's write chain already owns subsequent live bytes; suppress the
+    // ordinary on-data hydration path from replacing this known-good seed.
+    this.headlessHydrationState.set(ptyId, 'done')
+  }
+
+  waitForRendererTerminalSerializer(
+    ptyId: string,
+    afterGeneration: number,
+    timeoutMs?: number,
+    signal?: AbortSignal
+  ): Promise<boolean> {
+    return this.ptyController?.waitForRendererSerializer?.(
+      ptyId,
+      afterGeneration,
+      timeoutMs,
+      signal
+    ) ??
+      Promise.resolve(false)
+  }
+
   // Why: a leaf appears in the graph before its PTY spawns. If we issue a
   // handle while ptyId is null, the next graph sync after PTY spawn will
   // change ptyId and invalidate the handle. Wait for a connected PTY so
@@ -22515,6 +22616,20 @@ export class OrcaRuntimeService {
     this.handleByLeafKey.delete(leafKey)
     this.handles.delete(handle)
     this.rejectWaitersForHandle(handle, 'terminal_handle_stale')
+  }
+
+  private adoptFirstPtyForLeafHandle(
+    leafKey: string,
+    ptyId: string | null,
+    ptyGeneration: number
+  ): boolean {
+    const handle = this.handleByLeafKey.get(leafKey)
+    const record = handle ? this.handles.get(handle) : null
+    if (!handle || !record || record.ptyId !== null || ptyId === null) {
+      return false
+    }
+    this.handles.set(handle, { ...record, ptyId, ptyGeneration })
+    return true
   }
 
   private rememberDetachedPreAllocatedLeaves(): void {

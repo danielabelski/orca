@@ -225,6 +225,7 @@ function resolveMockPaneWindowsShiftEnterEncoding(
 }
 
 type ConnectCallbacks = {
+  onConnect?: () => void
   onData?: (
     data: string,
     meta?: { seq?: number; rawLength?: number; background?: boolean; droppedOutput?: boolean }
@@ -866,7 +867,8 @@ describe('connectPanePty', () => {
           sendSerializedBuffer: vi.fn(),
           declarePendingPaneSerializer: vi.fn().mockResolvedValue(1),
           settlePaneSerializer: vi.fn().mockResolvedValue(undefined),
-          clearPendingPaneSerializer: vi.fn().mockResolvedValue(undefined)
+          clearPendingPaneSerializer: vi.fn().mockResolvedValue(undefined),
+          reportRendererSerializerReady: vi.fn().mockResolvedValue(undefined)
         },
         platform: {
           get: vi.fn(() => ({ platform: 'win32', osRelease: '10.0.26100' }))
@@ -13565,8 +13567,10 @@ describe('connectPanePty', () => {
   it('attaches remote runtime PTY handles instead of creating a replacement terminal', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
-    transport.attach.mockImplementation(() => {
+    transport.attach.mockImplementation(({ callbacks }: { callbacks?: ConnectCallbacks }) => {
       transport.getPtyId.mockReturnValue('remote:env-1@@terminal-1')
+      callbacks?.onReplayData?.('restored remote prompt $ ')
+      callbacks?.onConnect?.()
     })
     transportFactoryQueue.push(transport)
 
@@ -13582,10 +13586,12 @@ describe('connectPanePty', () => {
     } as StoreState
 
     const pane = createPane(2)
+    pane.terminal.write.mockImplementation((_data: string, callback?: () => void) => callback?.())
     const manager = createManager(2)
     const deps = createDeps()
 
     connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks()
 
     expect(transport.connect).not.toHaveBeenCalled()
     expect(transport.attach).toHaveBeenCalledWith(
@@ -13593,6 +13599,60 @@ describe('connectPanePty', () => {
     )
     expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'remote:env-1@@terminal-1')
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(2, 'remote:env-1@@terminal-1')
+    await vi.waitFor(() =>
+      expect(window.api.pty.reportRendererSerializerReady).toHaveBeenCalledWith(
+        'remote:env-1@@terminal-1'
+      )
+    )
+  })
+
+  it('reports remote renderer readiness only after delayed restore output is parsed', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    let remoteCallbacks: ConnectCallbacks | undefined
+    transport.attach.mockImplementation(
+      ({ callbacks }: { callbacks?: ConnectCallbacks }) => {
+        transport.getPtyId.mockReturnValue('remote:env-1@@terminal-delayed')
+        remoteCallbacks = callbacks
+      }
+    )
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'remote:terminal-delayed' }]
+      },
+      settings: {
+        ...mockStoreState.settings,
+        activeRuntimeEnvironmentId: 'env-1'
+      }
+    } as StoreState
+    const pane = createPane(2)
+    const { writes, parseCallbacks } = captureCallbackTerminalWrites(pane)
+
+    connectPanePty(pane as never, createManager(2) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(window.api.pty.reportRendererSerializerReady).not.toHaveBeenCalled()
+
+    remoteCallbacks?.onReplayData?.('delayed restored prompt $ ')
+    remoteCallbacks?.onConnect?.()
+    await vi.waitFor(() => expect(parseCallbacks.length).toBeGreaterThan(0))
+    expect(window.api.pty.reportRendererSerializerReady).not.toHaveBeenCalled()
+
+    for (let step = 0; step < 10; step += 1) {
+      await vi.waitFor(() => expect(parseCallbacks.length).toBeGreaterThan(0))
+      parseCallbacks.shift()?.()
+      await flushAsyncTicks()
+      if (vi.mocked(window.api.pty.reportRendererSerializerReady!).mock.calls.length > 0) {
+        break
+      }
+    }
+    expect(writes.join('')).toContain('delayed restored prompt $ ')
+    await vi.waitFor(() =>
+      expect(window.api.pty.reportRendererSerializerReady).toHaveBeenCalledWith(
+        'remote:env-1@@terminal-delayed'
+      )
+    )
   })
 
   it('cold-spawns slept remote runtime PTYs instead of reattaching the preserved handle', async () => {
@@ -13612,6 +13672,9 @@ describe('connectPanePty', () => {
           | ((ptyId: string) => void)
           | undefined
         onPtySpawn?.(freshPtyId)
+        const connectCallbacks = callbacks as ConnectCallbacks | undefined
+        connectCallbacks?.onReplayData?.('shell ready\r\n')
+        connectCallbacks?.onConnect?.()
         return freshPtyId
       }
     )
@@ -13646,6 +13709,7 @@ describe('connectPanePty', () => {
     } as StoreState
 
     const pane = createPane(1)
+    pane.terminal.write.mockImplementation((_data: string, callback?: () => void) => callback?.())
     const manager = createManager(1)
     const deps = createDeps({
       restoredLeafId: LEAF_1,
@@ -13685,6 +13749,7 @@ describe('connectPanePty', () => {
     expect(deps.clearTabPtyId).toHaveBeenCalledWith('tab-1', restoredPtyId)
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, freshPtyId)
     expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', freshPtyId)
+    expect(window.api.pty.reportRendererSerializerReady).toHaveBeenCalledWith(freshPtyId)
     expect(transport.sendInput).not.toHaveBeenCalled()
     expect(mockStoreState.clearSleepingAgentSession).toHaveBeenCalledWith(paneKey)
   })
@@ -15813,7 +15878,9 @@ describe('connectPanePty', () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
     transport.connect.mockImplementation(async (opts: { sessionId?: string }) => {
-      return { id: opts.sessionId ?? 'pty-new', replay: 'restored-ssh-output' }
+      const id = opts.sessionId ?? 'pty-new'
+      transport.getPtyId.mockReturnValue(id)
+      return { id, replay: 'restored-ssh-output' }
     })
     transportFactoryQueue.push(transport)
 
@@ -15826,6 +15893,7 @@ describe('connectPanePty', () => {
     }
 
     const pane = createPane(1)
+    const { writes, parseCallbacks } = captureCallbackTerminalWrites(pane)
     const manager = createManager(1)
     const deps = createDeps({
       restoredLeafId: LEAF_1,
@@ -15834,6 +15902,15 @@ describe('connectPanePty', () => {
 
     connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks(20)
+
+    const settlePaneSerializer = vi.mocked(window.api.pty.settlePaneSerializer)
+    expect(parseCallbacks.length).toBeGreaterThan(0)
+    expect(settlePaneSerializer).not.toHaveBeenCalled()
+    for (let step = 0; step < 20 && settlePaneSerializer.mock.calls.length === 0; step += 1) {
+      parseCallbacks.shift()?.()
+      await flushAsyncTicks()
+    }
+    expect(settlePaneSerializer).toHaveBeenCalledWith(expect.any(String), 1)
 
     const api = (
       globalThis as unknown as {
@@ -15855,12 +15932,9 @@ describe('connectPanePty', () => {
     // Why: the relay's replay buffer holds the full terminal history, so the
     // client clears xterm before writing to prevent duplication with any
     // content already in the terminal from a prior session.
-    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[2J\x1b[3J\x1b[H', expect.any(Function))
-    expect(pane.terminal.write).toHaveBeenCalledWith('restored-ssh-output', expect.any(Function))
-    expect(pane.terminal.write).toHaveBeenCalledWith(
-      POST_REPLAY_REATTACH_RESET,
-      expect.any(Function)
-    )
+    expect(writes).toContain('\x1b[2J\x1b[3J\x1b[H')
+    expect(writes).toContain('restored-ssh-output')
+    expect(writes).toContain(POST_REPLAY_REATTACH_RESET)
     expect(api.pty.signal).toHaveBeenCalledWith('leaf-session', 'SIGWINCH')
   })
 

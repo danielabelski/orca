@@ -98,7 +98,11 @@ import {
 } from '../../../../shared/terminal-color-scheme-protocol'
 import { warnTerminalLifecycleAnomaly } from './terminal-lifecycle-diagnostics'
 import { subscribeToTerminalUserInput } from './terminal-user-input-signal'
-import { registerPtySerializer, registerPtyTitleSource } from './pty-buffer-serializer'
+import {
+  hasPtySerializer,
+  registerPtySerializer,
+  registerPtyTitleSource
+} from './pty-buffer-serializer'
 import { getRemoteRuntimePtyEnvironmentId } from '@/runtime/runtime-terminal-stream'
 import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
 import {
@@ -4020,7 +4024,10 @@ export function connectPanePty(
             return {
               data,
               cols: pane.terminal.cols,
-              rows: pane.terminal.rows
+              rows: pane.terminal.rows,
+              ...(rendererOrderedPtyId === ptyId && rendererOrderedSeq !== null
+                ? { seq: rendererOrderedSeq }
+                : {})
             }
           } catch {
             return null
@@ -4041,6 +4048,47 @@ export function connectPanePty(
         unregisterSerializer()
         origOnDataDisposableDispose()
       }
+    }
+
+    let replayWriteQueue = Promise.resolve()
+    const settlePaneSerializerAfterReplay = async (
+      ptyId: string,
+      generation: number
+    ): Promise<void> => {
+      try {
+        await replayWriteQueue
+        if (disposed || transport.getPtyId() !== ptyId) {
+          await window.api.pty.clearPendingPaneSerializer(cacheKey, generation).catch(() => {})
+          return
+        }
+        await waitForTerminalOutputParsed(pane.terminal)
+        if (!disposed && transport.getPtyId() === ptyId) {
+          await window.api.pty.settlePaneSerializer(cacheKey, generation)
+          return
+        }
+      } catch {
+        // Clear below so a failed parser/replay cannot leave the pane generation pending.
+      }
+      await window.api.pty.clearPendingPaneSerializer(cacheKey, generation).catch(() => {})
+    }
+    const reportRemoteRendererSerializerReady = (): void => {
+      const ptyId = transport.getPtyId()
+      if (!ptyId || !isRemoteRuntimePtyId(ptyId)) {
+        return
+      }
+      if (!hasPtySerializer(ptyId)) {
+        registerPaneSerializerFor(ptyId)
+      }
+      // Why: onSubscribed follows the snapshot callback, but replay drains
+      // asynchronously; join it and xterm's parser before reporting readiness.
+      void replayWriteQueue
+        .then(() => waitForTerminalOutputParsed(pane.terminal))
+        .then(() => {
+          if (!disposed && transport.getPtyId() === ptyId) {
+            void window.api.pty.reportRendererSerializerReady?.(ptyId)
+          }
+        })
+        .catch(() => {})
     }
 
     // Why: for ordinary local startup commands, the local PTY provider already
@@ -4462,6 +4510,7 @@ export function connectPanePty(
         ...(coldRestoreOverride ? { launchAgent: coldRestoreOverride.agent } : {}),
         ...(shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
         callbacks: {
+          onConnect: reportRemoteRendererSerializerReady,
           onData: dataCallback,
           onReplayData: replayDataCallback,
           onError: reportError
@@ -4529,9 +4578,14 @@ export function connectPanePty(
             reconcilePtySizeAfterSpawn(resolvedPtyId, cols, rows)
           }
           const gen = await preSignalPromise
-          if (typeof gen === 'number' && resolvedPtyId) {
-            if (!isRemoteRuntimePtyId(resolvedPtyId)) {
+          if (
+            resolvedPtyId &&
+            (typeof gen === 'number' || isRemoteRuntimePtyId(resolvedPtyId))
+          ) {
+            if (!isRemoteRuntimePtyId(resolvedPtyId) || !hasPtySerializer(resolvedPtyId)) {
               registerPaneSerializerFor(resolvedPtyId)
+            }
+            if (typeof gen === 'number') {
               void window.api.pty.settlePaneSerializer(cacheKey, gen).catch(() => {})
             }
           } else if (typeof gen === 'number') {
@@ -4778,7 +4832,6 @@ export function connectPanePty(
       })
     }
 
-    let replayWriteQueue = Promise.resolve()
     type PendingReplayData = {
       data: string
       clearBeforeReplay: boolean
@@ -7117,6 +7170,7 @@ export function connectPanePty(
               ...(coldRestoreStartup?.agent ? { launchAgent: coldRestoreStartup.agent } : {}),
               ...(shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
               callbacks: {
+                onConnect: reportRemoteRendererSerializerReady,
                 onData: dataCallback,
                 onReplayData: replayDataCallback,
                 onError: (message) => {
@@ -7165,7 +7219,17 @@ export function connectPanePty(
                 const gen = await preSignalPromise
                 if (typeof gen === 'number') {
                   if (!isRemoteRuntimePtyId(pendingSessionId)) {
-                    void window.api.pty.settlePaneSerializer(cacheKey, gen).catch(() => {})
+                    const settledPtyId =
+                      result && typeof result === 'object' && 'id' in result
+                        ? result.id
+                        : (transport.getPtyId() ?? pendingSessionId)
+                    const hasRestorePayload =
+                      result &&
+                      typeof result === 'object' &&
+                      ('snapshot' in result || 'replay' in result || 'coldRestore' in result)
+                    await (hasRestorePayload
+                      ? settlePaneSerializerAfterReplay(settledPtyId, gen)
+                      : window.api.pty.settlePaneSerializer(cacheKey, gen))
                   }
                 }
               })
@@ -7311,6 +7375,7 @@ export function connectPanePty(
         ...(coldRestoreStartup?.agent ? { launchAgent: coldRestoreStartup.agent } : {}),
         ...(shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
         callbacks: {
+          onConnect: reportRemoteRendererSerializerReady,
           onData: dataCallback,
           onReplayData: replayDataCallback,
           onError: (message) => {
@@ -7355,7 +7420,17 @@ export function connectPanePty(
           const gen = await preSignalPromise
           if (typeof gen === 'number') {
             if (!isRemoteRuntimePtyId(deferredReattachSessionId)) {
-              void window.api.pty.settlePaneSerializer(cacheKey, gen).catch(() => {})
+              const settledPtyId =
+                result && typeof result === 'object' && 'id' in result
+                  ? result.id
+                  : (transport.getPtyId() ?? deferredReattachSessionId)
+              const hasRestorePayload =
+                result &&
+                typeof result === 'object' &&
+                ('snapshot' in result || 'replay' in result || 'coldRestore' in result)
+              await (hasRestorePayload
+                ? settlePaneSerializerAfterReplay(settledPtyId, gen)
+                : window.api.pty.settlePaneSerializer(cacheKey, gen))
             }
           }
         })
@@ -7414,6 +7489,7 @@ export function connectPanePty(
           cols,
           rows,
           callbacks: {
+            onConnect: reportRemoteRendererSerializerReady,
             onData: dataCallback,
             onReplayData: replayDataCallback,
             onError: reportError
@@ -7424,7 +7500,7 @@ export function connectPanePty(
           updateTabPtyId: 'if-missing',
           sampleVisibleForegroundAgent: true
         })
-        if (attachPtyId === eagerLivePtyId) {
+        if (attachPtyId === eagerLivePtyId || isRemoteRuntimePtyId(attachedPtyId)) {
           registerPaneSerializerFor(attachedPtyId)
         }
       } catch (err) {
@@ -7470,6 +7546,7 @@ export function connectPanePty(
               cols,
               rows,
               callbacks: {
+                onConnect: reportRemoteRendererSerializerReady,
                 onData: dataCallback,
                 onReplayData: replayDataCallback,
                 onError: reportError

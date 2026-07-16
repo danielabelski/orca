@@ -1142,7 +1142,7 @@ const api = {
 
     sendSerializedBuffer: (
       requestId: string,
-      snapshot: { data: string; cols: number; rows: number; lastTitle?: string } | null
+      snapshot: { data: string; cols: number; rows: number; seq?: number; lastTitle?: string } | null
     ): void => {
       ipcRenderer.send('pty:serializeBuffer:response', { requestId, snapshot })
     },
@@ -1160,6 +1160,9 @@ const api = {
 
     clearPendingPaneSerializer: (paneKey: string, gen: number): Promise<void> =>
       ipcRenderer.invoke('pty:clearPendingPaneSerializer', { paneKey, gen }),
+
+    reportRendererSerializerReady: (ptyId: string): Promise<void> =>
+      ipcRenderer.invoke('pty:reportRendererSerializerReady', { ptyId }),
 
     management: {
       listSessions: () => ipcRenderer.invoke('pty:management:listSessions'),
@@ -3515,6 +3518,16 @@ const api = {
       ) => callback(data)
       ipcRenderer.on('terminal:requestTabCreate', listener)
       return () => ipcRenderer.removeListener('terminal:requestTabCreate', listener)
+    },
+    onRequestTerminalTabMount: (
+      callback: (data: { worktreeId: string; tabId?: string; ptyId?: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { worktreeId: string; tabId?: string; ptyId?: string }
+      ) => callback(data)
+      ipcRenderer.on('terminal:requestTabMount', listener)
+      return () => ipcRenderer.removeListener('terminal:requestTabMount', listener)
     },
     replyTerminalCreate: (reply: {
       requestId: string

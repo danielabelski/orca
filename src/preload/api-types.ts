@@ -1411,11 +1411,12 @@ export type PreloadApi = {
     onClearBufferRequest: (callback: (data: { ptyId: string }) => void) => () => void
     sendSerializedBuffer: (
       requestId: string,
-      snapshot: { data: string; cols: number; rows: number; lastTitle?: string } | null
+      snapshot: { data: string; cols: number; rows: number; seq?: number; lastTitle?: string } | null
     ) => void
     declarePendingPaneSerializer: (paneKey: string) => Promise<number>
     settlePaneSerializer: (paneKey: string, gen: number) => Promise<void>
     clearPendingPaneSerializer: (paneKey: string, gen: number) => Promise<void>
+    reportRendererSerializerReady?: (ptyId: string) => Promise<void>
     management: PtyManagementApi
   }
   feedback: {
@@ -2843,6 +2844,9 @@ export type PreloadApi = {
     ) => () => void
     onRequestTerminalCreate: (
       callback: (data: RuntimeTerminalCreateRequestPayload) => void
+    ) => () => void
+    onRequestTerminalTabMount: (
+      callback: (data: { worktreeId: string; tabId?: string; ptyId?: string }) => void
     ) => () => void
     replyTerminalCreate: (reply: {
       requestId: string

@@ -8178,6 +8178,28 @@ describe('OrcaRuntimeService', () => {
     )
   })
 
+  it('replaces suffix-only headless state with the recovered renderer snapshot', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    runtime.seedHeadlessTerminal('pty-1', 'suffix-only redraw', { cols: 80, rows: 24 })
+
+    runtime.replaceHeadlessTerminalFromRendererSnapshotForRecovery('pty-1', {
+      data: 'restored history\r\nprompt $ ',
+      cols: 80,
+      rows: 24,
+      cwd: '/projects/restored'
+    })
+    runtime.onPtyData('pty-1', 'after recovery\r\n', 100)
+
+    const snapshot = await runtime.serializeMainTerminalBuffer('pty-1', {
+      scrollbackRows: 100
+    })
+    expect(snapshot?.data).toContain('restored history')
+    expect(snapshot?.data).toContain('after recovery')
+    expect(snapshot?.data).not.toContain('suffix-only redraw')
+    expect(snapshot?.cwd).toBe('/projects/restored')
+  })
+
   it('adopts OSC7 host metadata from seeded headless terminal scrollback', async () => {
     const runtime = createRuntime()
     syncSinglePty(runtime, 'pty-1')
