@@ -188,6 +188,12 @@ export default defineConfig({
           // Why: forked with ELECTRON_RUN_AS_NODE so @parcel/watcher faults
           // can't take down the main process (issue #7547).
           'parcel-watcher-process-entry': resolve('src/main/ipc/parcel-watcher-process-entry.ts'),
+          // Why: run under ELECTRON_RUN_AS_NODE while the caller blocks on
+          // spawnSync — codex app-server trust grants need a live event loop
+          // but must finish before a Codex pane launch proceeds.
+          'codex/codex-app-server-grant-entry': resolve(
+            'src/main/codex/codex-app-server-grant-entry.ts'
+          ),
           // Why: electron-vite cleans out/main in dev. The dev CLI imports
           // this path for `orca agent hooks ...`, so it must survive rebuilds.
           'agent-hooks/managed-agent-hook-controls': resolve(

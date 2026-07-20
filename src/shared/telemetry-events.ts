@@ -363,6 +363,28 @@ const agentErrorSchema = z
 // Why: daemon start-failure signal (fleet-wide outage like v1.4.129-rc.1); enum-only so raw stderr never reaches the wire.
 const daemonStartFailedSchema = z.object({ error_class: errorClassSchema }).strict()
 
+// Rollout signal for granting Codex hook trust via codex app-server RPCs
+// instead of Orca's self-computed trusted_hash. `fallback`/`verify_failed`
+// spikes mean the RPC lane is not taking; steady-state ledger skips are not
+// reported (they would only measure launch volume).
+const codexTrustGrantSchema = z
+  .object({
+    outcome: z.enum(['granted', 'fallback', 'verify_failed']),
+    host_kind: z.enum(['native', 'wsl']),
+    fallback_reason: z
+      .enum([
+        'disabled',
+        'no-managed-entries',
+        'unsupported',
+        'unsupported-cached',
+        'verify-failed',
+        'retry-cached',
+        'error'
+      ])
+      .optional()
+  })
+  .strict()
+
 const settingsChangedSchema = z
   .object({
     setting_key: settingsChangedKeySchema,
@@ -1260,6 +1282,8 @@ export const eventSchemas = {
   agent_hook_unattributed: agentHookUnattributedSchema,
 
   daemon_start_failed: daemonStartFailedSchema,
+
+  codex_trust_grant: codexTrustGrantSchema,
 
   settings_changed: settingsChangedSchema,
 

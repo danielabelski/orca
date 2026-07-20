@@ -390,6 +390,26 @@ describe('ai vault resume command runtime', () => {
     ).toBe("cd '/home/alice/repo' && CODEX_HOME='/home/alice/.codex' codex 'resume' 'session one'")
   })
 
+  it('deletes inherited Codex homes when resuming a real-home session', () => {
+    const state = makeState({ worktreePath: '/home/alice/repo' })
+
+    expect(
+      buildAiVaultResumeStartupForWorktree({
+        state,
+        worktreeId: 'repo-1::worktree-1',
+        session: {
+          agent: 'codex',
+          sessionId: 'session one',
+          cwd: '/home/alice/repo',
+          codexHome: null
+        }
+      })
+    ).toMatchObject({
+      command: "Set-Location -LiteralPath '/home/alice/repo'; codex 'resume' 'session one'",
+      envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME']
+    })
+  })
+
   it('returns the remote resume command verbatim for non-local host sessions', () => {
     const state = makeState({ worktreePath: '/home/alice/repo' })
     state.repos = [{ id: 'repo-1', path: '/home/alice/repo', connectionId: 'ssh-1' }] as never
@@ -407,7 +427,10 @@ describe('ai vault resume command runtime', () => {
           resumeCommand: "CODEX_HOME='/root/.codex' codex resume 'session one'"
         }
       })
-    ).toEqual({ command: "CODEX_HOME='/root/.codex' codex resume 'session one'" })
+    ).toEqual({
+      command: "CODEX_HOME='/root/.codex' codex resume 'session one'",
+      envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME']
+    })
   })
 
   it('bypasses the resume pipeline even when the command override is blank', () => {

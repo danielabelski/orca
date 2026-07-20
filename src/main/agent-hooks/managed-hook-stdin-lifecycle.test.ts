@@ -1,12 +1,32 @@
 // Why: stdin ownership is a cross-agent process contract; one executable
 // matrix catches an unread early exit without duplicating template assertions.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type * as osModule from 'node:os'
+
+let isolatedUserDataDir = ''
+let previousUserDataPath: string | undefined
+
+beforeEach(() => {
+  previousUserDataPath = process.env.ORCA_USER_DATA_PATH
+  isolatedUserDataDir = mkdtempSync(join(tmpdir(), 'orca-hook-stdin-user-data-'))
+  // Why: Orca-managed Codex hooks resolve through ORCA_USER_DATA_PATH before
+  // the mocked home; an inherited live path would let this test rewrite them.
+  process.env.ORCA_USER_DATA_PATH = isolatedUserDataDir
+})
+
+afterEach(() => {
+  if (previousUserDataPath === undefined) {
+    delete process.env.ORCA_USER_DATA_PATH
+  } else {
+    process.env.ORCA_USER_DATA_PATH = previousUserDataPath
+  }
+  rmSync(isolatedUserDataDir, { recursive: true, force: true })
+})
 
 function findGitBash(): string {
   if (process.env.KIMI_SHELL_PATH) {

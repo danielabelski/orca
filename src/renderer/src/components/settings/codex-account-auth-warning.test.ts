@@ -77,6 +77,19 @@ describe('codex account auth warning', () => {
     ).toBeNull()
   })
 
+  it('does not mislabel an API-key system default as needing re-authentication', () => {
+    expect(
+      getCodexAccountAuthWarning({
+        limits: codexLimits('chatgpt authentication required to read rate limits'),
+        target: { runtime: 'host', wslDistro: null },
+        runtime: { runtime: 'host' },
+        activeAccountId: null,
+        accountId: null,
+        authKind: 'api-key'
+      })
+    ).toBeNull()
+  })
+
   it('allows a WSL default account location to receive the active WSL target warning', () => {
     expect(
       codexRateLimitTargetMatchesAccountRuntime(

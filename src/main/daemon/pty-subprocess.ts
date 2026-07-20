@@ -114,6 +114,25 @@ export type PtySubprocessOptions = {
   terminalWindowsPowerShellImplementation?: 'auto' | 'powershell.exe' | 'pwsh.exe'
 }
 
+function deleteRequestedDaemonEnvKeys(
+  env: Record<string, string>,
+  keys: readonly string[] | undefined
+): void {
+  // Why: the persistent daemon's inherited env can differ from Electron's.
+  // Compare ownership here so real-home routing neither leaks an Orca overlay
+  // nor deletes a user-owned CODEX_HOME chosen by the daemon's host context.
+  const deleteOrcaOwnedCodexHome =
+    keys?.includes('ORCA_CODEX_HOME') === true &&
+    env.ORCA_CODEX_HOME !== undefined &&
+    env.CODEX_HOME === env.ORCA_CODEX_HOME
+  for (const key of keys ?? []) {
+    delete env[key]
+  }
+  if (deleteOrcaOwnedCodexHome) {
+    delete env.CODEX_HOME
+  }
+}
+
 /**
  * Returns a stable default working directory for daemon-spawned PTYs.
  */
@@ -544,9 +563,7 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
     FORCE_HYPERLINK: '1'
   } as Record<string, string>
   composeGuardedDaemonGitConfigEnv(env, opts.env, opts.launchAgent)
-  for (const key of opts.envToDelete ?? []) {
-    delete env[key]
-  }
+  deleteRequestedDaemonEnvKeys(env, opts.envToDelete)
   if (opts.env?.TERM) {
     env.TERM = opts.env.TERM
   }
@@ -690,10 +707,9 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       addOrcaWslInteropEnv(env)
     }
   } else {
-    // Why: relay-side launch modes can ask for host defaults to stay scrubbed even after normalization above.
-    for (const key of opts.envToDelete ?? []) {
-      delete env[key]
-    }
+    // Why: relay-side launch modes can ask for host defaults to stay scrubbed
+    // even after environment normalization above.
+    deleteRequestedDaemonEnvKeys(env, opts.envToDelete)
     if (opts.env?.TERM) {
       env.TERM = opts.env.TERM
     }

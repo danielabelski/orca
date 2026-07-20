@@ -144,6 +144,36 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       agentArgs: '--model opus',
       agentEnv: { ANTHROPIC_BASE_URL: 'http://localhost:3000' }
     })
+    // Only bare real-home Codex resumes request env deletion.
+    expect(launch.envToDelete).toBeUndefined()
+  })
+
+  it('deletes inherited Codex homes when resuming a real-home session like desktop', () => {
+    // Regression: a user agentDefaultEnv CODEX_HOME (or a stale daemon-
+    // inherited home) must not reroute a bare real-home resume typed into the
+    // created pane; desktop already strips the pair at pane spawn.
+    const launch = buildMobileAiVaultResumeLaunch({
+      session: session({ agent: 'codex', sessionId: 'codex-1', codexHome: null }),
+      hostPlatform: 'darwin',
+      settings: {
+        agentDefaultEnv: { codex: { CODEX_HOME: '/Users/ada/.codex-pinned' } }
+      }
+    })
+    expect(launch.command).not.toContain('CODEX_HOME=')
+    expect(launch.envToDelete).toEqual(['CODEX_HOME', 'ORCA_CODEX_HOME'])
+  })
+
+  it('keeps managed-home Codex resumes free of env deletion', () => {
+    const launch = buildMobileAiVaultResumeLaunch({
+      session: session({
+        agent: 'codex',
+        sessionId: 'codex-1',
+        codexHome: '/Users/ada/.orca/codex-runtime-home/home'
+      }),
+      hostPlatform: 'darwin'
+    })
+    expect(launch.command).toContain("CODEX_HOME='/Users/ada/.orca/codex-runtime-home/home'")
+    expect(launch.envToDelete).toBeUndefined()
   })
 })
 
@@ -161,6 +191,7 @@ describe('resumeAiVaultSessionInTerminal', () => {
       resumeAiVaultSessionInTerminal({ sendRequest }, 'worktree-1', {
         command: 'claude --resume abc',
         env: { ANTHROPIC_BASE_URL: 'http://localhost:3000' },
+        envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME'],
         launchConfig: {
           agentCommand: 'claude',
           agentArgs: '',
@@ -176,6 +207,7 @@ describe('resumeAiVaultSessionInTerminal', () => {
       {
         worktree: 'id:worktree-1',
         env: { ANTHROPIC_BASE_URL: 'http://localhost:3000' },
+        envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME'],
         launchConfig: {
           agentCommand: 'claude',
           agentArgs: '',

@@ -2,6 +2,7 @@ import type {
   ProviderRateLimits,
   RateLimitRuntimeTarget
 } from '../../../../shared/rate-limit-types'
+import type { CodexSystemDefaultIdentity } from '../../../../shared/types'
 import { isCodexAuthError } from '../../../../shared/codex-auth-errors'
 
 type AccountRuntime = {
@@ -28,7 +29,13 @@ export function getCodexAccountAuthWarning(args: {
   runtime: AccountRuntime
   activeAccountId: string | null
   accountId: string | null
+  authKind?: CodexSystemDefaultIdentity['authKind']
 }): string | null {
+  // Why: app-server reports API-key homes as a ChatGPT-auth error because
+  // usage is unsupported; that is not a stale sign-in the user can re-auth.
+  if (args.accountId === null && args.authKind === 'api-key') {
+    return null
+  }
   if (args.accountId !== args.activeAccountId) {
     return null
   }

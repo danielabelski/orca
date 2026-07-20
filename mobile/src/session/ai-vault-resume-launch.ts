@@ -1,7 +1,8 @@
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
 import {
   buildAiVaultResumeCommand,
-  buildAiVaultResumeShellCommand
+  buildAiVaultResumeShellCommand,
+  realHomeCodexResumeEnvDeletion
 } from '../../../src/shared/ai-vault-types'
 import { isResumableTuiAgent } from '../../../src/shared/agent-session-resume'
 import type { SleepingAgentLaunchConfig } from '../../../src/shared/agent-session-resume'
@@ -71,6 +72,7 @@ export type MobileAiVaultResumeSettings = {
 export type MobileAiVaultResumeLaunch = {
   command: string
   env?: Record<string, string>
+  envToDelete?: string[]
   launchConfig?: SleepingAgentLaunchConfig
   launchAgent?: TuiAgent
 }
@@ -111,6 +113,9 @@ export function buildMobileAiVaultResumeLaunch(args: {
           shell
         }),
         ...(startupPlan.env ? { env: startupPlan.env } : {}),
+        // Why: the resume command is typed into the created pane, so the bare
+        // real-home override must strip Codex homes at pane spawn like desktop.
+        ...realHomeCodexResumeEnvDeletion(args.session),
         launchConfig: startupPlan.launchConfig,
         launchAgent: startupPlan.agent
       }
@@ -122,7 +127,8 @@ export function buildMobileAiVaultResumeLaunch(args: {
       hostPlatform: args.hostPlatform,
       hostTerminalWindowsShell: args.hostTerminalWindowsShell,
       commandOverride
-    })
+    }),
+    ...realHomeCodexResumeEnvDeletion(args.session)
   }
 }
 
@@ -155,6 +161,7 @@ export async function resumeAiVaultSessionInTerminal(
     {
       worktree: `id:${worktreeId}`,
       ...(launch.env ? { env: launch.env } : {}),
+      ...(launch.envToDelete ? { envToDelete: launch.envToDelete } : {}),
       ...(launch.launchConfig ? { launchConfig: launch.launchConfig } : {}),
       ...(launch.launchAgent ? { launchAgent: launch.launchAgent } : {}),
       ...(launch.clientMutationId ? { clientMutationId: launch.clientMutationId } : {})
