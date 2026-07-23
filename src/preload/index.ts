@@ -1064,6 +1064,12 @@ const api = {
       return () => ipcRenderer.removeListener('pty:exit', listener)
     },
 
+    onSpawned: (callback: (data: { id: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: { id: string }) => callback(data)
+      ipcRenderer.on('pty:spawned', listener)
+      return () => ipcRenderer.removeListener('pty:spawned', listener)
+    },
+
     onSerializeBufferRequest: (
       callback: (data: {
         requestId: string

@@ -1458,6 +1458,7 @@ export type PreloadApi = {
     onExit: (
       callback: (data: { id: string; code: number; preserveRendererBinding?: boolean }) => void
     ) => () => void
+    onSpawned: (callback: (data: { id: string }) => void) => () => void
     onSerializeBufferRequest: (
       callback: (data: {
         requestId: string

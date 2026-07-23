@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-20",
+  "updatedAt": "2026-07-22",
   "policy": {
     "maturityLevels": [
       "experimental",
@@ -2556,7 +2556,7 @@
       "id": "terminal-performance.no-hot-list-sessions",
       "title": "Hot terminal interactions do not call global PTY session listing",
       "maturity": "experimental",
-      "protection": "none",
+      "protection": "partial",
       "owner": "terminal-performance",
       "layer": "ipc-count-contract",
       "surfaces": [
@@ -2580,19 +2580,74 @@
         "wsl",
         "remote-runtime"
       ],
-      "coveredPlatforms": [],
+      "coveredPlatforms": [
+        "macos"
+      ],
       "coveredProviders": [],
-      "coverageNotes": "Registered gap on main. The targeted-hasPty product hardening and no-hot count assertions exist only on the pending reliability stack. It registers here with its owning split PR.",
+      "coverageNotes": "Platform-neutral unit coverage proves the Resource Manager closed badge performs one readiness seed, coalesces unknown spawn signals, skips known-session reattach signals, and installs no interval. Broader terminal interaction coverage remains on the pending reliability stack.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/pull/7002",
-        "https://github.com/stablyai/orca/pull/6858"
+        "https://github.com/stablyai/orca/pull/6858",
+        "https://github.com/stablyai/orca/issues/9386",
+        "https://github.com/stablyai/orca/pull/9387"
       ],
       "invariant": "Typing, focus, terminal switch, workspace switch, visibility resume, resize, render, and per-pane liveness paths must not call global pty:listSessions; they must use targeted per-PTY APIs or cached provider-owned state.",
-      "oracle": "The current executable slice asserts targeted visibility/first-input liveness, resize re-assertion after visibility resume, light tab/active-state resume, SSH/remote skip behavior, and closed Resource Manager status badges avoid pty:listSessions; targeted hasPty/getSize calls are allowed for liveness/resize slices and forbidden for light tab/active-state resume. The full hot-path oracle still needs instrumentation around raw focus, split focus, workspace switch, render ticks, and high-session local/daemon/SSH fixtures.",
-      "commands": [],
-      "testFiles": [],
-      "assertionRefs": [],
-      "evidenceRuns": [],
+      "oracle": "The current executable slice asserts targeted visibility/first-input liveness, resize re-assertion after visibility resume, light tab/active-state resume, SSH/remote skip behavior, and a closed Resource Manager budget of one readiness seed plus one coalesced inventory read only for unknown spawn IDs; known-session reattach signals and steady closed time perform zero reads. Targeted hasPty/getSize calls are allowed for liveness/resize slices and forbidden for light tab/active-state resume. The full hot-path oracle still needs instrumentation around raw focus, split focus, workspace switch, render ticks, and high-session local/daemon/SSH fixtures.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/use-resource-session-inventory.test.tsx src/renderer/src/components/status-bar/resource-session-inventory.test.ts src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts"
+      ],
+      "testFiles": [
+        "src/main/ipc/pty.test.ts",
+        "src/renderer/src/components/status-bar/use-resource-session-inventory.test.tsx",
+        "src/renderer/src/components/status-bar/resource-session-inventory.test.ts",
+        "src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/components/status-bar/use-resource-session-inventory.test.tsx",
+          "assertions": [
+            "the false-to-true workspace readiness transition performs one daemon inventory seed",
+            "a failed readiness seed surfaces an error and a later inventory refresh recovers",
+            "known-session reattach signals perform zero additional inventory reads",
+            "multiple unknown background spawn signals coalesce to one inventory read",
+            "spawn signals during a slow inventory read never overlap provider-wide scans and cause at most one required follow-up",
+            "unknown sessions that exit before reconciliation cancel their queued inventory read",
+            "unmount during a slow inventory read cannot schedule follow-up work",
+            "exit and out-of-order refresh races cannot resurrect stale sessions"
+          ]
+        },
+        {
+          "file": "src/main/ipc/pty.test.ts",
+          "assertions": [
+            "global inventory starts local and SSH provider listings concurrently"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/resource-session-inventory.test.ts",
+          "assertions": [
+            "daemon inventory construction copies its source and preserves count parity",
+            "single and batch removals preserve unrelated sessions and no-op references"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts",
+          "assertions": [
+            "the closed inventory hook installs no interval",
+            "the badge count comes from cached daemon inventory rather than wake-hint bindings"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-22",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/use-resource-session-inventory.test.tsx src/renderer/src/components/status-bar/resource-session-inventory.test.ts src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts",
+          "result": "passed",
+          "durationSeconds": 4.3,
+          "summary": "4 files and 358 tests passed, covering readiness seed/recovery, zero interval polling, bounded unknown-spawn reconciliation, concurrent provider starts, exit fencing, cleanup, and out-of-order refresh fencing."
+        }
+      ],
       "runtimeBudget": {
         "p95Seconds": 20,
         "scope": "unit or focused Electron count gate"
@@ -2603,7 +2658,7 @@
       },
       "redGreenEvidence": {
         "status": "partial",
-        "evidence": "Tests assert visibility resume prefers targeted hasPty over listSessions, first input after visibility resume calls targeted hasPty once, resize re-assertion after visibility resume uses getSize/resize without listSessions, light tab switches and visible active-state resume avoid listSessions/hasPty/getSize fanout while still allowing the active PTY scheduler hint, SSH/remote broad listing is skipped, Resource Manager broad session inventory polling is scoped to the open popover rather than its closed badge, and panes close only on authoritative false. Needs broader raw focus/workspace-switch/render/high-session count coverage before promotion."
+        "evidence": "Tests assert visibility resume prefers targeted hasPty over listSessions, first input after visibility resume calls targeted hasPty once, resize re-assertion after visibility resume uses getSize/resize without listSessions, light tab switches and visible active-state resume avoid listSessions/hasPty/getSize fanout while still allowing the active PTY scheduler hint, SSH/remote broad listing is skipped, and the closed Resource Manager performs one readiness seed while known reattach signals and steady time perform no additional reads. Needs broader raw focus/workspace-switch/render/high-session count coverage before promotion."
       },
       "performanceBudget": {
         "required": true,
@@ -2615,8 +2670,8 @@
         "Run with enough preserved sessions/providers to make a broad listing observable."
       ],
       "knownGaps": [
-        "No executable coverage on main yet; the slice lives on the pending fix-terminal-reliability stack.",
-        "Current command covers targeted visibility/first-input liveness, resize re-assertion on visibility resume, light tab/active-state resume, SSH/remote skip behavior, and closed Resource Manager session-poll avoidance, but not every hot interaction listed in the invariant.",
+        "Current commands cover Resource Manager readiness/lifecycle inventory counts; the broader targeted-liveness slice still lives on the pending fix-terminal-reliability stack.",
+        "Current coverage includes the closed Resource Manager's no-interval and known-reattach budgets, but not every hot interaction listed in the invariant.",
         "No Electron or IPC-level high-session counter gate yet proves raw focus, workspace switch, render, or high-session typing stay at zero global listSessions calls."
       ],
       "demotionRule": "Cannot promote if the test allows broad listing in any hot interaction path."

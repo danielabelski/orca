@@ -2709,6 +2709,12 @@ export function registerPtyHandlers(
     })
   }
 
+  function sendPtySpawnedToRenderer(id: string): void {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pty:spawned', { id })
+    }
+  }
+
   function sendPtyReplayToRenderer(payload: { id: string; data: string }): void {
     const pending = pendingData.get(payload.id)
     if (pending) {
@@ -3771,6 +3777,8 @@ export function registerPtyHandlers(
                 : null
           })
         }
+        // Why: runtime-owned/background spawns bypass mounted-pane state, so inventory consumers need an explicit signal.
+        sendPtySpawnedToRenderer(result.id)
         const response = {
           id: result.id,
           ...(result.incarnationId ? { incarnationId: result.incarnationId } : {}),
@@ -4943,6 +4951,8 @@ export function registerPtyHandlers(
           // Why: a daemon-retry race can surface isReattach even for a minted session id, and a reattach must never claim its cwd was remapped.
           ...(startupCwdFallback && !result.isReattach ? { startupCwdFallback } : {})
         }
+        // Why: renderer tab state cannot reliably infer background and reattached PTYs in the daemon inventory.
+        sendPtySpawnedToRenderer(result.id)
         return resolvePaneSpawnReservation(reservationPaneKey, paneSpawnReservation, response)
       } catch (err) {
         if (pendingRegistrationPtyId) {
