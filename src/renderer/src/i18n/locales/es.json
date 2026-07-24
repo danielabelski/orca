@@ -9874,7 +9874,6 @@
             "b715ef615b": "{{value0}} commits por delante de {{value1}}",
             "c1a8f3e204": "1 commit por detrás de {{value0}}",
             "d2b9g4f315": "{{value0}} commits por detrás de {{value1}}",
-            "e9c2a5d416": "A la par con {{value0}}",
             "4b4a7de138": "Abrir página de revisión en el navegador",
             "createPrIntentCommitBlockedSummary": "Commit bloqueado: {{value0}} Corrige el issue y reintenta crear PR.",
             "pushRecovery": {
@@ -9893,7 +9892,10 @@
               "783a808870": "Cerrar"
             },
             "97e7124eac": "No se pudo actualizar Source Control. Vuelve a intentarlo.",
-            "a4e93c21d7": "Rama actual: {{value0}}"
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "Rama actual: {{value0}}",
+            "c7d4e2f801": "Cambiar ref base: {{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "No se pudo iniciar el agente seleccionado.",

@@ -9874,7 +9874,6 @@
             "b715ef615b": "领先 {{value1}} {{value0}} 个提交",
             "c1a8f3e204": "落后 {{value0}} 1 个提交",
             "d2b9g4f315": "落后 {{value1}} {{value0}} 个提交",
-            "e9c2a5d416": "与 {{value0}} 同步",
             "4b4a7de138": "在浏览器中打开审查页面",
             "createPrIntentCommitBlockedSummary": "提交被阻止：{{value0}} 修复问题后重试创建 PR。",
             "pushRecovery": {
@@ -9893,7 +9892,10 @@
               "783a808870": "关闭"
             },
             "97e7124eac": "无法刷新 Source Control。请重试。",
-            "a4e93c21d7": "当前分支：{{value0}}"
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "当前分支：{{value0}}",
+            "c7d4e2f801": "更改基引用：{{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "无法启动选定的智能体。",

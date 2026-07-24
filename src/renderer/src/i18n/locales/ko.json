@@ -9874,7 +9874,6 @@
             "b715ef615b": "{{value1}}보다 {{value0}} commits 앞서 있음",
             "c1a8f3e204": "{{value0}}보다 1 commit 뒤처짐",
             "d2b9g4f315": "{{value1}}보다 {{value0}} commits 뒤처짐",
-            "e9c2a5d416": "{{value0}}와 동일한 상태",
             "4b4a7de138": "브라우저에서 검토 페이지 열기",
             "createPrIntentCommitBlockedSummary": "커밋이 차단됨: {{value0}} 이슈를 수정한 후 PR 만들기를 다시 시도하세요.",
             "pushRecovery": {
@@ -9893,7 +9892,10 @@
               "783a808870": "닫기"
             },
             "97e7124eac": "Source Control을 새로 고칠 수 없습니다. 다시 시도하세요.",
-            "a4e93c21d7": "현재 브랜치: {{value0}}"
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "현재 브랜치: {{value0}}",
+            "c7d4e2f801": "베이스 ref 변경: {{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "선택한 agent를 시작할 수 없습니다.",

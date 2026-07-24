@@ -9897,7 +9897,6 @@
             "b715ef615b": "{{value0}} commits ahead of {{value1}}",
             "c1a8f3e204": "1 commit behind {{value0}}",
             "d2b9g4f315": "{{value0}} commits behind {{value1}}",
-            "e9c2a5d416": "Even with {{value0}}",
             "4b4a7de138": "Open review page in browser",
             "createPrIntentCommitBlockedSummary": "Commit blocked: {{value0}} Fix the issue, then retry Create PR.",
             "pushRecovery": {
@@ -9916,7 +9915,10 @@
               "783a808870": "Close"
             },
             "97e7124eac": "Could not refresh Source Control. Try again.",
-            "a4e93c21d7": "Current branch: {{value0}}"
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "Current branch: {{value0}}",
+            "c7d4e2f801": "Change base ref: {{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "Could not start the selected agent.",
