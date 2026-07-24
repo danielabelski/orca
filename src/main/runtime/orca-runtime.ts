@@ -4118,11 +4118,20 @@ export class OrcaRuntimeService {
     // or a stale browser-persisted session). Hydrating such a key would surface a
     // phantom "unknown"/duplicate workspace with no live repo behind it. Only
     // hydrate sessions whose repo still exists; leave unparseable keys alone.
-    const liveRepoIds = new Set((this.store?.getRepos?.() ?? []).map((repo) => repo.id))
+    // Resolved lazily so unparseable keys (floating terminals) never pay for a
+    // repo inventory on the hot poll path, and `null` when the store cannot
+    // report repos — an unavailable list must not read as "every repo is gone".
+    let liveRepoIds: Set<string> | null | undefined
     for (const [entryWorktreeId, persistedTabs] of entries) {
       const ownerRepoId = splitWorktreeIdForFilesystem(entryWorktreeId)?.repoId
-      if (ownerRepoId && !liveRepoIds.has(ownerRepoId)) {
-        continue
+      if (ownerRepoId) {
+        if (liveRepoIds === undefined) {
+          const knownRepos = this.store?.getRepos?.()
+          liveRepoIds = knownRepos ? new Set(knownRepos.map((repo) => repo.id)) : null
+        }
+        if (liveRepoIds && !liveRepoIds.has(ownerRepoId)) {
+          continue
+        }
       }
       const existing = this.mobileSessionTabsByWorktree.get(entryWorktreeId)
       if (
