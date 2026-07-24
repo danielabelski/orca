@@ -8618,7 +8618,8 @@ export default function TaskPage(): React.JSX.Element {
                             workspaceId={selectedLinearWorkspaceId ?? null}
                             isAllWorkspaces={selectedLinearWorkspaceId === 'all'}
                             primaryTeam={linearAttributePrimaryTeam}
-                            selectedTeamCount={linearTeamSelection.size}
+                            selectedTeamIds={[...linearTeamSelection]}
+                            availableTeams={linearTeamOptions}
                             settings={linearTaskSourceContext ?? settings}
                           />
                         ) : null}
