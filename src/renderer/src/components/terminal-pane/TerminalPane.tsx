@@ -130,6 +130,7 @@ import {
   readPrimarySelectionText
 } from '@/lib/primary-selection'
 import { APP_MENU_PASTE_EVENT } from '@/lib/app-menu-paste'
+import { CODEX_ACCOUNT_RESTART_STARTUP } from '@/lib/codex-session-restart'
 import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/workspace-file-drag'
 import { isTerminalSessionStateSaveFailure } from '../../../../shared/terminal-session-state-save-failure'
 import { isTerminalZeroDimensionsDiagnostic } from '../../../../shared/terminal-zero-dimensions-diagnostic'
@@ -1620,7 +1621,7 @@ export default function TerminalPane({
         tabId,
         worktreeId,
         cwd,
-        startup: { command: 'codex' },
+        startup: CODEX_ACCOUNT_RESTART_STARTUP,
         paneTransportsRef,
         paneMode2031Ref,
         paneKittyKeyboardModesRef,
