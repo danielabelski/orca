@@ -10,12 +10,16 @@ import type {
   AiVaultSearchStatus
 } from '../../shared/ai-vault-search-types'
 import type { AiVaultSearchSettings } from '../../shared/ai-vault-search-settings'
+import type { SessionSearchHostScope } from '../ai-vault-search/session-search-service'
 import type { SessionSearchScanRoots } from '../ai-vault-search/session-search-scan-roots'
 import type { ReadAiVaultFirstUserPromptArgs } from './session-first-user-prompt-read'
 import type { SessionParseCachePersistenceOptions } from './session-parse-cache-persistence'
-import type { AiVaultWorkerScanOptions } from './session-scanner-worker-protocol'
+import type { AiVaultScanOptions } from './session-scanner-types'
+import type { AiVaultScanWork } from '../../shared/ai-vault-scan-progress'
 
 export const AI_VAULT_SERVICE_PROTOCOL_VERSION = 1
+
+export type AiVaultServiceScanOptions = Omit<AiVaultScanOptions, 'signal'>
 
 export type AiVaultServiceLane = 'cache' | 'interactive'
 export type AiVaultServiceOperation =
@@ -26,6 +30,7 @@ export type AiVaultServiceOperation =
   | 'searchSessions'
   | 'searchStatus'
   | 'searchReconcile'
+  | 'searchClear'
 
 // Typed from the union so a new operation cannot be added without landing here,
 // and held as strings so recognising one costs no assertion.
@@ -36,7 +41,8 @@ const AI_VAULT_SERVICE_OPERATIONS: ReadonlySet<string> = new Set<AiVaultServiceO
   'firstPrompt',
   'searchSessions',
   'searchStatus',
-  'searchReconcile'
+  'searchReconcile',
+  'searchClear'
 ])
 
 export type AiVaultServiceSubagentRequest = {
@@ -64,7 +70,7 @@ export type AiVaultServiceInit = {
 }
 
 export type AiVaultServiceRequestBody =
-  | { type: 'request'; operation: 'scan'; options: AiVaultWorkerScanOptions }
+  | { type: 'request'; operation: 'scan'; options: AiVaultServiceScanOptions }
   | {
       type: 'request'
       operation: 'titles'
@@ -80,9 +86,16 @@ export type AiVaultServiceRequestBody =
       operation: 'firstPrompt'
       request: ReadAiVaultFirstUserPromptArgs
     }
-  | { type: 'request'; operation: 'searchSessions'; request: AiVaultSearchRequest }
+  | {
+      type: 'request'
+      operation: 'searchSessions'
+      request: AiVaultSearchRequest
+      /** What the host made of a scope identity; outside `request` so no wire cap applies. */
+      hostScope?: SessionSearchHostScope
+    }
   | { type: 'request'; operation: 'searchStatus' }
   | { type: 'request'; operation: 'searchReconcile' }
+  | { type: 'request'; operation: 'searchClear' }
 
 export type AiVaultServiceRequest = AiVaultServiceRequestBody & { id: number }
 
@@ -93,17 +106,30 @@ export type AiVaultServiceParentMessage =
   | { type: 'invalidate'; generation: number; paths: string[] }
   // Fire-and-forget: the child closes the live pair and constructs from this.
   | { type: 'sessionSearch'; init: AiVaultSessionSearchInit }
-  | { type: 'sessionSearchRoots'; id: number; roots: SessionSearchScanRoots | null }
+  | {
+      type: 'sessionSearchRoots'
+      id: number
+      roots: SessionSearchScanRoots | null
+    }
   | { type: 'shutdown' }
 
 export type AiVaultServiceResultValue =
-  | { operation: 'scan'; value: { result: AiVaultListResult; durationMs: number } }
+  | {
+      operation: 'scan'
+      // `work` is the scan's final tally, which the throttled progress reports may have skipped.
+      value: {
+        result: AiVaultListResult
+        durationMs: number
+        work: AiVaultScanWork | null
+      }
+    }
   | { operation: 'titles'; value: AiVaultSessionTitlesResult }
   | { operation: 'subagents'; value: AiVaultSubagentListResult }
   | { operation: 'firstPrompt'; value: { prompt: string | null } }
   | { operation: 'searchSessions'; value: AiVaultSearchResponse }
   | { operation: 'searchStatus'; value: AiVaultSearchStatus }
   | { operation: 'searchReconcile'; value: null }
+  | { operation: 'searchClear'; value: null }
 
 export type AiVaultServiceChildMessage =
   | { type: 'sessionSearchRoots'; id: number }
@@ -115,6 +141,7 @@ export type AiVaultServiceChildMessage =
   | ({ type: 'result'; id: number } & AiVaultServiceResultValue)
   | { type: 'error'; id: number; message: string; retryable: boolean }
   | { type: 'invalidated'; generation: number }
+  | { type: 'progress'; id: number; work: AiVaultScanWork }
 
 /** Everything but the two bulk reads is interactive: a search must not queue behind a scan. */
 export function aiVaultServiceLane(operation: AiVaultServiceOperation): AiVaultServiceLane {
@@ -149,6 +176,11 @@ export function isAiVaultServiceChildMessage(value: unknown): value is AiVaultSe
   }
   if (message.type === 'invalidated') {
     return Number.isSafeInteger(message.generation)
+  }
+  if (message.type === 'progress') {
+    return (
+      Number.isSafeInteger(message.id) && typeof message.work === 'object' && message.work !== null
+    )
   }
   return (message.type === 'result' || message.type === 'error') && Number.isSafeInteger(message.id)
 }

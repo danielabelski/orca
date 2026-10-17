@@ -1,5 +1,4 @@
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
-import { ensureSessionParseCacheLoaded } from '../ai-vault/session-parse-cache-persistence'
 import {
   cursorChatMetaRefusals,
   withCursorChatMetaScan
@@ -75,6 +74,14 @@ export type SessionSearchPassResult = {
    * making progress only on the periodic sweep every five minutes.
    */
   outOfTime: boolean
+  /**
+   * Candidates this pass decided were owed a read and did not read.
+   *
+   * Zero unless the deadline stopped the reads. Not a queue: it is the size of
+   * the backlog at the moment the pass gave up, reported so the caller can say
+   * so, and every one of them is owed again on the next pass by its row.
+   */
+  left: number
 }
 
 /**
@@ -103,7 +110,6 @@ export async function runSessionSearchPass(
     // instance held is applied by the first sweep of this one.
     await store.purgeOlderThan(store.retentionCutoff, signal)
   }
-  await ensureSessionParseCacheLoaded()
   return withCursorChatMetaScan(async () => {
     const swept = await discoverSessionSearchCandidates(args.roots, {
       limitPerAgent: args.full ? Number.POSITIVE_INFINITY : args.recentPerAgent,
@@ -113,6 +119,7 @@ export async function runSessionSearchPass(
 
     let completed = true
     let outOfTime = false
+    let left = 0
     const rows = new Map(store.files().map((row) => [row.path, row]))
     try {
       const read = await runSessionSearchIndexPass(store, swept.candidates, {
@@ -121,6 +128,7 @@ export async function runSessionSearchPass(
         overdue: args.overdue
       })
       outOfTime = read.outOfTime
+      left = read.left
     } catch (error) {
       if (!signal?.aborted) {
         throw error
@@ -183,7 +191,8 @@ export async function runSessionSearchPass(
         unlistable
       ),
       completed,
-      outOfTime
+      outOfTime,
+      left
     }
   })
 }

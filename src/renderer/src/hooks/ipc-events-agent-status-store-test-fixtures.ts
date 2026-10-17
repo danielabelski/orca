@@ -47,6 +47,7 @@ export type AgentStatusSetData = {
   connectionId?: string | null
   receivedAt: number
   stateStartedAt: number
+  turnStartedAt?: number
 }
 export type StoreLike = Record<string, unknown>
 export type StoreSubscribeListener = (state: StoreLike, previousState: StoreLike) => void
@@ -169,13 +170,11 @@ export function buildStoreState(overrides: StoreLike): StoreLike {
     terminalLayoutsByTabId: {},
     ptyIdsByTabId: {},
     suppressedPtyExitIds: {},
-    markWorktreeUnread: vi.fn(),
-    markAgentCompletionPaneUnread: vi.fn(),
+    markAgentAttentionUnread: vi.fn(),
     agentStatusByPaneKey: {},
     setAgentStatuses: vi.fn(() => []),
     recordAgentProviderSession: vi.fn(),
     clearTransientAgentStatuses: vi.fn(),
-    getAgentLaunchConfigForStatusMetadata: vi.fn(() => undefined),
     recentlyClosedAgentStatusTabIds: {},
     repos: [],
     worktreesByRepo: {},

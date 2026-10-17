@@ -1,13 +1,12 @@
 import type { RuntimeHostStatusSnapshot } from '../../shared/runtime-host-status'
 import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-request-connections'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES,
-  MIN_COMPATIBLE_RUNTIME_SERVER_VERSION
-} from '../../shared/protocol-version'
+import { MIN_COMPATIBLE_RUNTIME_SERVER_VERSION } from '../../shared/protocol-version'
+import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
 import * as environmentStore from '../../shared/runtime-environment-store'
 import { RemoteRuntimeClientError } from '../../shared/remote-runtime-client-error'
 
@@ -102,6 +101,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
   let store: {
     getSettings: () => { activeRuntimeEnvironmentId: string | null }
     updateSettings: ReturnType<typeof vi.fn>
+    removeWorkspaceSessionHost: ReturnType<typeof vi.fn>
+    setRemoteLayoutSnapshot: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -109,6 +110,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     activeRuntimeEnvironmentId = null
     store = {
       getSettings: () => ({ activeRuntimeEnvironmentId }),
+      removeWorkspaceSessionHost: vi.fn(),
+      setRemoteLayoutSnapshot: vi.fn(),
       updateSettings: vi.fn((updates: { activeRuntimeEnvironmentId: string | null }) => {
         activeRuntimeEnvironmentId = updates.activeRuntimeEnvironmentId
       })
@@ -137,52 +140,41 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  it('registers desktop runtime environment management handlers', () => {
-    registerRuntimeEnvironmentHandlers(store as never)
+  it('replaces stale registrations and keeps one binary listener when registered again', async () => {
+    const channels = new Set(['runtimeEnvironments:list', 'runtimeEnvironments:restartOrcad'])
+    const listeners = new EventEmitter()
+    listeners.on('runtimeEnvironments:subscriptionBinary', vi.fn())
+    handleMock.mockImplementation((channel: string) => {
+      if (channels.has(channel)) {
+        throw new Error(`Handler already registered: ${channel}`)
+      }
+      channels.add(channel)
+    })
+    removeHandlerMock.mockImplementation((channel: string) => channels.delete(channel))
+    onMock.mockImplementation((channel: string, listener: (...args: unknown[]) => void) =>
+      listeners.on(channel, listener)
+    )
+    removeAllListenersMock.mockImplementation((channel: string) =>
+      listeners.removeAllListeners(channel)
+    )
 
-    expect(handleMock.mock.calls.map((call) => call[0])).toEqual([
-      'runtimeEnvironments:getStatusSnapshots',
-      'runtimeEnvironments:list',
-      'runtimeEnvironments:addFromPairingCode',
-      'runtimeEnvironments:verifyAndAddFromPairingCode',
-      'runtimeEnvironments:resolve',
-      'runtimeEnvironments:remove',
-      'runtimeEnvironments:disconnect',
-      'runtimeEnvironments:connect',
-      'runtimeEnvironments:retryControlConnection',
-      'runtimeEnvironments:prepareBrowserClientHostPlacement',
-      'runtimeEnvironments:retryConnectionsNow',
-      'runtimeEnvironments:getStatus',
-      'runtimeEnvironments:call',
-      'runtimeEnvironments:subscribe',
-      'runtimeEnvironments:unsubscribe'
-    ])
-    expect(onMock.mock.calls.map((call) => call[0])).toEqual([
-      'runtimeEnvironments:subscriptionBinary'
-    ])
-  })
+    try {
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This registrar only reads the fixture's settings and workspace-session methods.
+      registerRuntimeEnvironmentHandlers(store as never)
+      handleMock.mockClear()
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This registrar only reads the fixture's settings and workspace-session methods.
+      registerRuntimeEnvironmentHandlers(store as never)
 
-  it('clears stale IPC registrations before registering runtime environment handlers', () => {
-    registerRuntimeEnvironmentHandlers(store as never)
-
-    expect(removeHandlerMock.mock.calls.map((call) => call[0])).toEqual([
-      'runtimeEnvironments:list',
-      'runtimeEnvironments:addFromPairingCode',
-      'runtimeEnvironments:verifyAndAddFromPairingCode',
-      'runtimeEnvironments:resolve',
-      'runtimeEnvironments:remove',
-      'runtimeEnvironments:disconnect',
-      'runtimeEnvironments:connect',
-      'runtimeEnvironments:retryControlConnection',
-      'runtimeEnvironments:prepareBrowserClientHostPlacement',
-      'runtimeEnvironments:getStatus',
-      'runtimeEnvironments:getStatusSnapshots',
-      'runtimeEnvironments:call',
-      'runtimeEnvironments:subscribe',
-      'runtimeEnvironments:unsubscribe',
-      'runtimeEnvironments:retryConnectionsNow'
-    ])
-    expect(removeAllListenersMock).toHaveBeenCalledWith('runtimeEnvironments:subscriptionBinary')
+      expect(listeners.listenerCount('runtimeEnvironments:subscriptionBinary')).toBe(1)
+      expect(channels.has('runtimeEnvironments:restartOrcad')).toBe(true)
+      const list = handler<undefined, unknown[]>('runtimeEnvironments:list')
+      expect(await list(null, undefined)).toEqual([])
+    } finally {
+      handleMock.mockReset()
+      removeHandlerMock.mockReset()
+      onMock.mockReset()
+      removeAllListenersMock.mockReset()
+    }
   })
 
   it('advances pending shared-control reconnects through IPC', async () => {
@@ -249,6 +241,11 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     })
     expect(activeRuntimeEnvironmentId).toBeNull()
     expect(closeRemoteRuntimeRequestConnectionMock).toHaveBeenCalledWith(added.environment.id)
+    // A removed server's session partition and layout snapshot go too.
+    expect(store.removeWorkspaceSessionHost).toHaveBeenCalledWith(
+      `runtime:${encodeURIComponent(added.environment.id)}`
+    )
+    expect(store.setRemoteLayoutSnapshot).toHaveBeenCalledWith(added.environment.id, null, 'now')
     expect(JSON.stringify(removed)).not.toContain('device-token')
     expect(await list(null, undefined)).toEqual([])
   })
@@ -436,7 +433,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     )
 
     expect(() => remove(null, { selector: added.environment.id })).toThrow(
-      'Choose another Active Server in Advanced'
+      'Choose another one in Advanced before removing it.'
     )
     expect(activeRuntimeEnvironmentId).toBe(added.environment.id)
     expect(store.updateSettings).not.toHaveBeenCalled()

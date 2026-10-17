@@ -4,10 +4,6 @@ import { agentSessionRefusalOperationState } from './agent-session-refusal-retry
 import { isDefinitiveAgentSessionCreateRefusal } from './agent-session-definitive-refusal'
 
 describe('definitive agent-session create refusals', () => {
-  it('treats an unsupported structured session as definitive', () => {
-    expect(isDefinitiveAgentSessionCreateRefusal('structured_agent_session_unsupported')).toBe(true)
-  })
-
   it('never treats an unproven outcome as definitive', () => {
     expect(isDefinitiveAgentSessionCreateRefusal('agent_session_operation_unknown')).toBe(false)
     expect(isDefinitiveAgentSessionCreateRefusal('agent_session_ownership_unknown')).toBe(false)
@@ -37,12 +33,9 @@ describe('definitive agent-session create refusals', () => {
   it('does not answer the durable-settlement question, which disagrees on the one code that matters', () => {
     // Guards the reuse this allowlist exists to avoid: settlement state calls the definitive
     // refusal pending-admission, which would rule out the fallback it is meant to allow.
-    expect(
-      agentSessionRefusalOperationState(
-        'agentSession.create',
-        'structured_agent_session_unsupported'
-      )
-    ).toBe('pending-admission')
+    expect(agentSessionRefusalOperationState('structured_agent_session_unsupported')).toBe(
+      'pending-admission'
+    )
     expect(isDefinitiveAgentSessionCreateRefusal('structured_agent_session_unsupported')).toBe(true)
   })
 })

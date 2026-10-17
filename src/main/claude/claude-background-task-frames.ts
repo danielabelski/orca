@@ -3,15 +3,18 @@
 // Pure and bounded: every reader rejects absent, non-string, or oversized
 // values so a malformed frame degrades to "field unknown", never to a throw.
 
+import { classifyClaudeBackgroundTaskKind } from '../../shared/claude-background-task-kind'
 import type {
   AgentSessionBackgroundTask,
   AgentSessionBackgroundTaskRunState
 } from '../../shared/agent-session-wire'
+import { ownRetainedString } from '../../shared/own-retained-string'
 
 const MAX_TASK_ID_LENGTH = 512
 const MAX_TASK_TEXT_LENGTH = 512
 
 export type ClaudeBackgroundTaskKind = AgentSessionBackgroundTask['kind']
+export { classifyClaudeBackgroundTaskKind }
 
 export function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
@@ -29,15 +32,26 @@ export function taskId(message: Record<string, unknown>): string | null {
   return typeof value === 'string' && isBoundedClaudeTaskId(value) ? value : null
 }
 
+export function taskAliasId(value: unknown): string | undefined {
+  return typeof value === 'string' && isBoundedClaudeTaskId(value) ? value : undefined
+}
+
 function boundedTaskText(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined
   }
   const trimmed = value.trim().replace(/\s+/g, ' ')
-  return trimmed.length > 0 ? trimmed.slice(0, MAX_TASK_TEXT_LENGTH) : undefined
+  return trimmed.length > 0 ? ownRetainedString(trimmed.slice(0, MAX_TASK_TEXT_LENGTH)) : undefined
 }
 
 export function taskDescription(value: unknown): string | undefined {
+  return boundedTaskText(value)
+}
+
+/** Every other provider string a durable task row carries — its summary, its
+ *  error, its output path — takes the description bound: the row is replayed on
+ *  every reconnect, and each reader clips it again anyway. */
+export function taskText(value: unknown): string | undefined {
   return boundedTaskText(value)
 }
 
@@ -49,21 +63,6 @@ export function taskName(frame: Record<string, unknown>): string | undefined {
     boundedTaskText(frame.agent_type) ??
     boundedTaskText(frame.subagent_type)
   )
-}
-
-export function classifyClaudeBackgroundTaskKind(taskType: unknown): ClaudeBackgroundTaskKind {
-  switch (taskType) {
-    case 'local_agent':
-      return 'agent'
-    case 'local_workflow':
-      return 'workflow'
-    case 'local_bash':
-      return 'command'
-    case 'monitor':
-      return 'monitor'
-    default:
-      return 'unknown'
-  }
 }
 
 /** Cumulative token usage from a task_progress / task_notification frame. */

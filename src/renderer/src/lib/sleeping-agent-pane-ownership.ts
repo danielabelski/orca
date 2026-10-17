@@ -1,12 +1,15 @@
 import type { useAppStore } from '@/store'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
+import { agentTurnEndedUncleanly } from '../../../shared/agent-main-agent-verdict'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
   TerminalTab
 } from '../../../shared/terminal-tab-types'
+import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
 import { isWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
+import { isPaneSpawnDeferred } from './pane-spawn-deferral-registry'
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>
 
@@ -17,13 +20,12 @@ export function getProviderSessionClaimKey(record: SleepingAgentSessionRecord): 
     : base
 }
 
-// Why quit is excluded: it is an explicit request to keep resumable work. A
-// live interrupted checkpoint is also active work; interrupted worktree-sleep
-// records retain their existing passive/cleanup semantics.
-export function isPassiveCompletedHibernationEvidence(record: SleepingAgentSessionRecord): boolean {
+// Why live+done counts (#16308): workspace activation must not resume a finished turn's idle anchor.
+// Quit asks to keep work resumable and a live stopped or failed turn is unfinished.
+export function activationTreatsNoteAsFinished(record: SleepingAgentSessionRecord): boolean {
   return (
     record.origin !== 'quit' &&
-    !(record.origin === 'live' && record.interrupted === true) &&
+    !(record.origin === 'live' && agentTurnEndedUncleanly(record)) &&
     record.state === 'done'
   )
 }
@@ -94,7 +96,7 @@ function hasRestorableStablePanePty(
 // the pane that reconnects on activation. Liveness comes from the runtime
 // live-PTY map (ptyIdsByTabId), not the layout's ptyIdsByLeafId snapshot, which
 // persists stale across sleep/restart.
-function stablePaneHasLivePty(
+export function stablePaneHasLivePty(
   tabId: string,
   leafId: string,
   ptyIdsByTabId: Record<string, string[]>,
@@ -125,8 +127,30 @@ function paneWillConnectOnActivation(
   // never cancels it), so any preserved restorable pane cold-restores in place.
   // Gating on the visible tab forked a second live surface onto the same
   // provider session for every non-group-active agent tab. Web-mirror tabs are
-  // the exception: they never mount a local pane, so they cannot own recovery.
+  // the exception: their pane attaches the host PTY instead of cold-restoring
+  // from a note, so they cannot own recovery.
   return !isWebTerminalSurfaceTabId(tabId)
+}
+
+// Why: a record's worktreeId can be stale (e.g. agent-managed checkout); tab ids are global.
+function findPreservedTabOwner(
+  state: AppStoreState,
+  worktreeIdHint: string,
+  tabId: string
+): { tab: TerminalTab; worktreeId: string } | null {
+  const hinted = (state.tabsByWorktree[worktreeIdHint] ?? []).find(
+    (candidate) => candidate.id === tabId
+  )
+  if (hinted) {
+    return { tab: hinted, worktreeId: worktreeIdHint }
+  }
+  for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree)) {
+    const tab = tabs.find((candidate) => candidate.id === tabId)
+    if (tab) {
+      return { tab, worktreeId }
+    }
+  }
+  return null
 }
 
 export function recordPaneIsOwnedByPreservedPane(
@@ -140,11 +164,20 @@ export function recordPaneIsOwnedByPreservedPane(
       return false
     }
     const tabId = record.tabId ?? stable.tabId
-    const tab = worktreeTabs.find((candidate) => candidate.id === tabId) ?? null
-    if (!tab || !hasMatchingStablePaneLayout(tabId, stable.leafId, state.terminalLayoutsByTabId)) {
+    const owner = findPreservedTabOwner(state, record.worktreeId, tabId)
+    if (
+      !owner ||
+      !hasMatchingStablePaneLayout(tabId, stable.leafId, state.terminalLayoutsByTabId)
+    ) {
       return false
     }
-    if (isPassiveCompletedHibernationEvidence(record)) {
+    const tab = owner.tab
+    if (activationTreatsNoteAsFinished(record)) {
+      return true
+    }
+    // Why: a deferred pane has no PTY yet still resumes this session when opened; a sweep that
+    // launched it elsewhere too would put two `--resume` on one transcript.
+    if (isPaneSpawnDeferred(record.paneKey)) {
       return true
     }
     // Why: a pane with a live PTY owns its running session regardless of which
@@ -159,6 +192,17 @@ export function recordPaneIsOwnedByPreservedPane(
     ) {
       return true
     }
+    // Why: disconnect clears ptyIdsByTabId while the remote process keeps running, so a leaf
+    // bound to an unreachable SSH target is `unverifiable`, not dead. A connected target's
+    // live-PTY map is authoritative (sleep kills the PTY but keeps its id).
+    const layout = state.terminalLayoutsByTabId[tabId]
+    const isSingleLeafLayout = layout?.root?.type === 'leaf' && layout.root.leafId === stable.leafId
+    const leafPtyId =
+      layout?.ptyIdsByLeafId?.[stable.leafId] ?? (isSingleLeafLayout ? tab.ptyId : null)
+    const sshPty = leafPtyId ? parseAppSshPtyId(leafPtyId) : null
+    if (sshPty && state.sshConnectionStates.get(sshPty.connectionId)?.status !== 'connected') {
+      return true
+    }
     // Why: active sessions rely on pane-level cold restore. A preserved leaf
     // without a PTY/session id can repaint scrollback but cannot resume.
     return (
@@ -168,7 +212,7 @@ export function recordPaneIsOwnedByPreservedPane(
         stable.leafId,
         state.ptyIdsByTabId,
         state.terminalLayoutsByTabId
-      ) && paneWillConnectOnActivation(record.worktreeId, tabId, state)
+      ) && paneWillConnectOnActivation(owner.worktreeId, tabId, state)
     )
   }
 

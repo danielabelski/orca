@@ -1,6 +1,6 @@
 import type { WorkspaceSparseActionsModel } from './use-mobile-tasks-workspace-sparse-actions'
+import { taskRepoClient } from './task-repo-host-routing'
 import {
-  type SshConnectionState,
   normalizeSetupHookTrust,
   pickWorkspaceAgent,
   resolveWorkspaceAgentSelection,
@@ -58,8 +58,7 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
         { targetId: workspaceCreateTargetConnectionId },
         { timeoutMs: 120_000 }
       )
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-      const state = sshRepoConnectRun.interpret(reply) as SshConnectionState | null | undefined
+      const state = sshRepoConnectRun.interpret(reply)
       setWorkspaceSshState(
         state ?? {
           targetId: workspaceCreateTargetConnectionId,
@@ -92,9 +91,7 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
         return
       }
       const reply = await sshRepoStateRead.request(client, { targetId: repo.connectionId })
-      const state =
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-        (sshRepoStateRead.interpret(reply) as SshConnectionState | null | undefined) ?? null
+      const state = sshRepoStateRead.interpret(reply) ?? null
       if (state) {
         setWorkspaceSshState(state)
       }
@@ -118,24 +115,22 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
     }
     let stale = false
     setWorkspaceDetectedAgentIds(null)
+    const repoClient = taskRepoClient(client, workspaceCreateTargetRepo)
     const detection = workspaceCreateTargetRepo.connectionId
       ? {
           operation: remoteAgentDetectionRead,
-          reply: remoteAgentDetectionRead.request(client, {
+          reply: remoteAgentDetectionRead.request(repoClient, {
             connectionId: workspaceCreateTargetRepo.connectionId
           })
         }
-      : { operation: localAgentDetectionRead, reply: localAgentDetectionRead.request(client) }
+      : { operation: localAgentDetectionRead, reply: localAgentDetectionRead.request(repoClient) }
     void detection.reply
       .then((reply) => {
         if (stale) {
           return
         }
         const detected = detection.operation.interpret(reply)
-        setWorkspaceDetectedAgentIds(
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-          detected.accepted ? new Set(detected.value as string[]) : new Set()
-        )
+        setWorkspaceDetectedAgentIds(detected.accepted ? new Set(detected.value) : new Set())
       })
       .catch(() => {
         if (!stale) {
@@ -191,7 +186,7 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
       | {
           kind: 'prompt'
           command: string
-          source: string | null
+          source: string | null | undefined
           setupTrust?: RepoHooksResponse['setupTrust']
         }
     > => {
@@ -199,8 +194,7 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
         return { kind: 'decision', decision: override ?? 'inherit' }
       }
       const reply = await repoSetupHooksRead.request(client, { repo: `id:${repo.id}` })
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-      const result = repoSetupHooksRead.interpret(reply) as RepoHooksResponse
+      const result = repoSetupHooksRead.interpret(reply)
       const setupCommand = result.hooks?.scripts?.setup?.trim()
       const setupTrust = normalizeSetupHookTrust(result.setupTrust) ?? undefined
       if (!setupCommand) {

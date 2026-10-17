@@ -10,7 +10,8 @@ export async function decodeTranscriptStream(
   filePath: string,
   start: number,
   decode: TranscriptDecoder,
-  includeTrailingLine: boolean
+  includeTrailingLine: boolean,
+  maxRecordBytes = Infinity
 ): Promise<{ messages: NativeChatMessage[]; consumedBytes: number }> {
   const messages: NativeChatMessage[] = []
   let consumedBytes = 0
@@ -19,7 +20,7 @@ export async function decodeTranscriptStream(
       decodeLine(line, consumedBytes)
       consumedBytes += byteLength
     }
-  })
+  }, maxRecordBytes)
   for await (const chunk of stream) {
     framer.write(chunk)
   }

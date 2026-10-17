@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import * as React from 'react'
 import * as ReactJsxRuntime from 'react/jsx-runtime'
 import { sha256 } from '@noble/hashes/sha256'
+import * as lowlight from 'lowlight'
 import * as zod from 'zod'
 import {
   nativeStoreModule,
@@ -18,12 +19,14 @@ import { reactNativeScreenMembers, screenNativeSubstitutes } from './screen-nati
  * pairing modules: each builds a `defaultDependencies` object at module scope, so merely
  * *referencing* `Platform.OS` or a storage-backed loader throws before an adapter can override it.
  *
- * So the table separates reference from use. `react` and `zod` are the real libraries — pure, and
+ * So the table separates reference from use. `react`, `zod` and `lowlight` are the real libraries —
+ * pure, and
  * React additionally has to be the one instance the test renderer drives, which is also why
  * `react/jsx-runtime` is the real module: the automatic runtime a screen compiles to must build
  * elements for that instance. `@noble/hashes` is the same pure-JS digest the product would run on a
- * device, and `expo-crypto` is routed through the Web Crypto the recording scheduler already pins,
- * which is both deterministic and what the library itself does off-device.
+ * device, and also stands in for `expo-crypto`'s native SHA-256. `expo-crypto`'s random bytes are
+ * routed through the Web Crypto the recording scheduler already pins, which is both deterministic
+ * and what the library itself does off-device.
  *
  * Every substitute keeps one of the two trap shapes in `native-module-traps.ts`, which is where the
  * rule about unlisted members and `__esModule` lives. The view packages a mounted screen needs are
@@ -67,12 +70,18 @@ export function nativeMountingSubstitutes(): Map<string, unknown> {
     ['react', React],
     ['react/jsx-runtime', ReactJsxRuntime],
     ['zod', zod],
+    // Real, because a stand-in would fabricate the tokens the diff preview publishes; the branch
+    // diff's success arm highlights before it ever reaches state.
+    ['lowlight', lowlight],
     ['@noble/hashes/sha256', partialNativeModule('@noble/hashes/sha256', { sha256 })],
     [
       'expo-crypto',
       partialNativeModule('expo-crypto', {
         getRandomBytes: (length: number) =>
-          globalThis.crypto.getRandomValues(new Uint8Array(length))
+          globalThis.crypto.getRandomValues(new Uint8Array(length)),
+        // Hashed before it resolves, as the native module's synchronous digest is.
+        CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+        digest: async (_algorithm: string, data: Uint8Array) => sha256(data).buffer
       })
     ],
     // The RN polyfill mobile bundles is this same pure implementation of the same encoding.

@@ -1,10 +1,10 @@
 import type { ListAndDetailEffectsModel } from './use-mobile-tasks-list-and-detail-effects'
 import { useEffect } from './mobile-tasks-dependencies'
-import type { GitHubAssignableUser } from './mobile-tasks-legacy-foundation'
 import {
   githubAssignableUserListRead,
   githubRepoLabelListRead
 } from './mobile-task-item-detail-operations'
+import { detailPayloadBody } from './mobile-tasks-provider-detail-types'
 
 export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffectsModel) {
   const {
@@ -25,9 +25,7 @@ export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffe
       setItemBodyDraft('')
       return
     }
-    setItemBodyDraft(
-      detailPayload.provider === 'linear' ? detailPayload.description : detailPayload.body
-    )
+    setItemBodyDraft(detailPayloadBody(detailPayload))
   }, [detailPayload])
 
   useEffect(() => {
@@ -52,8 +50,7 @@ export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffe
           if (stale) {
             return
           }
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-          setItemAvailableLabels(githubRepoLabelListRead.interpret(response) as string[])
+          setItemAvailableLabels(githubRepoLabelListRead.interpret(response))
         })
         .catch((err) => {
           if (!stale) {
@@ -80,10 +77,7 @@ export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffe
         if (stale) {
           return
         }
-        setItemAssignableUsers(
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-          githubAssignableUserListRead.interpret(response) as GitHubAssignableUser[]
-        )
+        setItemAssignableUsers(githubAssignableUserListRead.interpret(response))
       })
       .catch((err) => {
         if (!stale) {

@@ -1,3 +1,4 @@
+import { sameAgentStatusTerminalOwner } from '../../../../shared/agent-status-terminal-owner'
 import { isWslHookRelayConnectionId } from '../../../../shared/wsl-hook-relay-contract'
 import type { AgentStatusIpcPayload } from '../../../../shared/agent-status-types'
 import {
@@ -6,7 +7,6 @@ import {
 } from '../../../../shared/agent-status-identity'
 import { isDecorativeAgentTitleFrameChange } from '../../../../shared/agent-decorative-title-signature'
 import { parsePaneKey } from '../../../../shared/stable-pane-id'
-import { shouldSuppressCodexAutoApprovalStatus } from '@/components/terminal-pane/codex-auto-approval-notification-suppression'
 import { resolveAgentStatusTerminalTitle } from '@/lib/agent-status-terminal-title'
 import { track } from '@/lib/telemetry'
 import { resolveAgentPaneAuthorityKey } from '@/store/slices/agent-pane-authority'
@@ -17,6 +17,7 @@ import {
   applyResolvedAgentTerminalTitleToTab,
   hasRuntimeBackedWorktreeAttribution,
   isAgentStatusForRecentlyClosedTab,
+  isSeenHostReplay,
   resolveHookPayloadAgentType,
   shouldApplyResolvedAgentTerminalTitleToTab
 } from './agent-status-routing'
@@ -30,7 +31,10 @@ import type {
   AgentStatusApplyResult,
   PendingAgentStatusEvent
 } from './agent-status-bridge-types'
-import { normalizeAgentStatusEvent } from './normalize-agent-status-event'
+import {
+  normalizeAgentStatusEvent,
+  normalizeAgentStatusMetadata
+} from './normalize-agent-status-event'
 
 export function createAgentStatusEventApplicator(args: {
   pendingAgentStatusEvents: PendingAgentStatusEvent[]
@@ -50,7 +54,9 @@ export function createAgentStatusEventApplicator(args: {
     if (!store.workspaceSessionReady) {
       return 'dropped'
     }
-    if (isAgentStatusForRecentlyClosedTab(store, data.paneKey)) {
+    const authorityRestartId =
+      options?.replay !== true && data.agentType === 'omp' ? data.authorityRestartId : undefined
+    if (isAgentStatusForRecentlyClosedTab(store, data.paneKey, authorityRestartId)) {
       return 'dropped'
     }
     const paneKey = resolveAgentPaneAuthorityKey(data.paneKey)
@@ -59,8 +65,7 @@ export function createAgentStatusEventApplicator(args: {
     if (!payload) {
       return 'dropped'
     }
-    // Why: the memoized index answers the leading edge with the same first-match ownership the
-    // standalone resolver produced, without its worktree x tab rescan per event.
+    // Reuse first-match pane ownership without rescanning every worktree per event.
     const routingIndex = options?.batch?.routingIndex ?? createAgentStatusPaneRoutingIndex(store)
     let {
       exists,
@@ -81,7 +86,12 @@ export function createAgentStatusEventApplicator(args: {
       identityTitle = projectedTitles.identityTitle
     }
     tabTitle = options?.batch?.tabTitlesByTabId.get(ownerTabId ?? '') ?? tabTitle
-    if (!exists && data.worktreeId && hasRuntimeBackedWorktreeAttribution(data)) {
+    if (
+      !exists &&
+      !authorityRestartId &&
+      data.worktreeId &&
+      hasRuntimeBackedWorktreeAttribution(data)
+    ) {
       const fallbackOwnership = resolveWorktreeConnectionFromRoutingIndex(
         routingIndex,
         data.worktreeId
@@ -188,34 +198,30 @@ export function createAgentStatusEventApplicator(args: {
       ? { ...statusPayloadWithProvenance, observation: data.observation }
       : statusPayloadWithProvenance
     const identity = resolveAgentStatusIdentity({
-      existing: existingStatus
-        ? {
-            agentType: existingStatus.agentType,
-            state: existingStatus.state,
-            updatedAt: existingStatus.updatedAt,
-            restoredUnconfirmed: existingStatus.restoredUnconfirmed
+      existing:
+        existingStatus &&
+        sameAgentStatusTerminalOwner(
+          {
+            connectionId: existingStatus.connectionId ?? null,
+            worktreeId: existingStatus.worktreeId
+          },
+          {
+            connectionId:
+              (ownershipConnectionId === undefined
+                ? existingStatus.connectionId
+                : ownershipConnectionId) ?? null,
+            worktreeId: data.worktreeId ?? owningWorktreeId ?? existingStatus.worktreeId
           }
-        : undefined,
+        )
+          ? existingStatus
+          : undefined,
       incoming: statusPayload.agentType,
       now: data.receivedAt
     })
     if (
       existingStatus &&
       shouldSuppressInheritedTerminalStatus({
-        inheritedFromActivePane: identity.inheritedFromActivePane,
-        incomingState: statusPayload.state
-      })
-    ) {
-      return 'dropped'
-    }
-    if (
-      shouldSuppressCodexAutoApprovalStatus(statusPayload, {
-        paneKey,
-        tabId: ownerTabId,
-        terminalHandle: data.terminalHandle,
-        launchToken: data.launchToken,
-        providerSession: data.providerSession,
-        existingProviderSession: existingStatus?.providerSession
+        inheritedFromActivePane: identity.inheritedFromActivePane
       })
     ) {
       return 'dropped'
@@ -231,7 +237,8 @@ export function createAgentStatusEventApplicator(args: {
         ...(data.evidenceObservedAt !== undefined
           ? { evidenceObservedAt: data.evidenceObservedAt }
           : {}),
-        stateStartedAt: data.stateStartedAt
+        stateStartedAt: data.stateStartedAt,
+        ...(Number.isFinite(data.turnStartedAt) ? { turnStartedAt: data.turnStartedAt } : {})
       },
       routing: {
         tabId: ownerTabId,
@@ -239,16 +246,13 @@ export function createAgentStatusEventApplicator(args: {
         terminalHandle: data.terminalHandle,
         ...(ownershipConnectionId !== undefined ? { connectionId: ownershipConnectionId } : {})
       },
-      metadata:
-        data.providerSession || data.launchToken
-          ? {
-              ...(data.providerSession ? { providerSession: data.providerSession } : {}),
-              ...(data.launchToken ? { launchToken: data.launchToken } : {})
-            }
-          : undefined
+      metadata: normalizeAgentStatusMetadata(data, authorityRestartId)
     }
+    // Why: replays are cached state, so they seed completion tracking unless they carry an unseen done.
+    const replayed =
+      options?.replay === true || isSeenHostReplay(data, resolvedPayload.state, existingStatus)
     const applyPostCommitNotification = (): void => {
-      if (statusWorktreeId && (options?.replay !== true || resolvedPayload.state === 'working')) {
+      if (statusWorktreeId && (!replayed || resolvedPayload.state === 'working')) {
         const notificationPayload =
           typeof data.stateStartedAt === 'number'
             ? { ...resolvedPayload, stateStartedAt: data.stateStartedAt }
@@ -257,7 +261,7 @@ export function createAgentStatusEventApplicator(args: {
           paneKey,
           worktreeId: statusWorktreeId,
           payload: notificationPayload,
-          ...(options?.replay === true ? { seedOnly: true } : {})
+          ...(replayed ? { seedOnly: true } : {})
         })
       }
     }

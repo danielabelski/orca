@@ -7,7 +7,7 @@ import type { AiVaultResumeStartup } from '@/lib/ai-vault-resume-command'
 import { translate } from '@/i18n/i18n'
 import { getActiveStickyHeaderIndexForScroll } from '../sidebar/worktree-list/viewport/virtual-rows'
 import { EmptyState, SessionLoadingState } from './AiVaultSessionListStates'
-import type { AiVaultSessionGroup } from './ai-vault-session-filters'
+import type { AiVaultSessionListGroup } from './ai-vault-session-filters'
 import type { AiVaultOriginalPaneTarget } from './ai-vault-original-pane'
 import type {
   AiVaultSessionResumeActions,
@@ -22,6 +22,7 @@ import {
 } from './ai-vault-virtual-rows'
 import type { AiVaultResumeInChatEligibility } from './ai-vault-session-resume-in-chat'
 import { AiVaultVirtualRow, type AiVaultListRow } from './AiVaultVirtualRow'
+import type { AiVaultSearchHit } from '../../../../shared/ai-vault-search-types'
 
 const VAULT_ROW_OVERSCAN = 8
 const VAULT_EXPANDED_SESSION_ROW_ESTIMATED_HEIGHT = 420
@@ -30,6 +31,7 @@ export function AiVaultSessionVirtualList({
   groups,
   collapsedGroups,
   loading,
+  scanProgressShown = false,
   sessionsCount,
   filteredSessionsCount,
   noAgentsSelected,
@@ -37,6 +39,7 @@ export function AiVaultSessionVirtualList({
   vaultScope,
   buildResumeStartup,
   getOriginalPaneTarget,
+  isStructuredSessionOpen,
   getSessionLiveState,
   getWorktreeInfo,
   getSessionResumeState,
@@ -48,17 +51,21 @@ export function AiVaultSessionVirtualList({
   onResume,
   onContinueInNewSession,
   onResumeInNewChat,
+  onResumeInNewCli,
   onCopyResume,
   onCopyId,
   onCopyPath,
   onOpenLog,
   onRevealLog,
   onOpenCwd,
-  onRequestDelete
+  onRequestDelete,
+  searchHits
 }: {
-  groups: readonly AiVaultSessionGroup[]
+  groups: readonly AiVaultSessionListGroup[]
   collapsedGroups: ReadonlySet<string>
   loading: boolean
+  /** The progress strip above names the scan, so the list does not repeat it. */
+  scanProgressShown?: boolean
   sessionsCount: number
   filteredSessionsCount: number
   noAgentsSelected: boolean
@@ -66,6 +73,7 @@ export function AiVaultSessionVirtualList({
   vaultScope: AiVaultScope
   buildResumeStartup: (session: AiVaultSession, worktreeId?: string | null) => AiVaultResumeStartup
   getOriginalPaneTarget: (session: AiVaultSession) => AiVaultOriginalPaneTarget | null
+  isStructuredSessionOpen: (session: AiVaultSession) => boolean
   getSessionLiveState: (session: AiVaultSession) => AgentStatusState | null
   getWorktreeInfo: (session: AiVaultSession) => AiVaultSessionWorktreeInfo | null
   getSessionResumeState: (session: AiVaultSession) => AiVaultSessionResumeState
@@ -77,6 +85,7 @@ export function AiVaultSessionVirtualList({
   onResume: (session: AiVaultSession, worktreeId: string) => void
   onContinueInNewSession: (session: AiVaultSession, worktreeId: string) => void
   onResumeInNewChat: (session: AiVaultSession, worktreeId: string) => void
+  onResumeInNewCli: (session: AiVaultSession, worktreeId: string) => void
   onCopyResume: (session: AiVaultSession, worktreeId?: string | null) => void
   onCopyId: (session: AiVaultSession) => void
   onCopyPath: (session: AiVaultSession) => void
@@ -84,6 +93,7 @@ export function AiVaultSessionVirtualList({
   onRevealLog: (session: AiVaultSession) => void
   onOpenCwd: (session: AiVaultSession) => void
   onRequestDelete: (session: AiVaultSession) => void
+  searchHits?: ReadonlyMap<string, AiVaultSearchHit>
 }): React.JSX.Element {
   const listScrollRef = useRef<HTMLDivElement>(null)
   const stickyRangeStartIndexRef = useRef(0)
@@ -93,8 +103,11 @@ export function AiVaultSessionVirtualList({
   const vaultRows = useMemo(() => {
     const rows: AiVaultListRow[] = []
     for (const sessionGroup of groups) {
-      rows.push({ type: 'group', group: sessionGroup })
-      if (!collapsedGroups.has(sessionGroup.key)) {
+      const label = sessionGroup.label
+      if (label !== null) {
+        rows.push({ type: 'group', group: { ...sessionGroup, label } })
+      }
+      if (label === null || !collapsedGroups.has(sessionGroup.key)) {
         for (const session of sessionGroup.sessions) {
           rows.push({ type: 'session', groupKey: sessionGroup.key, session })
         }
@@ -163,7 +176,9 @@ export function AiVaultSessionVirtualList({
         ref={listScrollRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-sleek"
       >
-        {loading && sessionsCount === 0 ? <SessionLoadingState /> : null}
+        {loading && sessionsCount === 0 ? (
+          <SessionLoadingState showLabel={!scanProgressShown} />
+        ) : null}
 
         {!loading && sessionsCount === 0 && !error ? (
           <EmptyState
@@ -203,8 +218,10 @@ export function AiVaultSessionVirtualList({
                 collapsedGroups={collapsedGroups}
                 expandedSessionIds={expandedSessionIds}
                 vaultScope={vaultScope}
+                searchHits={searchHits}
                 buildResumeStartup={buildResumeStartup}
                 getOriginalPaneTarget={getOriginalPaneTarget}
+                isStructuredSessionOpen={isStructuredSessionOpen}
                 getSessionLiveState={getSessionLiveState}
                 getWorktreeInfo={getWorktreeInfo}
                 getSessionResumeState={getSessionResumeState}
@@ -217,6 +234,7 @@ export function AiVaultSessionVirtualList({
                 onResume={onResume}
                 onContinueInNewSession={onContinueInNewSession}
                 onResumeInNewChat={onResumeInNewChat}
+                onResumeInNewCli={onResumeInNewCli}
                 onCopyResume={onCopyResume}
                 onCopyId={onCopyId}
                 onCopyPath={onCopyPath}

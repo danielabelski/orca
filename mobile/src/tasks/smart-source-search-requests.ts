@@ -3,6 +3,13 @@ import type { GitLabWorkItem } from '../../../src/shared/gitlab-types'
 import type { LinearIssue } from '../../../src/shared/linear/issue-types'
 import type { BaseRefSearchResult } from '../../../src/shared/repo-types'
 import type { RpcClient } from '../transport/rpc-client'
+import type { JiraIssue, JiraSiteSelection } from '../../../src/shared/jira-types'
+import { getJiraIssueSearchQuery } from '../../../src/shared/new-workspace/smart-workspace-source-results'
+import {
+  buildJiraIssueKeyJql,
+  buildJiraTextMatchJql
+} from '../../../src/shared/jira-search-input-jql'
+import { jiraIssueSearchRead } from './mobile-jira-operations'
 import { repoBaseRefSearchRead } from './mobile-workspace-source-operations'
 import {
   githubWorkItemSearchRead,
@@ -15,6 +22,7 @@ import type { MrStateFilter } from './mobile-composer-source-types'
 
 const GITLAB_PER_PAGE = 50
 const LINEAR_LIMIT = 50
+const JIRA_LIMIT = 50
 const BRANCH_LIMIT = 20
 
 // Why: the desktop Smart picker returns BOTH issues and PRs — the runtime's
@@ -36,11 +44,11 @@ export async function searchGitHubItems(
     limit: PER_REPO_FETCH_LIMIT,
     query: scopeGitHubQuery(query)
   })
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-  const envelope = githubWorkItemSearchRead.interpret(reply) as { items: GitHubWorkItem[] }
+  const envelope = githubWorkItemSearchRead.interpret(reply)
   // Stamp repoId so the shared row builder + create flow can attribute each item
   // to the searched repo (the runtime omits it, like the desktop fetcher).
-  return (envelope.items ?? []).map((item) => ({ ...item, repoId }))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: `workItemRow` types every member at `GitHubWorkItem`'s own type and requires the ones a consumer reads unguarded, so the assertion only fills in members the row omits; each of those is read through a guard or interpolated as text (task-source-search-reply-schema.ts:10-12).
+  return envelope.items.map((item) => ({ ...item, repoId })) as GitHubWorkItem[]
 }
 
 export async function searchGitLabItems(
@@ -56,15 +64,12 @@ export async function searchGitLabItems(
     perPage: GITLAB_PER_PAGE,
     query: query.trim() || undefined
   })
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-  const envelope = gitlabWorkItemSearchRead.interpret(reply) as {
-    items: GitLabWorkItem[]
-    error?: { type?: string; message: string }
-  }
+  const envelope = gitlabWorkItemSearchRead.interpret(reply)
   if (envelope.error?.type && envelope.error.type !== 'not_found') {
-    throw new Error(envelope.error.message)
+    throw new Error(envelope.error.message ?? '')
   }
-  return (envelope.items ?? []).map((item) => ({ ...item, repoId }))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: same row rule as the GitHub search above, against `GitLabWorkItem`.
+  return envelope.items.map((item) => ({ ...item, repoId })) as GitLabWorkItem[]
 }
 
 export async function searchLinearIssues(
@@ -92,8 +97,29 @@ export async function searchLinearIssues(
           workspaceId: linearWorkspaceId ?? undefined
         })
       )
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: linearIssueRowSchema requires all nine members this row is read for (`id`, `identifier`, `title`, `url`, `updatedAt`, `priority`, `labels`, `state`, `team`), so the only gap left is `labelIds`: the schema salvages it to `string[] | undefined` while the shared LinearIssue declares it `string[]`. No mobile code reads it.
   return issues as LinearIssue[]
+}
+
+// The composer accepts key/text searches; Tasks accepts raw JQL.
+export async function searchJiraIssues(
+  client: RpcClient,
+  query: string,
+  siteId: JiraSiteSelection | null | undefined
+): Promise<JiraIssue[]> {
+  const searchable = getJiraIssueSearchQuery(query)
+  if (!searchable) {
+    return []
+  }
+  // Key first, as the desktop does: an issue key is an exact lookup, not a text match.
+  const jql = buildJiraIssueKeyJql(searchable) ?? buildJiraTextMatchJql(searchable)
+  return jiraIssueSearchRead.interpret(
+    await jiraIssueSearchRead.request(client, {
+      jql,
+      limit: JIRA_LIMIT,
+      siteId: siteId ?? undefined
+    })
+  )
 }
 
 export async function searchBranches(
@@ -106,11 +132,7 @@ export async function searchBranches(
     { repo: `id:${repoId}`, query: query.trim(), limit: BRANCH_LIMIT },
     { timeoutMs: 30_000 }
   )
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-  const result = repoBaseRefSearchRead.interpret(reply) as {
-    refDetails?: BaseRefSearchResult[]
-    refs?: string[]
-  }
+  const result = repoBaseRefSearchRead.interpret(reply)
   return (
     result.refDetails ??
     (result.refs ?? []).map((refName) => ({ refName, localBranchName: refName }))

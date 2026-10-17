@@ -1,3 +1,8 @@
+import { getRepoExecutionHostId, parseExecutionHostId } from '../../../src/shared/execution-host'
+import {
+  getHostContextLabel,
+  type HostContextLabelSources
+} from '../../../src/shared/worktree/host-context-labels'
 import { colors } from './mobile-tasks-dependencies'
 import { taskTime } from './mobile-tasks-item-mapping'
 import type { TaskItem } from './mobile-tasks-project-workspace-types'
@@ -25,11 +30,29 @@ export function repoColor(name: string): string {
   return palette[Math.abs(hash) % palette.length]!
 }
 
+/**
+ * A repo picker row's detail: its host, as the desktop's picker names it, then its path. Hosts are
+ * named only in a mixed list (`sources` set); a desktop SSH repo keeps its bare path, as this screen
+ * reads no SSH target labels.
+ */
+export function getTaskRepoDetail(
+  repo: RepoSummary,
+  sources: HostContextLabelSources | null
+): string {
+  const hostId = getRepoExecutionHostId(repo)
+  if (!sources || parseExecutionHostId(hostId)?.kind === 'ssh') {
+    return repo.path
+  }
+  return `${getHostContextLabel(hostId, sources)} · ${repo.path}`
+}
+
 export function getRepoBadgeColor(repo: RepoSummary | undefined, fallbackName: string): string {
   return repo?.badgeColor || repoColor(repo?.displayName ?? fallbackName)
 }
 
-export function setupSourceLabel(source: string | null): string {
+// `undefined` as well as `null`: a checked `repo.hooks` reader does not require `source`, and the
+// recorded reply for a repo with no hooks file carries none.
+export function setupSourceLabel(source: string | null | undefined): string {
   if (source === 'orca.yaml') {
     return 'orca.yaml'
   }
@@ -56,6 +79,15 @@ export function taskRepositoryMeta(
       key: item.source.projectPath,
       label: item.source.projectPath,
       color: repoColor(item.source.projectPath)
+    }
+  }
+  if (item.provider === 'jira') {
+    // Jira has no per-issue color, so derive a stable one from the project the
+    // way GitLab todos do from their project path.
+    return {
+      key: item.source.project.id,
+      label: item.source.project.name || item.source.project.key,
+      color: repoColor(item.source.project.key)
     }
   }
   return {

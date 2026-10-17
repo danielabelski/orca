@@ -2,11 +2,13 @@ import { clearPaneCacheState } from '../../../shared/agent-hook-listener/listene
 import { paneCacheKeyMatchesTab } from './server-status-identity'
 import { AgentHookServerCleanup } from './server-cleanup'
 import type { EnrichedAgentHookEventPayload } from './server-types'
+import { releaseAgentExitKey } from './agent-exit-evidence'
 
 export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
   /** Drop every status/cache claim attributable to a closed tab prefix. */
   dropStatusEntriesByTabPrefix(tabId: string): void {
     this.markTabClosedForAgentStatus(tabId)
+    this.clearTmuxTabSubjects(tabId)
     const paneKeysToClear = new Set<string>()
     const statusPaneKeysToClear = new Set<string>()
     const statusRowsToClear: EnrichedAgentHookEventPayload[] = []
@@ -75,7 +77,7 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
         statusChanged = true
       }
       this.clearAssistantMessageRetry(paneKey)
-      this.clearCodexSubagentPoll(paneKey)
+      this.clearTranscriptPoll(paneKey)
       clearPaneCacheState(this.state, paneKey)
       this.activeHookTurnCompletedAtByPaneKey.delete(paneKey)
       this.runtimeObservedStatusPaneKeys.delete(paneKey)
@@ -83,6 +85,13 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
       this.promptSentDedupeByPaneKey.delete(paneKey)
       this.restartedStatusLaunchTokenHashByPaneKey.delete(paneKey)
       this.evidenceObservedAtByPaneKey.delete(paneKey)
+    }
+    // Why: an exit outlives its row, so it is matched by tab rather than by the keys cleared above.
+    let exitsChanged = false
+    for (const key of this.agentExitedAtByPaneKey.keys()) {
+      if (paneCacheKeyMatchesTab(key, tabId)) {
+        exitsChanged = releaseAgentExitKey(this.agentExitedAtByPaneKey, key) || exitsChanged
+      }
     }
     if (aliasChanged) {
       this.notifyPaneKeyAliasPersistenceListener()
@@ -93,6 +102,8 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
     if (statusChanged || authorityChanged) {
       this.scheduleStatusPersist()
       this.notifyStatusChangeListeners()
+    } else if (exitsChanged) {
+      this.scheduleStatusPersist()
     }
     // Why: tab teardown must retire status subscribers' pane-scoped memo state too.
     for (const paneKey of statusPaneKeysToClear) {
@@ -100,8 +111,23 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
     }
   }
 
-  clearPaneState(paneKey: string, options?: { emitStatusRowMutation?: boolean }): void {
+  clearPaneState(
+    paneKey: string,
+    options?: {
+      emitStatusRowMutation?: boolean
+      preserveTmuxInnerSubjects?: boolean
+      statusUnavailable?: true
+      /** The pane's PTY is retired, not just its agent. */
+      forgetAgentExit?: true
+    }
+  ): void {
     const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)
+    if (options?.forgetAgentExit) {
+      this.forgetAgentExit(paneKey)
+    }
+    if (!options?.preserveTmuxInnerSubjects) {
+      this.clearTmuxInnerSubjects(resolvedPaneKey)
+    }
     const paneKeys = new Set([paneKey, resolvedPaneKey])
     // Why: only persist when a status entry was actually evicted; dropping prompt/tool caches doesn't change the file.
     const previousStatus = this.state.lastStatusByPaneKey.get(resolvedPaneKey) as
@@ -109,7 +135,7 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
       | undefined
     const hadStatus = previousStatus !== undefined
     this.clearAssistantMessageRetry(resolvedPaneKey)
-    this.clearCodexSubagentPoll(resolvedPaneKey)
+    this.clearTranscriptPoll(resolvedPaneKey)
     clearPaneCacheState(this.state, resolvedPaneKey)
     this.activeHookTurnCompletedAtByPaneKey.delete(resolvedPaneKey)
     this.currentAuthorityObservations.delete(resolvedPaneKey)
@@ -143,7 +169,10 @@ export abstract class AgentHookServerTabCleanup extends AgentHookServerCleanup {
       this.runtimeObservedStatusPaneKeys.delete(resolvedPaneKey)
       this.scheduleStatusPersist()
       this.notifyStatusChangeListeners()
-      this.emitPaneStatusCleared({ paneKey: resolvedPaneKey })
+      this.emitPaneStatusCleared({
+        paneKey: resolvedPaneKey,
+        statusUnavailable: options?.statusUnavailable
+      })
     }
   }
 }

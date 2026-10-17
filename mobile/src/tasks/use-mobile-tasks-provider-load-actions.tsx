@@ -1,4 +1,5 @@
 import type { RuntimeHydrationModel } from './use-mobile-tasks-runtime-hydration'
+import { readJiraConnection, reconcileJiraConnection } from './jira-mobile-connection'
 import type { RpcSendParams } from '../transport/rpc-params-contract'
 import {
   CROSS_REPO_DISPLAY_LIMIT,
@@ -15,7 +16,6 @@ import {
   GITHUB_REPO_CONCURRENCY,
   type GitHubRepoSources,
   type GitHubWorkItem,
-  type LinearStatusResponse,
   type LinearTeam,
   type RepoSummary,
   type TaskItem,
@@ -33,13 +33,37 @@ import {
 import { githubWorkItemSearchRead } from './mobile-task-source-search-operations'
 import { taskSettingsWrite } from './mobile-task-runtime-operations'
 
-export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) {
+export type ProviderLoadActionsInput = Pick<
+  RuntimeHydrationModel,
+  | 'appliedQuery'
+  | 'client'
+  | 'clientRef'
+  | 'connState'
+  | 'defaultLinearTeamSelectionRef'
+  | 'githubKind'
+  | 'setJiraConnection'
+  | 'jiraStatusRequestIdRef'
+  | 'setLinearConnected'
+  | 'setLinearTeams'
+  | 'setLinearWorkspaces'
+  | 'setSelectedLinearTeamIds'
+  | 'setSelectedLinearWorkspaceId'
+  | 'taskUiReady'
+  | 'tasksSupported'
+>
+
+export function useMobileTasksProviderLoadActions<Model extends ProviderLoadActionsInput>(
+  model: Model
+) {
   const {
     appliedQuery,
     client,
+    clientRef,
     connState,
     defaultLinearTeamSelectionRef,
     githubKind,
+    setJiraConnection,
+    jiraStatusRequestIdRef,
     setLinearConnected,
     setLinearTeams,
     setLinearWorkspaces,
@@ -48,13 +72,24 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
     taskUiReady,
     tasksSupported
   } = model
+  // Desktop connection changes need an explicit status refresh on mobile.
+  const refreshJiraConnection = useCallback(async (): Promise<void> => {
+    if (!client || connState !== 'connected' || !tasksSupported) {
+      return
+    }
+    const requestId = ++jiraStatusRequestIdRef.current
+    const next = await readJiraConnection(client)
+    if (clientRef.current === client && jiraStatusRequestIdRef.current === requestId) {
+      setJiraConnection((current) => reconcileJiraConnection(current, next))
+    }
+  }, [client, clientRef, connState, tasksSupported, setJiraConnection, jiraStatusRequestIdRef])
+
   const loadLinearContext = useCallback(async (): Promise<void> => {
     if (!client || connState !== 'connected' || !tasksSupported) {
       return
     }
     const statusReply = await linearAccountStatusRead.request(client)
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-    const status = linearAccountStatusRead.interpret(statusReply) as LinearStatusResponse
+    const status = linearAccountStatusRead.interpret(statusReply)
     setLinearConnected(status.connected === true)
     if (status.connected !== true) {
       setLinearWorkspaces([])
@@ -72,8 +107,7 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
     const teamsReply = await linearWorkspaceTeamListRead.request(client, {
       workspaceId: workspaceId ?? undefined
     })
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-    const teams = linearWorkspaceTeamListRead.interpret(teamsReply) as LinearTeam[]
+    const teams = linearWorkspaceTeamListRead.interpret(teamsReply)
     setLinearTeams(teams)
     setSelectedLinearTeamIds(reconcileTeamSelection(teams, defaultLinearTeamSelectionRef.current))
   }, [client, connState, tasksSupported])
@@ -127,7 +161,7 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
               // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: `before` is the undeclared key described above; every other field matches the schema.
               pageParams as RpcSendParams<'github.listWorkItems'>
             )
-            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
+            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the schema requires `items` and each row's `labels`, and types the other eight (`id`, `type`, `number`, `title`, `state`, `url`, `updatedAt`, `author`). Two gaps keep the cast: the salvaged members type as `T | undefined` where GitHubWorkItem declares them required, and `sources`/`errors`/`issueSourceFellBack` are deliberately `z.unknown()` because the two banner extractors below read them member by member with their own guards.
             const envelope = githubWorkItemSearchRead.interpret(reply) as {
               items: Array<Omit<GitHubWorkItem, 'repoId' | 'repoName'>>
               sources?: GitHubRepoSources
@@ -202,8 +236,10 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
               },
               { timeoutMs: 30_000 }
             )
-            const count = githubWorkItemCountRead.interpret(reply)
-            return typeof count === 'number' ? count : 0
+            // The reader answers the number, so the `typeof` fallback this call site kept is gone:
+            // a reply that is not one reaches the catch below, which already counts a failed repo
+            // as zero and now says which repo and why.
+            return githubWorkItemCountRead.interpret(reply)
           } catch (err) {
             const isExpectedSshSkip = isGitHubWorkItemsSshRemoteRequiredError(err)
             const logWorkItemCountFailure = isExpectedSshSkip ? console.log : console.warn
@@ -221,6 +257,7 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
     [appliedQuery, githubKind]
   )
   return Object.assign(model, {
+    refreshJiraConnection,
     loadLinearContext,
     persistLinearTeamSelection,
     fetchGitHubItemsPage,
@@ -228,4 +265,6 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
   })
 }
 
-export type ProviderLoadActionsModel = ReturnType<typeof useMobileTasksProviderLoadActions>
+export type ProviderLoadActionsModel = ReturnType<
+  typeof useMobileTasksProviderLoadActions<RuntimeHydrationModel>
+>

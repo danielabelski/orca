@@ -1,5 +1,6 @@
 import type { Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
+import { expectNoSidebarShadowMismatches } from './helpers/sidebar-shadow'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
   waitForActivePanePtyId,
@@ -50,7 +51,7 @@ async function useFullAgentActivityRows(page: Page): Promise<void> {
     // reads off the rendered sidebar instead of a collapsed summary pill.
     state.setAgentActivityDisplayMode('full')
     if (!state.worktreeCardProperties.includes('inline-agents')) {
-      state.toggleWorktreeCardProperty('inline-agents')
+      state.setWorktreeCardProperties([...state.worktreeCardProperties, 'inline-agents'])
     }
   })
 }
@@ -83,7 +84,7 @@ async function openAgentTab(
         launchAgent
       })
       state.setActiveTab(tab.id)
-      state.setActiveTabType('terminal')
+      state.setActiveTabType('terminal', store.getState().activeWorktreeId)
       return tab.id
     },
     { worktreeId, launchAgent }
@@ -198,6 +199,7 @@ test('sidebar keeps a Cursor pane visible and an OpenCode pane out of Claude Cod
   await expect(agentList.locator('> div')).toHaveCount(2)
   await expect(agentList).toContainText('Cursor')
   await expect(agentList).toContainText('use Claude Sonnet')
+  await expectNoSidebarShadowMismatches(orcaPage)
 
   openCodeScript.cleanup()
   cursorScript.cleanup()

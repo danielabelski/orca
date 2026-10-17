@@ -1,7 +1,11 @@
 import { ipcMain, type BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { SSH_CREDENTIAL_TIMEOUT_MS, type SshCredentialKind } from '../ssh/ssh-connection-utils'
-const pendingRequests = new Map<string, { resolve: (value: string | null) => void }>()
+import { recordSshCredentialDeclined } from '../ssh/ssh-credential-decline'
+const pendingRequests = new Map<
+  string,
+  { targetId: string; resolve: (value: string | null) => void; close: () => void }
+>()
 
 function notifyCredentialResolved(
   getMainWindow: () => BrowserWindow | null,
@@ -18,6 +22,7 @@ export function requestCredential(
   targetId: string,
   kind: SshCredentialKind,
   detail: string,
+  echo?: boolean,
   signal?: AbortSignal
 ): Promise<string | null> {
   const requestId = randomUUID()
@@ -33,8 +38,26 @@ export function requestCredential(
     resolve(value)
   }
   const onAbort = (): void => finish(null)
-  timer = setTimeout(() => finish(null), SSH_CREDENTIAL_TIMEOUT_MS)
-  pendingRequests.set(requestId, { resolve: finish })
+  // Why: an abort is the connection's own teardown; only the user's Cancel (or silence) declines.
+  const decline = (): void => {
+    if (!pendingRequests.has(requestId)) {
+      return
+    }
+    recordSshCredentialDeclined(targetId, signal)
+    finish(null)
+    // Why: one Cancel answers the host; a queued prompt for it would otherwise open next.
+    for (const [otherId, other] of pendingRequests) {
+      if (otherId !== requestId && other.targetId === targetId) {
+        other.close()
+      }
+    }
+  }
+  timer = setTimeout(decline, SSH_CREDENTIAL_TIMEOUT_MS)
+  pendingRequests.set(requestId, {
+    targetId,
+    resolve: (value) => (value === null ? decline() : finish(value)),
+    close: () => finish(null)
+  })
   if (signal?.aborted) {
     finish(null)
     return promise
@@ -43,7 +66,7 @@ export function requestCredential(
 
   const win = getMainWindow()
   if (win && !win.isDestroyed()) {
-    win.webContents.send('ssh:credential-request', { requestId, targetId, kind, detail })
+    win.webContents.send('ssh:credential-request', { requestId, targetId, kind, detail, echo })
   } else {
     finish(null)
   }

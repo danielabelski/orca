@@ -27,6 +27,7 @@ export function isWorkspaceSpaceFilterQueryTooLarge(
 
 export type WorkspaceSpaceDeleteReadiness = {
   isActive: boolean
+  canOpenWorkspace?: boolean
   changedFileCount: number | null
   dirtyEditorBufferCount: number
   activeAgentCount: number
@@ -47,7 +48,7 @@ export type WorkspaceSpaceAgentActivityInputs = {
   now: number
 }
 
-function getPaneKeyTabId(paneKey: string): string | null {
+export function getPaneKeyTabId(paneKey: string): string | null {
   const parsed = parsePaneKey(paneKey)
   if (parsed) {
     return parsed.tabId
@@ -243,6 +244,7 @@ export function isWorkspaceSpaceRowReadyToDelete(
     worktree.status === 'ok' &&
     !worktree.isMainWorktree &&
     readiness !== undefined &&
+    readiness.canOpenWorkspace !== false &&
     !readiness.isActive &&
     readiness.changedFileCount === 0 &&
     readiness.dirtyEditorBufferCount === 0 &&

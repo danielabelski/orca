@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { ORCAD_MANAGED_ACTIVATION_ROOT_ENV } from '../../shared/orcad-idle-exit'
 
 import {
   ORCAD_READINESS_FILENAME,
   orcadLaunchCommand,
   orcadLivenessBlocksGc,
+  orcadLivenessProvenExited,
   orcadLivenessProbeCommand,
   OrcadRemoteLaunchUnsupportedError,
   parseOrcadLiveness,
@@ -25,7 +27,8 @@ const SPEC = {
   fullVersion: '0.2.0+bb01',
   userDataDir: '/home/u/.orca',
   bindHost: '127.0.0.1',
-  port: 7777
+  port: 7777,
+  activationRoot: '/home/u/.orca-remote/.orcad-activation-transaction'
 }
 
 const READY_LINE = JSON.stringify({
@@ -56,6 +59,14 @@ describe('orcadLaunchCommand', () => {
     const command = orcadLaunchCommand(posix, SPEC)
     expect(command).toContain(`ORCA_VERSION '${SPEC.fullVersion}'`.replace(' ', '='))
     expect(command).toContain(`ORCA_USER_DATA='${SPEC.userDataDir}'`)
+  })
+
+  it('names the activation fence on every launch, which enables idle exit', () => {
+    const command = orcadLaunchCommand(posix, SPEC)
+    expect(command).toContain(`${ORCAD_MANAGED_ACTIVATION_ROOT_ENV}='${SPEC.activationRoot}'`)
+    expect(command.indexOf(ORCAD_MANAGED_ACTIVATION_ROOT_ENV)).toBeLessThan(
+      command.indexOf('nohup')
+    )
   })
 
   it('declares the Windows refusal instead of emitting a command that cannot work', () => {
@@ -90,17 +101,30 @@ describe('liveness', () => {
   it.each([
     ['LIVE', 'LIVE', true],
     ['DEAD', 'DEAD', false],
+    ['NEVER_LAUNCHED', 'NEVER_LAUNCHED', false],
     ['', 'UNKNOWN', true],
     ['garbage', 'UNKNOWN', true]
   ])('parses %s and blocks GC = %s', (output, expected, blocks) => {
     expect(parseOrcadLiveness(output)).toBe(expected)
     expect(orcadLivenessBlocksGc(parseOrcadLiveness(output))).toBe(blocks)
   })
+
+  it.each([
+    ['DEAD', true],
+    ['NEVER_LAUNCHED', true],
+    ['LIVE', false],
+    ['UNKNOWN', false]
+  ] as const)('%s is proven exit = %s', (liveness, exited) => {
+    expect(orcadLivenessProvenExited(liveness)).toBe(exited)
+  })
 })
 
 describe('stopping a running orcad', () => {
   it('sends SIGTERM and never SIGKILL', () => {
-    const command = stopOrcadCommand(posix, SPEC.remoteInstallDir, { waitSeconds: 20 })
+    const command = stopOrcadCommand(posix, SPEC.remoteInstallDir, {
+      waitSeconds: 20,
+      nodePath: SPEC.nodePath
+    })
     expect(command).toContain('kill -TERM')
     for (const kill of ['kill -9', 'kill -KILL', 'kill -SIGKILL', 'pkill']) {
       expect(command).not.toContain(kill)
@@ -110,10 +134,12 @@ describe('stopping a running orcad', () => {
   it.each([
     ['STOPPED', 'stopped', true],
     ['ALREADY_EXITED', 'already-exited', true],
-    ['NO_PID', 'no-pid', true],
+    ['NO_PID', 'no-pid', false],
     ['STILL_RUNNING', 'still-running', false],
     ['SIGNAL_FAILED', 'signal-failed', false],
-    ['', 'unknown', false]
+    ['UNKNOWN', 'unknown', false],
+    ['SIGNALED\nUNKNOWN', 'unconfirmed', false],
+    ['', 'unconfirmed', false]
   ])('parses %s and frees the host = %s', (output, expected, frees) => {
     expect(parseOrcadStopOutcome(output)).toBe(expected)
     expect(orcadStopFreedTheHost(parseOrcadStopOutcome(output))).toBe(frees)

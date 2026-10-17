@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 import type { RateLimitState } from '../../shared/rate-limit-types'
 import { buildCodexResetCreditExpectedScope } from '../../shared/codex-reset-credit-scope'
 import {
@@ -20,6 +21,7 @@ vi.mock('electron', () => ({
     getPath: () => testState.userDataDir
   }
 }))
+beforeEach(() => installFakeAppEnvironment({ getPath: () => testState.userDataDir }))
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
@@ -146,9 +148,22 @@ describe('CodexAccountService config sync', () => {
       account,
       limits
     })!
+    const store = createStore(settings)
+    const persist = store.replaceCodexResetCreditAttemptLedgerAndFlush.getMockImplementation()!
+    const pendingCommit = Promise.withResolvers<void>()
+    const settledCommit = Promise.withResolvers<void>()
+    store.replaceCodexResetCreditAttemptLedgerAndFlush
+      .mockImplementationOnce(async (ledger) => {
+        await pendingCommit.promise
+        await persist(ledger)
+      })
+      .mockImplementationOnce(async (ledger) => {
+        await settledCommit.promise
+        await persist(ledger)
+      })
     const { CodexAccountService } = await import('./service')
     const service = new CodexAccountService(
-      createStore(settings) as never,
+      store as never,
       rateLimits as never,
       createRuntimeHome() as never
     )
@@ -157,9 +172,20 @@ describe('CodexAccountService config sync', () => {
     const first = service.consumeRateLimitResetCredit(idempotencyKey, expectedScope)
     const second = service.consumeRateLimitResetCredit(idempotencyKey, expectedScope)
     expect(second).toBe(first)
+    await vi.waitFor(() =>
+      expect(store.replaceCodexResetCreditAttemptLedgerAndFlush).toHaveBeenCalledOnce()
+    )
+    expect(consume).not.toHaveBeenCalled()
+    pendingCommit.resolve()
     await vi.waitFor(() => expect(consume).toHaveBeenCalledOnce())
     const selectingNextAccount = service.selectAccount(nextAccount.id)
     finishConsume?.({ outcome: 'reset', state })
+    await vi.waitFor(() =>
+      expect(store.replaceCodexResetCreditAttemptLedgerAndFlush).toHaveBeenCalledTimes(2)
+    )
+    expect(service.listAccounts().activeAccountId).toBe(account.id)
+    expect(store.getCodexResetCreditAttemptLedger().attempts[0]?.state).toBe('providerPending')
+    settledCommit.resolve()
 
     const resetResults = await Promise.all([first, second])
     expect(resetResults).toMatchObject([
@@ -406,9 +432,10 @@ describe('CodexAccountService config sync', () => {
     const limits = createResetCreditLimits()
     const state = createResetRateLimitState(limits)
     const store = createStore(settings)
-    store.replaceCodexResetCreditAttemptLedgerAndFlush.mockImplementationOnce(() => {
-      throw new Error('disk full')
-    })
+    const pendingCommit = Promise.withResolvers<void>()
+    store.replaceCodexResetCreditAttemptLedgerAndFlush.mockImplementationOnce(
+      () => pendingCommit.promise
+    )
     const consume = vi.fn()
     const expectedScope = buildCodexResetCreditExpectedScope({
       target: state.codexTarget,
@@ -426,9 +453,15 @@ describe('CodexAccountService config sync', () => {
       createRuntimeHome() as never
     )
 
-    await expect(
+    const rejected = expect(
       service.consumeRateLimitResetCredit('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', expectedScope)
     ).rejects.toThrow('disk full')
+    await vi.waitFor(() =>
+      expect(store.replaceCodexResetCreditAttemptLedgerAndFlush).toHaveBeenCalledOnce()
+    )
+    expect(consume).not.toHaveBeenCalled()
+    pendingCommit.reject(new Error('disk full'))
+    await rejected
     expect(consume).not.toHaveBeenCalled()
     expect(store.getCodexResetCreditAttemptLedger().attempts).toEqual([])
   })
@@ -453,11 +486,11 @@ describe('CodexAccountService config sync', () => {
     const state = createResetRateLimitState(limits)
     const store = createStore(settings)
     const persist = store.replaceCodexResetCreditAttemptLedgerAndFlush.getMockImplementation()!
-    store.replaceCodexResetCreditAttemptLedgerAndFlush.mockImplementation((ledger) => {
+    store.replaceCodexResetCreditAttemptLedgerAndFlush.mockImplementation(async (ledger) => {
       if (ledger.attempts[0]?.state === 'settled') {
         throw new Error('settle disk full')
       }
-      persist(ledger)
+      return persist(ledger)
     })
     const expectedScope = buildCodexResetCreditExpectedScope({
       target: state.codexTarget,

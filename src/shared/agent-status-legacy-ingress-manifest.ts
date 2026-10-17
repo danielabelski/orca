@@ -5,7 +5,6 @@ export type AgentStatusLegacyIngressCaller =
   | 'main-status-cleanup'
   | 'main-pane-alias-transfer'
   | 'main-status-hydration'
-  | 'main-restored-status-reaping'
   | 'relay-status-cache'
   | 'shared-bounded-status-cache'
 
@@ -34,7 +33,7 @@ function entry(
 export const AGENT_STATUS_LEGACY_INGRESS_MANIFEST = Object.freeze([
   entry({
     caller: 'main-status-update',
-    sourcePath: 'src/main/agent-hooks/server/server-status-update.ts',
+    sourcePath: 'src/main/agent-hooks/server/server-status-application.ts',
     reason: 'Hook, OSC, and unsupported-peer observations still use pane ownership in 2A.',
     owner: 'main-agent-hooks',
     destination: '2B',
@@ -66,15 +65,6 @@ export const AGENT_STATUS_LEGACY_INGRESS_MANIFEST = Object.freeze([
     owner: 'main-agent-hooks',
     destination: '6',
     gate: 'Trusted adoption or bounded unconfirmed-observation retention expiry',
-    allowedModes: ['persisted-hydration']
-  }),
-  entry({
-    caller: 'main-restored-status-reaping',
-    sourcePath: 'src/main/agent-hooks/server/server-reaping.ts',
-    reason: 'Process-probe reconciliation can update a quarantined hydrated pane row.',
-    owner: 'main-agent-hooks',
-    destination: '6',
-    gate: 'Canonical hydration adoption fixtures and compatibility-branch ablation',
     allowedModes: ['persisted-hydration']
   }),
   entry({

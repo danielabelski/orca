@@ -37,6 +37,8 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   /** Fully qualified provider identity; never a credential or mailbox lookup key. */
   providerAlias?: AgentStatusProviderAlias
   paneKey: string
+  /** Live host acknowledgement of this renderer’s exact pane retirement. */
+  authorityRestartId?: string
   launchToken?: string
   terminalHandle?: string
   tabId?: string
@@ -53,6 +55,10 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   evidenceObservedAt?: number
   /** Timestamp (ms) when the current state first appeared for this pane. */
   stateStartedAt: number
+  /** When the main agent's current turn began, stamped by the hook server from the main agent's
+   *  own turn-opening event. Optional: old hosts and turns opened unseen omit it, and readers fall
+   *  back to `stateStartedAt`. */
+  turnStartedAt?: number
   orchestration?: AgentStatusOrchestrationContext
   providerSession?: AgentProviderSessionMetadata
   /** Resume identity update only; the status-shaped fields are transport placeholders. */
@@ -61,6 +67,8 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   promptInteractionKey?: string
   /** See AgentStatusEntry.restoredUnconfirmed — hydrated nonterminal provenance. */
   restoredUnconfirmed?: boolean
+  /** A re-send of a cached row (reconnect or listener replay), not a new transition. */
+  isReplay?: boolean
   /** Present on rows the structured session host projects; `owned` keeps them fresh past the
    *  staleness window because the host still runs the provider child. */
   structuredHost?: StructuredHostStatus
@@ -78,7 +86,7 @@ export type AgentStatusCacheIdentity = {
 
 /** Wire shape for ordinary pane teardown or a stamped SSH disconnect batch. */
 export type AgentStatusClearIpcPayload =
-  | { paneKey: string }
+  | { paneKey: string; statusUnavailable?: true }
   | {
       transient: true
       connectionId: string

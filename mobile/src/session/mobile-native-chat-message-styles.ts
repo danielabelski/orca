@@ -2,6 +2,13 @@ import { StyleSheet } from 'react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 
 export const TEXT_SIZE = 17
+/** Chat prose reads larger than the Markdown renderer's compact base. */
+export const CHAT_PROSE_SCALE = 1.25
+
+/** Pinch-zoomed type keeps its leading, so zoomed lines never overlap. */
+export function scaledType(size: number, fontScale: number, leading = 6) {
+  return { fontSize: size * fontScale, lineHeight: (size + leading) * fontScale }
+}
 export const MONO_SIZE = 12
 
 export const styles = StyleSheet.create({
@@ -23,14 +30,55 @@ export const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
-  userText: {
-    color: colors.bgBase,
-    fontSize: TEXT_SIZE,
-    lineHeight: TEXT_SIZE + 6,
-    fontWeight: '500'
+  hostNotice: {
+    color: colors.textMuted
   },
   reasoning: {
-    opacity: 0.7
+    opacity: 0.7,
+    // Starts under the headline, past the 15 pt brain and its gap.
+    paddingLeft: 15 + spacing.sm
+  },
+  reasoningToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    // With the toggle's 6 pt hitSlop above and below, a 44 pt touch target.
+    minHeight: 32
+  },
+  reasoningPressed: {
+    opacity: 0.6
+  },
+  reasoningHeadline: {
+    color: colors.textMuted,
+    fontSize: typography.bodySize,
+    flexShrink: 1
+  },
+  reasoningCaretOpen: {
+    transform: [{ rotate: '90deg' }]
+  },
+  reasoningBody: {
+    // The common cap for an open reasoning block (about ten lines).
+    maxHeight: 240
+  },
+  agentMessage: {
+    paddingLeft: spacing.md,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.borderSubtle
+  },
+  agentAttribution: {
+    color: colors.textMuted,
+    fontSize: typography.metaSize
+  },
+  meta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  unsentNotice: {
+    maxWidth: '88%',
+    marginTop: spacing.xs,
+    color: colors.statusRed,
+    fontSize: typography.metaSize
   },
   toolRun: {
     marginTop: spacing.xs

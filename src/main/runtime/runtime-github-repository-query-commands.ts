@@ -1,5 +1,6 @@
 import type { ListWorkItemsResult } from '../../shared/github/work-item-types'
 import type { Repo } from '../../shared/repo-types'
+import type { LocalProjectGhExecOptions } from '../project-runtime-git-options'
 import {
   countWorkItems,
   getWorkItem,
@@ -10,10 +11,15 @@ import {
   listWorkItems,
   type MainWorkItem
 } from '../github/client'
+import {
+  listGhAccountBindingInventory,
+  validateGhAccountBinding
+} from '../github/gh-account-binding-inventory'
 import { getRateLimit } from '../github/rate-limit'
+import { resolveGhAccountRequiredHost } from '../github/account-binding-required-host'
 import { getWorkItemDetails } from '../github/work-item-details'
 
-type LocalGitArgs = [] | [{ wslDistro?: string }]
+type LocalGitArgs = [] | [LocalProjectGhExecOptions]
 
 type RuntimeGitHubRepositoryQueryCommandsDeps = {
   resolveRepo: (selector: string) => Promise<Repo>
@@ -144,5 +150,28 @@ export class RuntimeGitHubRepositoryQueryCommands {
     force?: boolean
   }): Promise<Awaited<ReturnType<typeof getRateLimit>>> {
     return getRateLimit(options)
+  }
+
+  async listGitHubBindableAccounts(
+    repoSelector: string,
+    options?: { refreshCapability?: boolean }
+  ): Promise<Awaited<ReturnType<typeof listGhAccountBindingInventory>>> {
+    const repo = await this.deps.resolveRepo(repoSelector)
+    const localGitOptions = this.deps.getLocalGitArgs(repo)[0] ?? {}
+    const requiredHost = await resolveGhAccountRequiredHost(repo, localGitOptions)
+    return listGhAccountBindingInventory(localGitOptions, {
+      refreshCapability: options?.refreshCapability === true,
+      ...(requiredHost ? { requiredHost } : {})
+    })
+  }
+
+  async validateGitHubAccountBinding(
+    repoSelector: string,
+    binding: { host: string; user: string }
+  ): Promise<Awaited<ReturnType<typeof validateGhAccountBinding>>> {
+    const repo = await this.deps.resolveRepo(repoSelector)
+    const localGitOptions = this.deps.getLocalGitArgs(repo)[0] ?? {}
+    const requiredHost = await resolveGhAccountRequiredHost(repo, localGitOptions)
+    return validateGhAccountBinding(binding, localGitOptions, requiredHost ? { requiredHost } : {})
   }
 }

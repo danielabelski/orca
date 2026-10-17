@@ -163,6 +163,9 @@ describe('useIpcEvents browser tab create routing', () => {
           onActivateWorktree: () => () => {},
           onCreateTerminal: () => () => {},
           onRequestTerminalCreate: () => () => {},
+          onPublishAgentLaunchTab: () => () => {},
+          onRevealTerminalPane: () => () => {},
+          onAgentLaunchPaneVerdict: () => () => {},
           onRequestTerminalTabMount: () => () => {},
           replyTerminalCreate: () => {},
           onSplitTerminal: () => () => {},
@@ -187,6 +190,7 @@ describe('useIpcEvents browser tab create routing', () => {
             return () => {}
           },
           replyTabCreate,
+          onRequestRemoteCliBrowserScope: () => () => {},
           onRequestTabClose: () => () => {},
           replyTabClose: () => {},
           onRequestTabSetProfile: () => () => {},

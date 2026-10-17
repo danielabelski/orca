@@ -12,7 +12,10 @@ type PublishedState = Pick<
   'runtimeSettings' | 'trustedOrcaHooks' | 'availableProviders'
 >
 
-const TRUSTED_HOOKS = { '/repo/orca.yaml': 'sha-1' }
+// A real PersistedTrustedOrcaHooks record, keyed by repo id with a per-hook approval. The earlier
+// fixture kept a content hash directly under the key, which is not a shape `ui.get` ever answers
+// and which the checked reader drops as an unreadable repo entry.
+const TRUSTED_HOOKS = { 'repo-1': { setup: { contentHash: 'sha-1', approvedAt: 1700000000000 } } }
 const UI_WITH_TRUST = { ui: { trustedOrcaHooks: TRUSTED_HOOKS } }
 const SETTINGS = { defaultTuiAgent: 'codex', visibleTaskProviders: ['github', 'linear'] }
 
@@ -48,6 +51,13 @@ describe('useNewWorkspaceRuntimeContext', () => {
     context = null
   })
 
+  function currentContext(): RuntimeContext {
+    if (!context) {
+      throw new Error('Runtime context did not render')
+    }
+    return context
+  }
+
   function Harness({ client }: { client: RpcClient }): null {
     context = useNewWorkspaceRuntimeContext(client, true)
     return null
@@ -68,6 +78,35 @@ describe('useNewWorkspaceRuntimeContext', () => {
     return { runtimeSettings, trustedOrcaHooks, availableProviders }
   }
 
+  it('publishes other source providers while the optional Jira probe is pending', async () => {
+    const client = new FakeSession('connected')
+    let answerJira: (response: RpcResponse) => void = () => {}
+    const pending = new Promise<RpcResponse>((resolve) => {
+      answerJira = resolve
+    })
+    client.sendRequest.mockImplementation((method: string) => {
+      if (method === 'jira.status') {
+        return pending
+      }
+      if (method === 'settings.get') {
+        return Promise.resolve(reply({ settings: SETTINGS }))
+      }
+      if (method === 'ui.get') {
+        return Promise.resolve(reply(UI_WITH_TRUST))
+      }
+      if (method === 'preflight.check') {
+        return Promise.resolve(reply({ glab: { installed: true } }))
+      }
+      return Promise.resolve(reply({ connected: true }))
+    })
+    await act(async () => {
+      renderer = create(createElement(Harness, { client }))
+    })
+    expect(currentContext().availableProviders).toEqual(['github', 'linear'])
+    await act(async () => answerJira(reply({ connected: true })))
+    expect(currentContext().jiraConnection.connected).toBe(true)
+  })
+
   // A null result used to throw the `settings` property read out of the effect, skipping the
   // provider commit the absent case still reached.
   it.each([
@@ -75,10 +114,12 @@ describe('useNewWorkspaceRuntimeContext', () => {
     ['absent', undefined],
     ['without a settings member', {}]
   ])('degrades a %s settings result to absent settings', async (_label, settingsResult) => {
+    // Jira rides the default provider list: unlike GitLab and Linear it has no
+    // availability gate here, so an absent settings result still offers it.
     expect(await answer(settingsResult, UI_WITH_TRUST)).toEqual({
       runtimeSettings: null,
       trustedOrcaHooks: TRUSTED_HOOKS,
-      availableProviders: ['github']
+      availableProviders: ['github', 'jira']
     })
   })
 
@@ -103,13 +144,5 @@ describe('useNewWorkspaceRuntimeContext', () => {
       TRUSTED_HOOKS
     )
     expect((await answer({ settings: SETTINGS }, null)).trustedOrcaHooks).toEqual({})
-  })
-
-  it('publishes the settings and trust a host does send', async () => {
-    expect(await answer({ settings: SETTINGS }, UI_WITH_TRUST)).toEqual({
-      runtimeSettings: SETTINGS,
-      trustedOrcaHooks: TRUSTED_HOOKS,
-      availableProviders: ['github']
-    })
   })
 })

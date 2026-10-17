@@ -11,7 +11,7 @@ import { hostRouteWithNotice } from '../host-route-notice'
 import { useResponsiveLayout } from '../layout/responsive-layout'
 import { triggerMediumImpact } from '../platform/haptics'
 import { useOpenMobileSession } from '../session/use-open-mobile-session'
-import type { TaskProvider } from '../tasks/mobile-task-providers'
+import type { TaskProvider } from '../../../src/shared/task-providers'
 import { useOpenMobileTasks } from '../tasks/use-open-mobile-tasks'
 import { colors } from '../theme/mobile-theme'
 import {
@@ -142,10 +142,7 @@ export function MobileHomeScreen() {
           }
           hostAttempts={data.hostAttempts}
           hostLastConnected={data.hostLastConnected}
-          hostPairingRejected={data.hostPairingRejected}
-          hostSignedOut={data.hostSignedOut}
-          hostPaths={data.hostPaths}
-          hostPendingPaths={data.hostPendingPaths}
+          hostConnections={data.hostConnections}
           hosts={data.sortedHostCatalog}
           hostStates={data.hostStates}
           isWideLayout={isWideLayout}
@@ -176,7 +173,7 @@ export function MobileHomeScreen() {
             ? (data.hostLastConnected[actionTarget.id] ?? null) != null
             : false,
           onDismiss: () => setActionTarget(null),
-          onReconnect: (hostId) => void forceReconnectHost(hostId),
+          onReconnect: (hostId) => void forceReconnectHost?.(hostId),
           onDisconnect: disconnectHostClient,
           onDiagnostics: (hostId) =>
             data.router.push({ pathname: '/connection-log', params: { hostId } }),
